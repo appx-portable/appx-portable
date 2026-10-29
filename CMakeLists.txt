@@ -392,7 +392,7 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_custom_target(appx_managed_host ALL
     DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe" "${CMAKE_BINARY_DIR}/appx-components.dll")
   # Experimental explicit WinRT ABI bridge; not yet installed into games.
-  set(APPX_WINRT_SOURCES host/winrt/abi.cs host/winrt/ccw.cs host/winrt/package.cs host/winrt/assembly.cs)
+  set(APPX_WINRT_SOURCES host/winrt/abi.cs host/winrt/ccw.cs host/winrt/dispatcher.cs host/winrt/package.cs host/winrt/assembly.cs)
   set(APPX_WINRT_NATIVE_SOURCES)
   foreach(source IN LISTS APPX_WINRT_SOURCES)
     file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/${source}" native_source)
