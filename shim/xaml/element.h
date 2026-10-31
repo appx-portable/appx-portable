@@ -18,6 +18,7 @@
 #include <limits>
 #include <cmath>
 #include <memory>
+#include <cmath>
 namespace appx {
 // The component root owns its scope and named children; descendants borrow it.
 // Excluding the root from the retained map avoids a COM reference cycle.
@@ -188,42 +189,6 @@ private:
     }
 
 public:
-    HRESULT STDMETHODCALLTYPE get_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment* value) override {
-        if (!value) return E_POINTER;
-        *value = horizontal_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment value) override {
-        if (value < ABI::Windows::UI::Xaml::HorizontalAlignment_Left ||
-            value > ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch)
-            return E_INVALIDARG;
-        horizontal_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment* value) override {
-        if (!value) return E_POINTER;
-        *value = vertical_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment value) override {
-        if (value < ABI::Windows::UI::Xaml::VerticalAlignment_Top ||
-            value > ABI::Windows::UI::Xaml::VerticalAlignment_Stretch)
-            return E_INVALIDARG;
-        vertical_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_Margin(ABI::Windows::UI::Xaml::Thickness* value) override {
-        if (!value) return E_POINTER;
-        *value = margin_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_Margin(ABI::Windows::UI::Xaml::Thickness value) override {
-        if (!std::isfinite(value.Left) || !std::isfinite(value.Top) || !std::isfinite(value.Right) ||
-            !std::isfinite(value.Bottom))
-            return E_INVALIDARG;
-        margin_ = value;
-        return S_OK;
-    }
     HRESULT STDMETHODCALLTYPE get_Opacity(DOUBLE* value) override {
         if (!value) return E_POINTER;
         *value = opacity_;
@@ -457,6 +422,54 @@ public:
     }
     HRESULT STDMETHODCALLTYPE put_Height(DOUBLE value) override {
         height_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = horizontal_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (value < ABI::Windows::UI::Xaml::HorizontalAlignment_Left ||
+            value > ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch)
+            return E_INVALIDARG;
+        horizontal_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = vertical_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (value < ABI::Windows::UI::Xaml::VerticalAlignment_Top ||
+            value > ABI::Windows::UI::Xaml::VerticalAlignment_Stretch)
+            return E_INVALIDARG;
+        vertical_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Margin(ABI::Windows::UI::Xaml::Thickness* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = margin_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_Margin(ABI::Windows::UI::Xaml::Thickness value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (!std::isfinite(value.Left) || !std::isfinite(value.Top) || !std::isfinite(value.Right) ||
+            !std::isfinite(value.Bottom))
+            return E_INVALIDARG;
+        margin_ = value;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_Name(HSTRING* value) override {
