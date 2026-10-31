@@ -172,6 +172,7 @@ HRESULT MakeBackgroundPanel(IInspectable** value) {
 // Grid^, so a null or non-Grid object breaks the generated field binding.
 class Grid final : public Element<Grid, DefaultIGrid, PanelState> {
     ComPtr<GridChildren> children_;
+    ComPtr<ABI::Windows::UI::Xaml::Media::IBrush> background_;
 
 public:
     static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.Grid";
@@ -187,7 +188,13 @@ public:
     HRESULT STDMETHODCALLTYPE get_Background(ABI::Windows::UI::Xaml::Media::IBrush** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        return S_OK;
+        auto hr = CheckSourceThread();
+        return FAILED(hr) ? hr : background_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Background(ABI::Windows::UI::Xaml::Media::IBrush* value) override {
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) background_ = value;
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE get_IsItemsHost(boolean* value) override {
         if (!value) return E_POINTER;
