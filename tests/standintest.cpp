@@ -5,6 +5,7 @@
 #include "com/pinterface.h"
 #include "xbox/xbox_abi.h"
 #include <windows.applicationmodel.h>
+#include <windows.applicationmodel.background.h>
 #include <windows.ui.core.h>
 #include <windows.ui.notifications.h>
 #include <windows.storage.streams.h>
@@ -298,6 +299,61 @@ int main(int argc, char**) {
         // Other templates are not stood in; they fail rather than call a wrong slot.
         ComPtr<IInspectable> text01;
         CHECK(creator && FAILED(reinterpret_cast<Get>(slot(creator.Get(), 41))(creator.Get(), &text01)) && !text01);
+    }
+
+    // Outside a package there are no background tasks to enumerate or cancel.
+    CHECK(SUCCEEDED(Factory(L"Windows.ApplicationModel.Background.BackgroundTaskRegistration", factory)));
+    if (factory) {
+        using namespace ABI::Windows::ApplicationModel::Background;
+        ComPtr<IBackgroundTaskRegistrationStatics> background;
+        ComPtr<__FIMapView_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration> tasks;
+        CHECK(SUCCEEDED(factory.As(&background)));
+        CHECK(background && SUCCEEDED(background->get_AllTasks(&tasks)) && tasks);
+        UINT32 size = 1;
+        boolean found = true;
+        ComPtr<IBackgroundTaskRegistration> task;
+        CHECK(tasks && SUCCEEDED(tasks->get_Size(&size)) && size == 0);
+        CHECK(tasks && SUCCEEDED(tasks->HasKey(GUID{}, &found)) && !found);
+        CHECK(tasks && tasks->Lookup(GUID{}, &task) == E_BOUNDS && !task);
+        ComPtr<
+            __FIIterable_1___FIKeyValuePair_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration>
+            iterable;
+        ComPtr<
+            __FIIterator_1___FIKeyValuePair_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration>
+            iterator;
+        CHECK(tasks && SUCCEEDED(tasks.As(&iterable)));
+        CHECK(iterable && SUCCEEDED(iterable->First(&iterator)) && iterator);
+        CHECK(iterator && SUCCEEDED(iterator->get_HasCurrent(&found)) && !found);
+        CHECK(iterator && SUCCEEDED(iterator->MoveNext(&found)) && !found);
+    }
+
+    // Resize/pause callbacks must be able to register notification tasks offline.
+    CHECK(SUCCEEDED(Factory(L"Windows.ApplicationModel.Background.BackgroundTaskBuilder", factory)));
+    if (factory) {
+        using namespace ABI::Windows::ApplicationModel::Background;
+        ComPtr<IInspectable> instance;
+        ComPtr<IBackgroundTaskBuilder> builder;
+        ComPtr<IBackgroundTaskRegistration> task;
+        CHECK(SUCCEEDED(factory->ActivateInstance(&instance)) && instance);
+        CHECK(instance && SUCCEEDED(instance.As(&builder)));
+        CHECK(builder && builder->Register(&task) == E_INVALIDARG && !task);
+        CHECK(builder && SUCCEEDED(builder->put_Name(HStringReference(L"resize-notification").Get())));
+        CHECK(builder && SUCCEEDED(builder->put_TaskEntryPoint(HStringReference(L"Game.Notification").Get())));
+        ComPtr<ITimeTriggerFactory> timeFactory;
+        CHECK(SUCCEEDED(RoGetActivationFactory(
+            HStringReference(L"Windows.ApplicationModel.Background.TimeTrigger").Get(), IID_PPV_ARGS(&timeFactory))));
+        ComPtr<ITimeTrigger> time;
+        ComPtr<IBackgroundTrigger> trigger;
+        CHECK(timeFactory && SUCCEEDED(timeFactory->Create(15, true, &time)));
+        CHECK(time && SUCCEEDED(time.As(&trigger)));
+        CHECK(builder && SUCCEEDED(builder->SetTrigger(trigger.Get())));
+        CHECK(builder && SUCCEEDED(builder->Register(&task)) && task);
+        GUID id{};
+        HString name;
+        CHECK(task && SUCCEEDED(task->get_TaskId(&id)) && id != GUID{});
+        CHECK(task && SUCCEEDED(task->get_Name(name.GetAddressOf())) &&
+              wcscmp(name.GetRawBuffer(nullptr), L"resize-notification") == 0);
+        CHECK(task && SUCCEEDED(task->Unregister(true)));
     }
 
     // GA.GoogleAnalytics (Gameloft): calls succeed and send nothing.
