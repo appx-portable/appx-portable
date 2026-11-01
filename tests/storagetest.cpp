@@ -266,6 +266,10 @@ int main(int argc, char** argv) {
             if (FAILED(props->CreateInt32(12345, &value)) ||
                 FAILED(map->Insert(HStringReference(L"score").Get(), value.Get(), &replaced)))
                 return 87;
+            // Asphalt 7 saves an unsigned random seed during its first boot.
+            if (FAILED(props->CreateUInt32(0xF1234567u, &value)) ||
+                FAILED(map->Insert(HStringReference(L"seed").Get(), value.Get(), &replaced)))
+                return 97;
             if (FAILED(props->CreateBoolean(false, &value)) ||
                 FAILED(map->Insert(HStringReference(L"enabled").Get(), value.Get(), &replaced)))
                 return 91;
@@ -298,6 +302,10 @@ int main(int argc, char** argv) {
             if (FAILED(map->Lookup(HStringReference(L"score").Get(), &value)) || FAILED(value.As(&property)) ||
                 FAILED(property->GetInt32(&score)) || score != 12345)
                 return 88;
+            UINT32 seed = 0;
+            if (FAILED(map->Lookup(HStringReference(L"seed").Get(), &value)) || FAILED(value.As(&property)) ||
+                FAILED(property->GetUInt32(&seed)) || seed != 0xF1234567u)
+                return 97;
             boolean enabled = true;
             double volume = 0;
             if (FAILED(map->Lookup(HStringReference(L"enabled").Get(), &value)) || FAILED(value.As(&property)) ||

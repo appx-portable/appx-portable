@@ -166,14 +166,16 @@ class CompositionTargetFactory final : public Factory<ABI::Windows::UI::Xaml::Me
         auto found = Timers().find(id);
         if (found == Timers().end() || (HostWindow() && IsIconic(HostWindow()))) return;
         ComPtr<CompositionTargetFactory> keepAlive(found->second);
-        auto args = Make<RenderingArgs>();
-        if (!args) return;
-        auto hr = keepAlive->rendering_.InvokeAll(nullptr, args.Get());
+        auto hr = keepAlive->Render();
         if (FAILED(hr)) Log("FAIL", "CompositionTarget Rendering handler hr=%08lx", hr);
     }
 
 public:
     CompositionTargetFactory() : Factory(L"Windows.UI.Xaml.Media.CompositionTarget") {}
+    HRESULT Render() {
+        auto args = Make<RenderingArgs>();
+        return args ? rendering_.InvokeAll(nullptr, args.Get()) : E_OUTOFMEMORY;
+    }
     HRESULT STDMETHODCALLTYPE add_Rendering(RenderHandler* handler, EventRegistrationToken* token) override {
         if (GetCurrentThreadId() != thread_) return RPC_E_WRONG_THREAD;
         auto hr = rendering_.Add(handler, token);
@@ -207,10 +209,19 @@ public:
         return lost_.Remove(token);
     }
 };
+static ComPtr<CompositionTargetFactory>& CompositionTarget() {
+    static thread_local auto factory = Make<CompositionTargetFactory>();
+    return factory;
+}
 }
 HRESULT MakeCompositionTargetFactory(IActivationFactory** value) {
-    static thread_local auto factory = Make<CompositionTargetFactory>();
+    auto& factory = CompositionTarget();
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
+}
+HRESULT RenderInitialXamlFrame() {
+    if (!HostWindow() || !IsWindowVisible(HostWindow()) || IsIconic(HostWindow())) return S_OK;
+    auto factory = CompositionTarget();
+    return factory ? factory->Render() : E_OUTOFMEMORY;
 }
 const ShimClass dispatcherTimerClass{L"Windows.UI.Xaml.DispatcherTimer", MakeDispatcherTimerFactory};
 const ShimClass compositionTargetClass{L"Windows.UI.Xaml.Media.CompositionTarget", MakeCompositionTargetFactory};
