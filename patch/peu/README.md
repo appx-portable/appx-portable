@@ -1,7 +1,7 @@
 # Practical English Usage 1.0.6.9953
 
 The current runtime loads the original XBF files through its
-[WebView memory adapter](../../docs/webview.md). `installappx.py` no longer applies
+[WebView memory adapter](../../docs/webview.md). `pyappxportable` no longer applies
 this asset patch. The tool remains available for older runtimes and for restoring
 previously patched installations. Close PEU and run it with `--restore` when
 upgrading such an installation to the current runtime.

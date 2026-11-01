@@ -1,7 +1,7 @@
 # Optional game patches
 
 Game-specific compatibility patches live here, separate from the core runtime.
-`installappx.py` applies the patch for a game it recognizes by package name
+`pyappxportable` applies the patch for a game it recognizes by package name
 and version, downloading it at the same release tag as the DLLs. Each patch can
 also be run by hand to check, reapply, or restore it. No game executables or
 assets are included here.
