@@ -11,6 +11,12 @@
 namespace appx::xbox {
 using ABI::Windows::Foundation::IAsyncAction;
 
+MIDL_INTERFACE("B4CAC078-F6C1-48F2-A512-3E79D1B2B6F7")
+IUserIdentity : public IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE get_Xuid(UINT64*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Gamertag(HSTRING*) = 0;
+};
+
 // Xbox Marketplace uses offer GUIDs, assets and receipts, independently of
 // Windows.ApplicationModel.Store.CurrentApp and its optional purchase stub.
 MIDL_INTERFACE("5FB27D3F-F307-4DCC-B8C1-588ADCE62FBD")

@@ -1,21 +1,24 @@
 // An offline stand-in for the Xbox LIVE SDK for Windows (Microsoft.Xbox.dll),
 // whose services have shut down; the real DLL also crashes unpackaged.
-// Nobody is signed in and every service call fails as a disconnected client's
-// would, so games carry on offline. Every other Microsoft.Xbox class reports
+// Services fail offline by default. StubIap supplies a local player for shop
+// listings and purchases. Every other Microsoft.Xbox class reports
 // "not registered", so the real DLL is never loaded.
 #include "registry.h"
 #include "xbox_abi.h"
 #include "marketplace_abi.h"
+#include "class_operation.h"
 #include "com/factory.h"
 #include "com/failed_operation.h"
 #include "com/pinterface.h"
 #include "com/async_action.h"
 #include "log.h"
+#include "options.h"
 #include <wrl.h>
 #include <filesystem>
 #include <wrl/wrappers/corewrappers.h>
 #include <windows.storage.streams.h>
 #include <map>
+#include <atomic>
 #include <mutex>
 #pragma comment(lib, "version.lib")
 using namespace Microsoft::WRL;
@@ -71,7 +74,33 @@ HRESULT Nobody(IInspectable** value) {
     *value = nullptr;
     return S_OK;
 }
-// SignedOut never fires: nobody signs in.
+// The purchase stub uses a local player, with no Xbox account or credentials.
+class LocalIdentity final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserIdentity, FtmBase> {
+    InspectableClass(L"Microsoft.Xbox.Foundation.UserIdentity", BaseTrust);
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Xuid(UINT64* value) override {
+        if (!value) return E_POINTER;
+        *value = 1;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Gamertag(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return WindowsCreateString(L"Local Player", 12, value);
+    }
+};
+std::atomic<bool>& LocalSignedIn() {
+    static std::atomic<bool> signedIn{GetOptions().stubIap};
+    return signedIn;
+}
+HRESULT SignedInIdentity(IInspectable** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    if (!LocalSignedIn()) return S_OK;
+    static auto identity = Make<LocalIdentity>();
+    return identity ? identity.CopyTo(value) : E_OUTOFMEMORY;
+}
+// The offline identity has no remote sign-out notifications.
 class SignedOutEvent {
     std::mutex mutex_;
     std::map<INT64, ComPtr<IUnknown>> handlers_;
@@ -98,20 +127,31 @@ class ServiceClient final : public RuntimeClass<RuntimeClassFlags<WinRt>, IServi
 
 public:
     HRESULT STDMETHODCALLTYPE SignInAsync(IAsyncAction** action) override {
+        if (GetOptions().stubIap) {
+            auto hr = DoneAction(action);
+            if (SUCCEEDED(hr)) LocalSignedIn() = true;
+            return hr;
+        }
         return FailedAction("ServiceClient.SignInAsync", action);
     }
-    HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override { return DoneAction(action); }
+    HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override {
+        auto hr = DoneAction(action);
+        if (SUCCEEDED(hr)) LocalSignedIn() = false;
+        return hr;
+    }
     HRESULT STDMETHODCALLTYPE add_SignedOut(IUnknown* handler, EventRegistrationToken* token) override {
         return signedOut_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_SignedOut(EventRegistrationToken token) override {
         return signedOut_.Remove(token);
     }
-    HRESULT STDMETHODCALLTYPE get_SignedInUserIdentity(IInspectable** identity) override { return Nobody(identity); }
+    HRESULT STDMETHODCALLTYPE get_SignedInUserIdentity(IInspectable** identity) override {
+        return SignedInIdentity(identity);
+    }
     HRESULT STDMETHODCALLTYPE get_Token(HSTRING* token) override {
         if (!token) return E_POINTER;
         *token = nullptr;
-        return S_OK;
+        return LocalSignedIn() ? WindowsCreateString(L"appxportable-offline", 20, token) : S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_TitleId(UINT32* titleId) override {
         if (!titleId) return E_POINTER;
@@ -120,9 +160,9 @@ public:
     }
 };
 
-// Microsoft.Xbox.User in both SDK layouts; each method fails offline.
+// Microsoft.Xbox.User in both SDK layouts; remote service methods fail offline.
 #define APPX_XBOX_USER_COMMON                                                                                          \
-    HRESULT STDMETHODCALLTYPE get_Identity(IInspectable** identity) override { return Nobody(identity); }              \
+    HRESULT STDMETHODCALLTYPE get_Identity(IInspectable** identity) override { return SignedInIdentity(identity); }    \
     HRESULT STDMETHODCALLTYPE get_Status(IInspectable** status) override { return Nobody(status); }                    \
     HRESULT STDMETHODCALLTYPE GetProfileAsync(IInspectable** op) override {                                            \
         return FailedClass("User.GetProfileAsync", "Microsoft.Xbox.UserProfile", defaults::UserProfile, op);           \
@@ -242,17 +282,29 @@ class LiveFactory final : public Factory<IXboxLIVEService> {
 public:
     LiveFactory() : Factory(L"Microsoft.Xbox.XboxLIVEService") {}
     HRESULT STDMETHODCALLTYPE SignInAsync(IInspectable** op) override {
+        if (GetOptions().stubIap) {
+            ComPtr<IUserIdentity> identity = Make<LocalIdentity>();
+            auto hr = Success<IUserIdentity>(identity, op);
+            if (SUCCEEDED(hr)) LocalSignedIn() = true;
+            return hr;
+        }
         return FailedClass("XboxLIVEService.SignInAsync", "Microsoft.Xbox.Foundation.UserIdentity",
                            defaults::UserIdentity, op);
     }
-    HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override { return DoneAction(action); }
+    HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override {
+        auto hr = DoneAction(action);
+        if (SUCCEEDED(hr)) LocalSignedIn() = false;
+        return hr;
+    }
     HRESULT STDMETHODCALLTYPE add_SignedOut(IUnknown* handler, EventRegistrationToken* token) override {
         return signedOut_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_SignedOut(EventRegistrationToken token) override {
         return signedOut_.Remove(token);
     }
-    HRESULT STDMETHODCALLTYPE get_SignedInUserIdentity(IInspectable** identity) override { return Nobody(identity); }
+    HRESULT STDMETHODCALLTYPE get_SignedInUserIdentity(IInspectable** identity) override {
+        return SignedInIdentity(identity);
+    }
     HRESULT STDMETHODCALLTYPE get_ServiceClient(IInspectable** client) override {
         if (!client) return E_POINTER;
         static auto shared = Make<ServiceClient>();

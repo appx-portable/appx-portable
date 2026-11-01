@@ -4,6 +4,7 @@
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <cstdio>
+#include <thread>
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace appx::xbox;
@@ -73,6 +74,65 @@ int main() {
     auto get = dll ? reinterpret_cast<FactoryCall>(GetProcAddress(dll, "ShimGetFactory")) : nullptr;
     if (!get) return 1;
     ComPtr<IActivationFactory> factory;
+    // Stub IAP supplies one local player to both Xbox sign-in APIs. Sign-out
+    // is shared across service clients and threads; invalid calls do not sign in.
+    CHECK(SUCCEEDED(get(HStringReference(L"Microsoft.Xbox.XboxLIVEService").Get(), &factory)));
+    ComPtr<IXboxLIVEService> live;
+    CHECK(factory && SUCCEEDED(factory.As(&live)));
+    if (!live) return 1;
+    ComPtr<IInspectable> rawClient, rawIdentity, signIn;
+    ComPtr<IServiceClient> client;
+    CHECK(SUCCEEDED(live->get_ServiceClient(&rawClient)) && SUCCEEDED(rawClient.As(&client)));
+    CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&rawIdentity)) && rawIdentity);
+    CHECK(live->get_SignedInUserIdentity(nullptr) == E_POINTER);
+    ComPtr<IUserIdentity> identity;
+    CHECK(rawIdentity && SUCCEEDED(rawIdentity.As(&identity)));
+    UINT64 xuid{};
+    HString gamertag;
+    CHECK(identity && SUCCEEDED(identity->get_Xuid(&xuid)) && xuid == 1);
+    CHECK(identity && SUCCEEDED(identity->get_Gamertag(gamertag.GetAddressOf())) &&
+          wcscmp(gamertag.GetRawBuffer(nullptr), L"Local Player") == 0);
+    ComPtr<IAsyncAction> signOut;
+    CHECK(SUCCEEDED(live->SignOutAsync(&signOut)) && signOut && SUCCEEDED(signOut->GetResults()));
+    CHECK(SUCCEEDED(client->get_SignedInUserIdentity(rawIdentity.ReleaseAndGetAddressOf())) && !rawIdentity);
+    CHECK(live->SignInAsync(nullptr) == E_POINTER);
+    CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&rawIdentity)) && !rawIdentity);
+    HString token;
+    CHECK(SUCCEEDED(client->get_Token(token.GetAddressOf())) && WindowsIsStringEmpty(token.Get()));
+    CHECK(SUCCEEDED(live->SignInAsync(&signIn)) && signIn);
+    ComPtr<IAsyncInfo> signInInfo;
+    AsyncStatus signInStatus{};
+    HRESULT signInError = E_FAIL;
+    CHECK(SUCCEEDED(signIn.As(&signInInfo)) && SUCCEEDED(signInInfo->get_Status(&signInStatus)) &&
+          signInStatus == AsyncStatus::Completed);
+    CHECK(SUCCEEDED(signInInfo->get_ErrorCode(&signInError)) && signInError == S_OK);
+    identity = Result<IUserIdentity>(signIn);
+    CHECK(identity && SUCCEEDED(identity->get_Xuid(&xuid)) && xuid == 1);
+    bool seenOnWorker = false;
+    std::thread worker([&] {
+        RoInitialize(RO_INIT_MULTITHREADED);
+        ComPtr<IInspectable> workerIdentity;
+        seenOnWorker = SUCCEEDED(client->get_SignedInUserIdentity(&workerIdentity)) && workerIdentity;
+        RoUninitialize();
+    });
+    worker.join();
+    CHECK(seenOnWorker);
+    CHECK(SUCCEEDED(client->SignOutAsync(signOut.ReleaseAndGetAddressOf())) && SUCCEEDED(signOut->GetResults()));
+    CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&rawIdentity)) && !rawIdentity);
+    CHECK(client->SignInAsync(nullptr) == E_POINTER);
+    CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&rawIdentity)) && !rawIdentity);
+    CHECK(SUCCEEDED(client->SignInAsync(signOut.ReleaseAndGetAddressOf())) && SUCCEEDED(signOut->GetResults()));
+    CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&rawIdentity)) && rawIdentity);
+    CHECK(SUCCEEDED(client->get_Token(token.ReleaseAndGetAddressOf())) && !WindowsIsStringEmpty(token.Get()));
+    // Asphalt reads the identity again from a newly activated User after sign-in.
+    CHECK(SUCCEEDED(get(HStringReference(L"Microsoft.Xbox.User").Get(), &factory)));
+    ComPtr<IInspectable> rawUser;
+    ComPtr<IUser10> user;
+    CHECK(factory && SUCCEEDED(factory->ActivateInstance(&rawUser)) && SUCCEEDED(rawUser.As(&user)));
+    CHECK(user && SUCCEEDED(user->get_Identity(rawIdentity.ReleaseAndGetAddressOf())) && rawIdentity);
+    CHECK(rawIdentity && SUCCEEDED(rawIdentity.As(&identity)));
+    CHECK(identity && SUCCEEDED(identity->get_Xuid(&xuid)) && xuid == 1);
+
     CHECK(SUCCEEDED(get(HStringReference(L"Microsoft.Xbox.Marketplace.MarketplaceService").Get(), &factory)));
     ComPtr<IMarketplaceStatics> market;
     CHECK(factory && SUCCEEDED(factory.As(&market)));
