@@ -6,14 +6,14 @@
 C:\Games\MyGame\Game.exe --stub-iap
 ```
 
-To keep it on however the game is started, set it in `appx-portable.ini` beside the game executable (`installappx.py` writes this when you choose stub IAP):
+To keep it on however the game is started, set it in `appx-portable.ini` beside the game executable (`pyappxportable` writes this when you choose stub IAP):
 
 ```ini
 [options]
 StubIap=1
 ```
 
-Rerun `installappx.py` first so the game folder has a runtime that supports it. The environment equivalent is `APPX_PORTABLE_STUB_IAP=1`; remove it or set it to `0` to disable it; a set variable overrides the ini. Options are read once at startup. `--passthrough` uses Windows classes, so the stub has no effect there.
+Rerun `pyappxportable` first so the game folder has a runtime that supports it. The environment equivalent is `APPX_PORTABLE_STUB_IAP=1`; remove it or set it to `0` to disable it; a set variable overrides the ini. Options are read once at startup. `--passthrough` uses Windows classes, so the stub has no effect there.
 
 With this option:
 

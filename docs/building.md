@@ -13,13 +13,13 @@ cmake --preset windows-x86
 cmake --build --preset windows-x86
 ```
 
-This creates `appxportable.dll` and the proxy DLLs `d3dcompiler_47.dll`, `XAudio2_8.dll` and `DWrite.dll` in `build\windows-x86`. Pass that folder to `installappx.py` with `--build` to install a game with them; see [Use your own build](installer.md#use-your-own-build).
+This creates `appxportable.dll` and the proxy DLLs `d3dcompiler_47.dll`, `XAudio2_8.dll` and `DWrite.dll` in `build\windows-x86`. Pass that folder to `pyappxportable` with `--build` to install a game with them; see [Use your own build](installer.md#use-your-own-build).
 
 Both Windows architectures also build `appx-native-host.exe` for .NET Native XAML games and for native games that import no proxy DLL, such as C++/CX Unity players. This native launcher uses the game's separately supplied .NET Native framework DLLs; it does not host a desktop CLR assembly.
 
-For x64 games, use an **x64 Native Tools Command Prompt**, `cmake --preset windows-x64`, and `cmake --build --preset windows-x64`. This requires the MSVC x64 assembler and also builds the `XAudio2_9.dll` proxy. Pass `installappx.py` `--build build/windows-x64` and a matching x64 VCLibs framework. See [runtime structure](runtime-structure.md) and the [embedded XBF support](xbf.md).
+For x64 games, use an **x64 Native Tools Command Prompt**, `cmake --preset windows-x64`, and `cmake --build --preset windows-x64`. This requires the MSVC x64 assembler and also builds the `XAudio2_9.dll` proxy. Pass `pyappxportable` `--build build/windows-x64` and a matching x64 VCLibs framework. See [runtime structure](runtime-structure.md) and the [embedded XBF support](xbf.md).
 
-GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`; x64 currently supports native games only, so its ZIP omits the CLR host. `installappx.py` downloads the Microsoft VCLibs packages from [yell0wsuit/vclibs-appx](https://github.com/yell0wsuit/vclibs-appx/releases/latest).
+GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`; x64 currently supports native games only, so its ZIP omits the CLR host. `pyappxportable` downloads the Microsoft VCLibs packages from [yell0wsuit/vclibs-appx](https://github.com/yell0wsuit/vclibs-appx/releases/latest).
 
 If CMake cannot find `cl`, use an x86 Visual Studio developer shell. If MSYS2's CMake appears first on `PATH`, put the native Windows CMake ahead of it (typically `C:\Program Files\CMake\bin`).
 
@@ -81,7 +81,7 @@ scripts/build-wined3d.sh
 
 The script runs on macOS or x86_64 Linux (`apt install bison flex clang lld llvm`). It downloads checksum-pinned Wine 11.18 source into `local/wine-src`, applies the patch, and builds `d3d11.dll`, `dxgi.dll`, and `wined3d.dll` for both architectures into `build/macos-x86` and `build/macos-x64`. Pass `x86` or `x64` to build one, and a folder after it to build elsewhere. Each folder gets a `wine-graphics.json` recording the DLLs' SHA-256 hashes. The first build takes a few minutes and uses Rosetta for the x86_64 build tools. The [Wine graphics workflow](../.github/workflows/wine-graphics.yml) builds both on Linux for pull requests that change the patch or script, and each release publishes them as `appx-portable-<tag>-wine-<arch>.zip`.
 
-`installappx.py` stages the stack beside the game when it installs under Wine: from the release, or from a `--build` folder that has `wine-graphics.json`, refusing DLLs that do not match it. The Wine launcher loads the three DLLs as native overrides whenever they are beside the game; delete them to use Wine's own. The source pin identifies the stack being built, not the Wine version you must install; it was tested on Wine 11.18.
+`pyappxportable` stages the stack beside the game when it installs under Wine: from the release, or from a `--build` folder that has `wine-graphics.json`, refusing DLLs that do not match it. The Wine launcher loads the three DLLs as native overrides whenever they are beside the game; delete them to use Wine's own. The source pin identifies the stack being built, not the Wine version you must install; it was tested on Wine 11.18.
 
 ## Development tools
 
@@ -114,4 +114,4 @@ A game loads appx-portable through a system DLL it imports and looks up in its o
 
 1. Create `proxy/<name>/exports.txt` listing the real DLL's exports, one per line, in the real DLL's ordinal order (games may import by ordinal).
 2. Run `python scripts/gen_proxy.py` to generate the thunks, `.def` file and names header.
-3. Add the name to the proxy list in `CMakeLists.txt`, `PROXIES` in `installappx.py`, and the release workflow.
+3. Add the name to the proxy list in `CMakeLists.txt`, `PROXIES` in `src/pyappxportable/constants.py` in [pyappxportable](https://github.com/yell0wsuit/pyappxportable), and the release workflow.

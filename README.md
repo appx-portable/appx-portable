@@ -53,15 +53,18 @@ For more tested games and the Store package IDs, please see [game compatibility]
    On Windows 8/8.1, use a Python release that still supports your Windows version; see [installing Python](docs/installer.md#python).
 
 2. Get the game's `.appxbundle` or `.appx`; there is no need to extract it. An already-extracted package folder works too.
-3. Download `installappx.py` from the latest [release](https://github.com/yell0wsuit/appx-portable/releases), and double-click it or run it with the package:
+3. Install [pyappxportable](https://github.com/yell0wsuit/pyappxportable) with pip, then run it with the package:
 
    ```powershell
-   py installappx.py "C:\Downloads\CutTheRope2.appxbundle"
+   py -m pip install pyappxportable
+   py -m pyappxportable "C:\Downloads\CutTheRope2.appxbundle"
    ```
 
 4. Double-click `00_click2startme.bat` in the game folder to play.
 
-On macOS (experimental), run `python3 installappx.py` with the package instead, then double-click `00_click2startme.command`; see [macOS / Wine](docs/installer.md#macos--wine-experimental).
+On macOS (experimental), run `python3 -m pip install pyappxportable`, then `python3 -m pyappxportable` with the package instead, then double-click `00_click2startme.command`; see [macOS / Wine](docs/installer.md#macos--wine-experimental).
+
+The installer is maintained separately in [yell0wsuit/pyappxportable](https://github.com/yell0wsuit/pyappxportable); upgrade it with `py -m pip install --upgrade pyappxportable`.
 
 The installer downloads the Visual C++ runtime and the Appx Portable DLLs the game needs, and asks where to install, which Store options to turn on, and whether to write the launcher. Run it again on the same folder to update; saves and settings are kept. See the [installer guide](docs/installer.md) for its command-line options, using your own build, and macOS/Wine.
 

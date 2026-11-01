@@ -1,10 +1,19 @@
 # Installer
 
-`installappx.py` turns a game's `.appxbundle`, `.appx`, or extracted package folder into a portable game folder. See the [Quickstart](../README.md#quickstart) to get started.
+`pyappxportable` turns a game's `.appxbundle`, `.appx`, or extracted package folder into a portable game folder. See the [Quickstart](../README.md#quickstart) to get started.
 
 ## Python
 
 The installer needs **Python 3.8 or later**. On Windows, install it from [python.org](https://www.python.org/downloads/windows/) (the installer adds the `py` launcher) or with `winget install Python.Python.3.13`. On Windows 8/8.1, use a Python 3 release that still supports your Windows version.
+
+Install the dedicated [pyappxportable package](https://github.com/yell0wsuit/pyappxportable):
+
+```sh
+python -m pip install pyappxportable
+python -m pyappxportable
+```
+
+On Windows, `py -m pip` and `py -m pyappxportable` also work. On macOS/Linux, use `python3` if needed. Upgrade with `python -m pip install --upgrade pyappxportable`.
 
 ## What it asks
 
@@ -27,6 +36,7 @@ Every question has a command-line option, so an install can run without any prom
 | `--launcher`, `--no-launcher`    | Write the launcher or not (the default is to write it)     |
 | `--build <folder>`               | Use these DLLs instead of downloading a release            |
 | `--release <tag>`                | Download this release instead of the latest                |
+| `--patch-dir <folder>` | Use a local Appx Portable `patch/` folder |
 | `--no-patch`                     | Skip the known-game patch                                  |
 | `--desktop-copy`                 | Make the Windows 8/8.1 desktop copy on any Windows version |
 | `--yes`                          | Never ask; fail when something required is missing         |
@@ -48,17 +58,17 @@ Native games that import none of the proxy DLLs from their folder, such as Unity
 [Build Appx Portable](building.md#windows), then pass the build folder:
 
 ```powershell
-py installappx.py "C:\Downloads\CutTheRope2.appxbundle" --build build\windows-x86
+pyappxportable "C:\Downloads\CutTheRope2.appxbundle" --build build\windows-x86
 ```
 
-Use `build\windows-x64` for an x64 game. From a repository checkout, the installer applies patches from the local `patch/` folder instead of downloading them.
+Use `build\windows-x64` for an x64 game. Pass `--patch-dir patch` from an Appx Portable checkout to apply local patches. Otherwise, patches are downloaded at the runtime release tag. The pip package is versioned separately from the runtime.
 
 ## macOS / Wine (experimental)
 
 Run the installer with the package:
 
 ```sh
-python3 installappx.py '/path/to/game.appxbundle'
+python3 -m pyappxportable '/path/to/game.appxbundle'
 ```
 
 Then double-click `00_click2startme.command` in the game folder, which starts the game from Terminal. On Linux the launcher is `00_click2startme.sh`.

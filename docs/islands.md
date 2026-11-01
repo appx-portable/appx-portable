@@ -1,6 +1,6 @@
 # Managed Store games with XAML Islands
 
-`installappx.py` detects the CLR header in the manifest executable and adds `appx-host.exe` for managed games; the `00_click2startme` launcher starts it, or start `appx-host.exe` itself. Build on Windows with the normal x86 preset; the managed launcher is compiled with the .NET Framework compiler shipped with Windows.
+`pyappxportable` detects the CLR header in the manifest executable and adds `appx-host.exe` for managed games; the `00_click2startme` launcher starts it, or start `appx-host.exe` itself. Build on Windows with the normal x86 preset; the managed launcher is compiled with the .NET Framework compiler shipped with Windows.
 
 The launcher reads the executable's entry-point apartment attribute. An `MTAThread` entry point selects managed CoreWindow hosting, using the shim's `IFrameworkView` lifecycle and graphics redirection. Other managed entry points use the STA XAML Islands path. CLR activation interception remains enabled for both paths. System message dialogs in CoreWindow mode receive the desktop game window as their owner.
 
@@ -96,7 +96,7 @@ Requires Windows 10 1903 or later and desktop .NET Framework 4.x. Touch/pen inpu
 
 ## Wine
 
-Managed games do not run under Wine yet, and `installappx.py` warns when it installs one there. Two gaps block them, both in Wine rather than in appx-portable:
+Managed games do not run under Wine yet, and `pyappxportable` warns when it installs one there. Two gaps block them, both in Wine rather than in appx-portable:
 
 - XAML Islands hosts the game in Windows' own XAML. Wine 11.18's `windows.ui.xaml.dll` implements none of the `Windows.UI.Xaml` classes, such as `DesktopWindowXamlSource` or the controls, only helpers like `Uri` and `PropertySet`.
 - On macOS, wine-mono 11.3.0 under Wine Devel 11.18 hangs at full CPU in any 32-bit .NET program, right after loading `mscorlib`. 64-bit .NET programs run. `appx-host.exe` is 32-bit because CLR hosting is x86 only.
