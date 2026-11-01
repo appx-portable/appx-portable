@@ -224,6 +224,13 @@ HRESULT Encode(IInspectable* object, Entry& entry, bool nested = false) {
         entry.value = Number(n);
         break;
     }
+    case PropertyType_UInt32: {
+        UINT32 n{};
+        hr = value->GetUInt32(&n);
+        entry.type = L"UInt32";
+        entry.value = Number(n);
+        break;
+    }
     case PropertyType_Int64: {
         INT64 n{};
         hr = value->GetInt64(&n);
@@ -347,6 +354,12 @@ HRESULT Decode(IPropertyValueStatics* props, const Entry& entry, IInspectable** 
     if (entry.type == L"Int32") {
         INT32 n{};
         return ParseNumber(entry.value, n) ? props->CreateInt32(n, result) : E_INVALIDARG;
+    }
+    if (entry.type == L"UInt32") {
+        UINT32 n{};
+        return !entry.value.empty() && entry.value.front() != L'-' && ParseNumber(entry.value, n)
+                   ? props->CreateUInt32(n, result)
+                   : E_INVALIDARG;
     }
     if (entry.type == L"Int64") {
         INT64 n{};

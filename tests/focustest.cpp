@@ -6,6 +6,8 @@
 #undef GetCurrentTime
 #include <windows.ui.core.h>
 #include <windows.ui.xaml.h>
+#include <windows.ui.xaml.controls.h>
+#include <windows.ui.xaml.media.h>
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <cstdio>
@@ -30,6 +32,7 @@ static std::vector<std::pair<float, float>> sizes; // CoreWindow SizeChanged
 static ComPtr<ICoreDispatcher> dispatcher;
 static HWND host;
 static std::vector<int> keys;
+static bool initializing = true, rootLoaded = false, firstFrame = false;
 // Runs `step` after the UI queue has drained the work posted before it.
 static void Then(const std::function<void()>& step) {
     auto work = Callback<IDispatchedHandler>([step]() -> HRESULT {
@@ -65,6 +68,35 @@ int main(int argc, char**) {
             return S_OK;
         }
         EventRegistrationToken token{};
+        // The initial compositor pass completes after startup returns, before
+        // visibility handlers can access the objects built by Rendering.
+        ComPtr<IActivationFactory> pageActivation, compositionActivation;
+        ComPtr<ABI::Windows::UI::Xaml::Controls::IPageFactory> pages;
+        ComPtr<ABI::Windows::UI::Xaml::Controls::IPage> page;
+        ComPtr<IFrameworkElement> element;
+        ComPtr<IUIElement> ui;
+        CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Controls.Page").Get(), &pageActivation)));
+        CHECK(pageActivation && SUCCEEDED(pageActivation.As(&pages)));
+        CHECK(pages && SUCCEEDED(pages->CreateInstance(nullptr, nullptr, &page)));
+        CHECK(page && SUCCEEDED(page.As(&element)) && SUCCEEDED(page.As(&ui)));
+        auto loaded = Callback<IRoutedEventHandler>([](IInspectable*, IRoutedEventArgs*) -> HRESULT {
+            CHECK(!initializing);
+            rootLoaded = true;
+            return S_OK;
+        });
+        CHECK(element && SUCCEEDED(element->add_Loaded(loaded.Get(), &token)));
+        CHECK(SUCCEEDED(window->put_Content(ui.Get())));
+        ComPtr<ABI::Windows::UI::Xaml::Media::ICompositionTargetStatics> composition;
+        CHECK(
+            SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Media.CompositionTarget").Get(), &compositionActivation)));
+        CHECK(compositionActivation && SUCCEEDED(compositionActivation.As(&composition)));
+        auto rendering = Callback<ABI::Windows::Foundation::IEventHandler<IInspectable*>>(
+            [](IInspectable*, IInspectable*) -> HRESULT {
+                CHECK(!initializing && rootLoaded);
+                firstFrame = true;
+                return S_OK;
+            });
+        CHECK(composition && SUCCEEDED(composition->add_Rendering(rendering.Get(), &token)));
         auto activated = Callback<ABI::Windows::Foundation::ITypedEventHandler<CoreWindow*, WindowActivatedEventArgs*>>(
             [](ICoreWindow*, IWindowActivatedEventArgs* args) -> HRESULT {
                 CoreWindowActivationState state{};
@@ -77,6 +109,7 @@ int main(int argc, char**) {
             [](ICoreWindow* core, IVisibilityChangedEventArgs* args) -> HRESULT {
                 boolean value{}, current{};
                 args->get_Visible(&value);
+                CHECK(firstFrame);
                 core->get_Visible(&current);
                 CHECK(value == current);
                 visibility.push_back(value ? 1 : 0);
@@ -178,9 +211,12 @@ int main(int argc, char**) {
                 });
             });
         });
+        CHECK(!firstFrame && !rootLoaded);
+        initializing = false;
         return S_OK;
     });
     CHECK(SUCCEEDED(statics->Start(callback.Get())));
+    CHECK(firstFrame && rootLoaded);
     CHECK(states.size() == 3);
     printf("focustest: %d failure(s)\n", failures);
     return failures ? 1 : 0;

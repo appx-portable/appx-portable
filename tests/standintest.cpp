@@ -1,16 +1,20 @@
 // Stand-ins for classes Windows cannot serve outside a package: parameterized
-// IIDs, failed async operations, the offline Xbox LIVE SDK and HttpClientCSharp,
+// IIDs, failed async operations, the offline Xbox LIVE SDK, HttpClientCSharp,
+// NotificationsExtensions tiles, GoogleAnalytics,
 // Package.Current, and CoreWindow.GetForCurrentThread off the UI thread.
 #include "com/pinterface.h"
 #include "xbox/xbox_abi.h"
 #include <windows.applicationmodel.h>
+#include <windows.applicationmodel.background.h>
 #include <windows.ui.core.h>
+#include <windows.ui.notifications.h>
 #include <windows.storage.streams.h>
 #include <roapi.h>
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <atomic>
 #include <cstdio>
+#include <string>
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 
@@ -229,6 +233,157 @@ int main(int argc, char**) {
             CHECK(SUCCEEDED(reinterpret_cast<Success>((*reinterpret_cast<void***>(response.Get()))[6])(response.Get(),
                                                                                                        &success)) &&
                   !success);
+        }
+    }
+
+    // NotificationsExtensions tile content, as Asphalt 7: Heat builds its live
+    // tile: wide and square image templates, combined into one notification.
+    CHECK(SUCCEEDED(Factory(L"NotificationsExtensions.TileContent.TileContentFactory", factory)));
+    if (factory) {
+        auto slot = [](IInspectable* object, int index) { return (*reinterpret_cast<void***>(object))[index]; };
+        using Get = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, IInspectable**);
+        using PutText = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, HSTRING);
+        using PutObject = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, IInspectable*);
+        using PutFlag = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, boolean);
+        using GetText = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, HSTRING*);
+        const GUID statics = {0xd77b1b1e, 0x207f, 0x536b, {0x7d, 0x0a, 0x91, 0xe9, 0xcd, 0xdb, 0x8c, 0xd5}};
+        const GUID wideContent = {0xb803960c, 0x2950, 0x54e8, {0x49, 0xc7, 0x4b, 0x00, 0x33, 0x74, 0x2a, 0xe4}};
+        const GUID squareContent = {0x2537e592, 0x94ff, 0x5dcc, {0x62, 0x79, 0x03, 0x66, 0xc5, 0x49, 0x98, 0xc5}};
+        const GUID tileContent = {0x4f5a7235, 0x6bb2, 0x553d, {0x40, 0x00, 0x4a, 0x58, 0x56, 0x2b, 0x70, 0x72}};
+        const GUID content = {0x2c0d137a, 0x1fc8, 0x5db6, {0x4c, 0x9a, 0x58, 0x02, 0x21, 0xee, 0xf1, 0xf4}};
+        ComPtr<IInspectable> creator, wide, square;
+        CHECK(SUCCEEDED(factory->QueryInterface(statics, &creator)));
+        // ITileContentFactoryStatic: CreateTileSquareImage is slot 7, CreateTileWideImage 18.
+        CHECK(creator && SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), 18))(creator.Get(), &wide)) && wide);
+        CHECK(creator && SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), 7))(creator.Get(), &square)) && square);
+        // ITileWideImage/ITileSquareImage.Image is slot 6; its Src slot 7, Alt 9.
+        for (auto* tile : {wide.Get(), square.Get()}) {
+            ComPtr<IInspectable> image;
+            CHECK(tile && SUCCEEDED(reinterpret_cast<Get>(slot(tile, 6))(tile, &image)) && image);
+            if (!image) continue;
+            CHECK(SUCCEEDED(reinterpret_cast<PutText>(slot(image.Get(), 7))(
+                image.Get(),
+                HStringReference(tile == wide.Get() ? L"ms-appx:///wide.png" : L"ms-appx:///sq.png").Get())));
+            CHECK(SUCCEEDED(
+                reinterpret_cast<PutText>(slot(image.Get(), 9))(image.Get(), HStringReference(L"A&7").Get())));
+        }
+        ComPtr<IInspectable> wideAs, squareAs, notificationContent, xmlContent;
+        CHECK(wide && SUCCEEDED(wide->QueryInterface(wideContent, &wideAs)));
+        CHECK(square && SUCCEEDED(square->QueryInterface(squareContent, &squareAs)));
+        CHECK(wide && FAILED(wide->QueryInterface(squareContent, &xmlContent)) && !xmlContent);
+        // IWideTileNotificationContent: SquareContent is slot 7, RequireSquareContent 9.
+        CHECK(wideAs && SUCCEEDED(reinterpret_cast<PutObject>(slot(wideAs.Get(), 7))(wideAs.Get(), squareAs.Get())));
+        CHECK(wideAs && SUCCEEDED(reinterpret_cast<PutFlag>(slot(wideAs.Get(), 9))(wideAs.Get(), true)));
+        // INotificationContent.GetContent (slot 6) holds both bindings.
+        HString xml;
+        CHECK(wide && SUCCEEDED(wide->QueryInterface(content, &xmlContent)));
+        CHECK(xmlContent &&
+              SUCCEEDED(reinterpret_cast<GetText>(slot(xmlContent.Get(), 6))(xmlContent.Get(), xml.GetAddressOf())));
+        const std::wstring text = xml.GetRawBuffer(nullptr);
+        CHECK(text.find(L"template=\"TileWideImage\"") != std::wstring::npos &&
+              text.find(L"template=\"TileSquareImage\"") != std::wstring::npos &&
+              text.find(L"src=\"ms-appx:///wide.png\"") != std::wstring::npos &&
+              text.find(L"A&amp;7") != std::wstring::npos);
+        // ITileNotificationContent.CreateNotification is slot 16; the game sets the Tag.
+        ComPtr<IInspectable> created;
+        CHECK(wide && SUCCEEDED(wide->QueryInterface(tileContent, &notificationContent)));
+        CHECK(notificationContent &&
+              SUCCEEDED(
+                  reinterpret_cast<Get>(slot(notificationContent.Get(), 16))(notificationContent.Get(), &created)) &&
+              created);
+        ComPtr<ABI::Windows::UI::Notifications::ITileNotification> notification;
+        CHECK(created && SUCCEEDED(created.As(&notification)));
+        HString tag;
+        CHECK(notification && SUCCEEDED(notification->put_Tag(HStringReference(L"race").Get())) &&
+              SUCCEEDED(notification->get_Tag(tag.GetAddressOf())) && wcscmp(tag.GetRawBuffer(nullptr), L"race") == 0);
+        // Other templates are not stood in; they fail rather than call a wrong slot.
+        ComPtr<IInspectable> text01;
+        CHECK(creator && FAILED(reinterpret_cast<Get>(slot(creator.Get(), 41))(creator.Get(), &text01)) && !text01);
+    }
+
+    // Outside a package there are no background tasks to enumerate or cancel.
+    CHECK(SUCCEEDED(Factory(L"Windows.ApplicationModel.Background.BackgroundTaskRegistration", factory)));
+    if (factory) {
+        using namespace ABI::Windows::ApplicationModel::Background;
+        ComPtr<IBackgroundTaskRegistrationStatics> background;
+        ComPtr<__FIMapView_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration> tasks;
+        CHECK(SUCCEEDED(factory.As(&background)));
+        CHECK(background && SUCCEEDED(background->get_AllTasks(&tasks)) && tasks);
+        UINT32 size = 1;
+        boolean found = true;
+        ComPtr<IBackgroundTaskRegistration> task;
+        CHECK(tasks && SUCCEEDED(tasks->get_Size(&size)) && size == 0);
+        CHECK(tasks && SUCCEEDED(tasks->HasKey(GUID{}, &found)) && !found);
+        CHECK(tasks && tasks->Lookup(GUID{}, &task) == E_BOUNDS && !task);
+        ComPtr<
+            __FIIterable_1___FIKeyValuePair_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration>
+            iterable;
+        ComPtr<
+            __FIIterator_1___FIKeyValuePair_2_GUID_Windows__CApplicationModel__CBackground__CIBackgroundTaskRegistration>
+            iterator;
+        CHECK(tasks && SUCCEEDED(tasks.As(&iterable)));
+        CHECK(iterable && SUCCEEDED(iterable->First(&iterator)) && iterator);
+        CHECK(iterator && SUCCEEDED(iterator->get_HasCurrent(&found)) && !found);
+        CHECK(iterator && SUCCEEDED(iterator->MoveNext(&found)) && !found);
+    }
+
+    // Resize/pause callbacks must be able to register notification tasks offline.
+    CHECK(SUCCEEDED(Factory(L"Windows.ApplicationModel.Background.BackgroundTaskBuilder", factory)));
+    if (factory) {
+        using namespace ABI::Windows::ApplicationModel::Background;
+        ComPtr<IInspectable> instance;
+        ComPtr<IBackgroundTaskBuilder> builder;
+        ComPtr<IBackgroundTaskRegistration> task;
+        CHECK(SUCCEEDED(factory->ActivateInstance(&instance)) && instance);
+        CHECK(instance && SUCCEEDED(instance.As(&builder)));
+        CHECK(builder && builder->Register(&task) == E_INVALIDARG && !task);
+        CHECK(builder && SUCCEEDED(builder->put_Name(HStringReference(L"resize-notification").Get())));
+        CHECK(builder && SUCCEEDED(builder->put_TaskEntryPoint(HStringReference(L"Game.Notification").Get())));
+        ComPtr<ITimeTriggerFactory> timeFactory;
+        CHECK(SUCCEEDED(RoGetActivationFactory(
+            HStringReference(L"Windows.ApplicationModel.Background.TimeTrigger").Get(), IID_PPV_ARGS(&timeFactory))));
+        ComPtr<ITimeTrigger> time;
+        ComPtr<IBackgroundTrigger> trigger;
+        CHECK(timeFactory && SUCCEEDED(timeFactory->Create(15, true, &time)));
+        CHECK(time && SUCCEEDED(time.As(&trigger)));
+        CHECK(builder && SUCCEEDED(builder->SetTrigger(trigger.Get())));
+        CHECK(builder && SUCCEEDED(builder->Register(&task)) && task);
+        GUID id{};
+        HString name;
+        CHECK(task && SUCCEEDED(task->get_TaskId(&id)) && id != GUID{});
+        CHECK(task && SUCCEEDED(task->get_Name(name.GetAddressOf())) &&
+              wcscmp(name.GetRawBuffer(nullptr), L"resize-notification") == 0);
+        CHECK(task && SUCCEEDED(task->Unregister(true)));
+    }
+
+    // GA.GoogleAnalytics (Gameloft): calls succeed and send nothing.
+    CHECK(SUCCEEDED(Factory(L"GA.GoogleAnalytics", factory)));
+    if (factory) {
+        const GUID statics = {0x5f781e60, 0xc3ce, 0x5c08, {0x5a, 0x4c, 0xcf, 0x5f, 0xaa, 0x09, 0xee, 0x8e}};
+        ComPtr<IInspectable> analytics;
+        CHECK(SUCCEEDED(factory->QueryInterface(statics, &analytics)));
+        if (analytics) {
+            // IGoogleAnalyticsStatic: TrackingID get 6, Init 7, SendEvent 10, SetVideoResolution 18.
+            auto** table = *reinterpret_cast<void***>(analytics.Get());
+            using Init = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, HSTRING);
+            using GetId = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, HSTRING*);
+            using SendEvent = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, HSTRING, HSTRING, HSTRING, IInspectable*);
+            using Resolution = HRESULT(STDMETHODCALLTYPE*)(IInspectable*, INT64, INT64);
+            HString id;
+            CHECK(SUCCEEDED(reinterpret_cast<Init>(table[7])(analytics.Get(), HStringReference(L"UA-1").Get())));
+            CHECK(SUCCEEDED(reinterpret_cast<GetId>(table[6])(analytics.Get(), id.GetAddressOf())) &&
+                  wcscmp(id.GetRawBuffer(nullptr), L"UA-1") == 0);
+            CHECK(SUCCEEDED(reinterpret_cast<SendEvent>(table[10])(analytics.Get(), HStringReference(L"race").Get(),
+                                                                   nullptr, nullptr, nullptr)));
+            CHECK(SUCCEEDED(reinterpret_cast<Resolution>(table[18])(analytics.Get(), 1920, 1080)));
+            const wchar_t embedded[] = {L'U', L'A', L'\0', L'1'};
+            HString tracking;
+            CHECK(SUCCEEDED(tracking.Set(embedded, 4)));
+            CHECK(SUCCEEDED(reinterpret_cast<Init>(table[7])(analytics.Get(), tracking.Get())));
+            CHECK(SUCCEEDED(reinterpret_cast<GetId>(table[6])(analytics.Get(), id.ReleaseAndGetAddressOf())));
+            UINT32 length = 0;
+            const auto* raw = id.GetRawBuffer(&length);
+            CHECK(length == 4 && std::wstring(raw, length) == std::wstring(embedded, 4));
         }
     }
 

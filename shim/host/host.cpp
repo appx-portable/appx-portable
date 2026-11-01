@@ -17,6 +17,9 @@ namespace appx {
 void InitializeDiagnostics();
 void CoreHostMessage(UINT message, WPARAM wparam, LPARAM lparam);
 void XamlHostMessage(UINT message, WPARAM wparam, LPARAM lparam);
+bool HasXamlWindow();
+HRESULT DeliverWindowLoaded();
+HRESULT RenderInitialXamlFrame();
 void CoreInputMessage(UINT message, WPARAM wparam, LPARAM lparam);
 bool ExitLikeStoreApp();
 static HWND window;
@@ -178,10 +181,30 @@ HRESULT SetHostFullscreen(bool value) {
 // can be seen, and Activated is raised only when that changes: on minimize,
 // hide, restore, or show. Runs on the UI queue, after the message has settled.
 static bool reportedActive = false;
+static bool initialXamlFrame = false;
 static void UpdateActivation(WPARAM activation) {
     const bool active = window && IsWindowVisible(window) && !IsIconic(window);
     if (active == reportedActive) return;
     reportedActive = active;
+    const WPARAM state = active ? (activation == WA_CLICKACTIVE ? WA_CLICKACTIVE : WA_ACTIVE) : WA_INACTIVE;
+    auto notifyActivated = [state, active] {
+        Log("TRACE", "view activation %s", active ? "active" : "deactivated");
+        CoreHostMessage(WM_ACTIVATE, state, 0);
+        if (IslandsMode())
+            IslandHostMessage(WM_ACTIVATE, state, 0);
+        else
+            XamlHostMessage(WM_ACTIVATE, state, 0);
+    };
+    const bool firstFrame = active && !initialXamlFrame && !IslandsMode() && HasXamlWindow();
+    if (firstFrame) {
+        initialXamlFrame = true;
+        // Complete the initial XAML layout and rendering pass before queued
+        // visibility handlers use objects created by that first frame.
+        notifyActivated();
+        auto hr = DeliverWindowLoaded();
+        if (SUCCEEDED(hr)) hr = RenderInitialXamlFrame();
+        if (FAILED(hr)) Log("FAIL", "initial XAML frame hr=%08lx", hr);
+    }
     // ShowWindow(SW_SHOWMAXIMIZED) and minimize/restore need not send
     // WM_SHOWWINDOW. Derive WinRT visibility from the settled window state.
     CoreHostMessage(WM_SHOWWINDOW, active, 0);
@@ -189,13 +212,7 @@ static void UpdateActivation(WPARAM activation) {
         IslandHostMessage(WM_SHOWWINDOW, active, 0);
     else
         XamlHostMessage(WM_SHOWWINDOW, active, 0);
-    const WPARAM state = active ? (activation == WA_CLICKACTIVE ? WA_CLICKACTIVE : WA_ACTIVE) : WA_INACTIVE;
-    Log("TRACE", "view activation %s", active ? "active" : "deactivated");
-    CoreHostMessage(WM_ACTIVATE, state, 0);
-    if (IslandsMode())
-        IslandHostMessage(WM_ACTIVATE, state, 0);
-    else
-        XamlHostMessage(WM_ACTIVATE, state, 0);
+    if (!firstFrame) notifyActivated();
 }
 // XAML notifications belong to the UI queue. Delivering inside ShowWindow
 // reenters OnLaunched before startup has finished.
@@ -320,6 +337,7 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     InitializeDiagnostics();
     if (window) return E_ILLEGAL_METHOD_CALL;
     reportedActive = false;
+    initialXamlFrame = false;
     wchar_t executable[32768]{};
     const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
     if (!length) return HRESULT_FROM_WIN32(GetLastError());

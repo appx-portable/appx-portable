@@ -62,6 +62,12 @@ template <class T> struct VectorAbi;
 template <class T> struct IterableAbi;
 template <class T> struct IteratorAbi;
 template <class T> struct OperationAbi;
+
+template <> struct __declspec(uuid("3073e088-9b68-5869-9991-4271e9dab42b")) OperationAbi<IUserIdentity> : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE put_Completed(IUnknown*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Completed(IUnknown**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetResults(IUserIdentity**) = 0;
+};
 template <> struct __declspec(uuid("4aad2c36-17d0-58d5-9b35-bce5fa6c15c2")) VectorAbi<IOffer> : IInspectable {
     virtual HRESULT STDMETHODCALLTYPE GetAt(UINT32, IOffer**) = 0;
     virtual HRESULT STDMETHODCALLTYPE get_Size(UINT32*) = 0;

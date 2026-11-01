@@ -69,6 +69,13 @@ insufficient balances fail without consuming anything. Listings and balance and
 receipt queries return local snapshots. Without `StubIap`, these operations fail
 offline through their async callbacks.
 
+Stub IAP also supplies an Xbox identity named `Local Player` and completes both
+Xbox sign-in APIs locally, allowing games to reach their shop screens. This
+identity has no Xbox account or server credentials. Other Xbox services,
+including profiles, achievements and multiplayer, continue to fail offline.
+Sign-in does not supply a missing catalog: offer enumeration uses the configured
+`StubXboxProducts` entries, and a game may also require its own product metadata.
+
 Configure consumables in `[options] StubXboxProducts` as comma-separated
 `offer-guid:asset-id:quantity` entries. A GUID alone describes a durable offer
 with a receipt and no asset grant. `APPX_PORTABLE_STUB_XBOX_PRODUCTS` overrides
@@ -97,7 +104,7 @@ Listings use the GUID as the product name and `0.00` as a placeholder price.
 Receipts and asset JSON are unsigned and marked `appxportableStub: true`; they
 cannot be verified by Xbox servers. Receipts and unconsumed balances last only
 for the current process, like the `CurrentApp` stub's entitlements. The game must
-save granted content itself. Xbox sign-in and other Xbox services stay offline.
+save granted content itself.
 
 Base-app licensing is controlled separately by [`--unlock-trial`](trial-mode.md). `CurrentApp` app purchases and its separate receipt retrieval APIs still fail offline. Product entitlements reset when the process exits; the game must save its own granted content. The runtime does not persist entitlements or fabricate signed receipts, download missing content, or restore remote services.
 

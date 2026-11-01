@@ -11,6 +11,7 @@ using namespace Microsoft::WRL;
 using namespace ABI::Windows::UI::Xaml;
 namespace appx {
 HRESULT QueueElementLoaded(IInspectable* value);
+HRESULT DeliverElementLoaded(IInspectable* value);
 HRESULT RaiseElementSizeChanged();
 HRESULT MakeCoreWindow(ABI::Windows::UI::Core::ICoreWindow** value);
 class Window final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIWindow, IWindow2> {
@@ -99,6 +100,13 @@ public:
     }
 };
 static ComPtr<Window> xamlWindow;
+bool HasXamlWindow() { return xamlWindow != nullptr; }
+HRESULT DeliverWindowLoaded() {
+    if (!xamlWindow || !IsWindowVisible(HostWindow())) return S_OK;
+    ComPtr<IUIElement> content;
+    auto hr = xamlWindow->get_Content(&content);
+    return FAILED(hr) ? hr : DeliverElementLoaded(content.Get());
+}
 void XamlHostMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (xamlWindow) xamlWindow->OnMessage(message, wparam, lparam);
 }

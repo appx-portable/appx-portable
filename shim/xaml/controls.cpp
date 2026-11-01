@@ -167,6 +167,260 @@ HRESULT MakeGrid(IInspectable** value) {
     grid->Release();
     return hr;
 }
+class TextChangedArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, ITextChangedEventArgs, IRoutedEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Controls.TextChangedEventArgs", BaseTrust);
+    ComPtr<IInspectable> source_;
+
+public:
+    explicit TextChangedArgs(IInspectable* source) : source_(source) {}
+    HRESULT STDMETHODCALLTYPE get_OriginalSource(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        return source_.CopyTo(value);
+    }
+};
+// Text entry named in Windows 8 source XAML, which games show over their
+// swap chain for names and chat. These hold the text the game sets and raise
+// its change events; nothing draws them and they take no typing.
+class TextBox final : public Element<TextBox, DefaultITextBox, DefaultIControl> {
+    std::wstring text_;
+    INT32 start_ = 0, length_ = 0, maxLength_ = 0;
+    bool readOnly_ = false, acceptsReturn_ = false, spellCheck_ = true, prediction_ = true;
+    TextAlignment alignment_ = TextAlignment_Left;
+    TextWrapping wrapping_ = TextWrapping_NoWrap;
+    ComPtr<ABI::Windows::UI::Xaml::Input::IInputScope> scope_;
+    EventSource<ITextChangedEventHandler> textChanged_;
+    EventSource<IRoutedEventHandler> selectionChanged_;
+    EventSource<IContextMenuOpeningEventHandler> contextMenu_;
+
+    HRESULT SetText(std::wstring text, INT32 selectionLength = -1) {
+        if (text == text_) return S_OK;
+        text_ = std::move(text);
+        const auto hr = Select(start_, selectionLength < 0 ? length_ : selectionLength);
+        if (FAILED(hr)) return hr;
+        auto* source = static_cast<ITextBox*>(this);
+        auto args = Make<TextChangedArgs>(source);
+        return args ? textChanged_.InvokeAll(source, args.Get()) : E_OUTOFMEMORY;
+    }
+
+public:
+    static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.TextBox";
+    explicit TextBox(IInspectable* outer) : Element(outer) {}
+    HRESULT STDMETHODCALLTYPE get_Text(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return WindowsCreateString(text_.data(), static_cast<UINT32>(text_.size()), value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Text(HSTRING value) override {
+        UINT32 length = 0;
+        const auto* raw = WindowsGetStringRawBuffer(value, &length);
+        return SetText(std::wstring(raw, length));
+    }
+    HRESULT STDMETHODCALLTYPE get_SelectedText(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return WindowsCreateString(text_.data() + start_, static_cast<UINT32>(length_), value);
+    }
+    HRESULT STDMETHODCALLTYPE put_SelectedText(HSTRING value) override {
+        UINT32 length = 0;
+        const auto* raw = WindowsGetStringRawBuffer(value, &length);
+        auto text = text_;
+        text.replace(start_, length_, raw, length);
+        return SetText(std::move(text), static_cast<INT32>(length));
+    }
+    HRESULT STDMETHODCALLTYPE get_SelectionLength(INT32* value) override {
+        if (!value) return E_POINTER;
+        *value = length_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_SelectionLength(INT32 value) override { return Select(start_, value); }
+    HRESULT STDMETHODCALLTYPE get_SelectionStart(INT32* value) override {
+        if (!value) return E_POINTER;
+        *value = start_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_SelectionStart(INT32 value) override { return Select(value, length_); }
+    HRESULT STDMETHODCALLTYPE get_MaxLength(INT32* value) override {
+        if (!value) return E_POINTER;
+        *value = maxLength_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_MaxLength(INT32 value) override {
+        if (value < 0) return E_INVALIDARG;
+        maxLength_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_IsReadOnly(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = readOnly_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_IsReadOnly(boolean value) override {
+        readOnly_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_AcceptsReturn(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = acceptsReturn_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_AcceptsReturn(boolean value) override {
+        acceptsReturn_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_TextAlignment(TextAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = alignment_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_TextAlignment(TextAlignment value) override {
+        alignment_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_TextWrapping(TextWrapping* value) override {
+        if (!value) return E_POINTER;
+        *value = wrapping_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_TextWrapping(TextWrapping value) override {
+        wrapping_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_IsSpellCheckEnabled(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = spellCheck_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_IsSpellCheckEnabled(boolean value) override {
+        spellCheck_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_IsTextPredictionEnabled(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = prediction_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_IsTextPredictionEnabled(boolean value) override {
+        prediction_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_InputScope(ABI::Windows::UI::Xaml::Input::IInputScope** value) override {
+        if (!value) return E_POINTER;
+        return scope_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_InputScope(ABI::Windows::UI::Xaml::Input::IInputScope* value) override {
+        scope_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE add_TextChanged(ITextChangedEventHandler* handler,
+                                              EventRegistrationToken* token) override {
+        return textChanged_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_TextChanged(EventRegistrationToken token) override {
+        return textChanged_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_SelectionChanged(IRoutedEventHandler* handler,
+                                                   EventRegistrationToken* token) override {
+        return selectionChanged_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_SelectionChanged(EventRegistrationToken token) override {
+        return selectionChanged_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_ContextMenuOpening(IContextMenuOpeningEventHandler* handler,
+                                                     EventRegistrationToken* token) override {
+        return contextMenu_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_ContextMenuOpening(EventRegistrationToken token) override {
+        return contextMenu_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE Select(INT32 start, INT32 length) override {
+        if (start < 0 || length < 0) return E_INVALIDARG;
+        start = (std::min)(start, static_cast<INT32>(text_.size()));
+        length = (std::min)(length, static_cast<INT32>(text_.size()) - start);
+        if (start == start_ && length == length_) return S_OK;
+        start_ = start;
+        length_ = length;
+        auto* source = static_cast<ITextBox*>(this);
+        auto args = Make<RoutedArgs>(source);
+        return args ? selectionChanged_.InvokeAll(source, args.Get()) : E_OUTOFMEMORY;
+    }
+    HRESULT STDMETHODCALLTYPE SelectAll() override { return Select(0, static_cast<INT32>(text_.size())); }
+};
+class PasswordBox final : public Element<PasswordBox, DefaultIPasswordBox, DefaultIControl> {
+    Wrappers::HString password_, passwordChar_;
+    INT32 maxLength_ = 0;
+    bool reveal_ = true;
+    EventSource<IRoutedEventHandler> passwordChanged_;
+    EventSource<IContextMenuOpeningEventHandler> contextMenu_;
+
+public:
+    static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.PasswordBox";
+    explicit PasswordBox(IInspectable* outer) : Element(outer) {
+        passwordChar_.Set(L"\x25CF"); // XAML's default bullet
+    }
+    HRESULT STDMETHODCALLTYPE get_Password(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return password_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Password(HSTRING value) override {
+        INT32 order = 0;
+        auto hr = WindowsCompareStringOrdinal(password_.Get(), value, &order);
+        if (FAILED(hr) || order == 0) return hr;
+        hr = password_.Set(value);
+        if (FAILED(hr)) return hr;
+        auto* source = static_cast<IPasswordBox*>(this);
+        auto args = Make<RoutedArgs>(source);
+        return args ? passwordChanged_.InvokeAll(source, args.Get()) : E_OUTOFMEMORY;
+    }
+    HRESULT STDMETHODCALLTYPE get_PasswordChar(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return passwordChar_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_PasswordChar(HSTRING value) override { return passwordChar_.Set(value); }
+    HRESULT STDMETHODCALLTYPE get_IsPasswordRevealButtonEnabled(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = reveal_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_IsPasswordRevealButtonEnabled(boolean value) override {
+        reveal_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_MaxLength(INT32* value) override {
+        if (!value) return E_POINTER;
+        *value = maxLength_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_MaxLength(INT32 value) override {
+        if (value < 0) return E_INVALIDARG;
+        maxLength_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE add_PasswordChanged(IRoutedEventHandler* handler,
+                                                  EventRegistrationToken* token) override {
+        return passwordChanged_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_PasswordChanged(EventRegistrationToken token) override {
+        return passwordChanged_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_ContextMenuOpening(IContextMenuOpeningEventHandler* handler,
+                                                     EventRegistrationToken* token) override {
+        return contextMenu_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_ContextMenuOpening(EventRegistrationToken token) override {
+        return contextMenu_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE SelectAll() override { return S_OK; }
+};
+template <class T, class I> static HRESULT MakeElement(IInspectable** value) {
+    ComPtr<I> element;
+    auto hr = Compose<T>(nullptr, nullptr, element.GetAddressOf());
+    return FAILED(hr) ? hr : element.CopyTo(value);
+}
+HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    if (!wcscmp(tag, L"TextBox")) return MakeElement<TextBox, ITextBox>(value);
+    if (!wcscmp(tag, L"PasswordBox")) return MakeElement<PasswordBox, IPasswordBox>(value);
+    return MakeWin10XamlElement(tag, value);
+}
 // Lets a Frame tell the shim Page it hosts which frame that is (Page.Frame).
 // The Frame clears it before dropping the page; the page never owns the frame.
 struct __declspec(uuid("ce92a3c3-5de3-4473-9528-b14b510702c0")) IHostedPage : public IUnknown {
