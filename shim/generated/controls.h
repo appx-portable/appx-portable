@@ -810,4 +810,196 @@ struct __declspec(uuid("fd53da65-b186-4654-bfdb-180ed26cad07")) DefaultIMediaEle
   }
 };
 }
+namespace ABI::Windows::UI::Xaml::Controls {
+struct __declspec(uuid("e48f5a8b-1dff-4352-a1f4-e516514ec882")) DefaultITextBox : public ABI::Windows::UI::Xaml::Controls::ITextBox {
+  HRESULT STDMETHODCALLTYPE get_Text(HSTRING* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_Text");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_Text(HSTRING value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_Text");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_SelectedText(HSTRING* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_SelectedText");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_SelectedText(HSTRING value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_SelectedText");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_SelectionLength(INT32* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_SelectionLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_SelectionLength(INT32 value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_SelectionLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_SelectionStart(INT32* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_SelectionStart");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_SelectionStart(INT32 value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_SelectionStart");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_MaxLength(INT32* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_MaxLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_MaxLength(INT32 value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_MaxLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_IsReadOnly(boolean* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_IsReadOnly");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_IsReadOnly(boolean value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_IsReadOnly");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_AcceptsReturn(boolean* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_AcceptsReturn");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_AcceptsReturn(boolean value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_AcceptsReturn");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_TextAlignment(ABI::Windows::UI::Xaml::TextAlignment* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_TextAlignment");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_TextAlignment(ABI::Windows::UI::Xaml::TextAlignment value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_TextAlignment");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_TextWrapping(ABI::Windows::UI::Xaml::TextWrapping* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_TextWrapping");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_TextWrapping(ABI::Windows::UI::Xaml::TextWrapping value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_TextWrapping");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_IsSpellCheckEnabled(boolean* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_IsSpellCheckEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_IsSpellCheckEnabled(boolean value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_IsSpellCheckEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_IsTextPredictionEnabled(boolean* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_IsTextPredictionEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_IsTextPredictionEnabled(boolean value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_IsTextPredictionEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_InputScope(ABI::Windows::UI::Xaml::Input::IInputScope** value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::get_InputScope");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_InputScope(ABI::Windows::UI::Xaml::Input::IInputScope* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::put_InputScope");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE add_TextChanged(ABI::Windows::UI::Xaml::Controls::ITextChangedEventHandler* handler, EventRegistrationToken* token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::add_TextChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE remove_TextChanged(EventRegistrationToken token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::remove_TextChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE add_SelectionChanged(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler, EventRegistrationToken* token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::add_SelectionChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE remove_SelectionChanged(EventRegistrationToken token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::remove_SelectionChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE add_ContextMenuOpening(ABI::Windows::UI::Xaml::Controls::IContextMenuOpeningEventHandler* handler, EventRegistrationToken* token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::add_ContextMenuOpening");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE remove_ContextMenuOpening(EventRegistrationToken token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::remove_ContextMenuOpening");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE Select(INT32 start, INT32 length) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::Select");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE SelectAll(void) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::SelectAll");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE GetRectFromCharacterIndex(INT32 charIndex, boolean trailingEdge, ABI::Windows::Foundation::Rect* result) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::ITextBox::GetRectFromCharacterIndex");
+    return E_NOTIMPL;
+  }
+};
+}
+namespace ABI::Windows::UI::Xaml::Controls {
+struct __declspec(uuid("02b9aa11-0b47-4e7d-ad91-3a4168ed230d")) DefaultIPasswordBox : public ABI::Windows::UI::Xaml::Controls::IPasswordBox {
+  HRESULT STDMETHODCALLTYPE get_Password(HSTRING* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::get_Password");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_Password(HSTRING value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::put_Password");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_PasswordChar(HSTRING* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::get_PasswordChar");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_PasswordChar(HSTRING value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::put_PasswordChar");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_IsPasswordRevealButtonEnabled(boolean* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::get_IsPasswordRevealButtonEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_IsPasswordRevealButtonEnabled(boolean value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::put_IsPasswordRevealButtonEnabled");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE get_MaxLength(INT32* value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::get_MaxLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE put_MaxLength(INT32 value) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::put_MaxLength");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE add_PasswordChanged(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler, EventRegistrationToken* token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::add_PasswordChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE remove_PasswordChanged(EventRegistrationToken token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::remove_PasswordChanged");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE add_ContextMenuOpening(ABI::Windows::UI::Xaml::Controls::IContextMenuOpeningEventHandler* handler, EventRegistrationToken* token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::add_ContextMenuOpening");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE remove_ContextMenuOpening(EventRegistrationToken token) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::remove_ContextMenuOpening");
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE SelectAll(void) override {
+    appx::Log("UNIMPL", "ABI::Windows::UI::Xaml::Controls::IPasswordBox::SelectAll");
+    return E_NOTIMPL;
+  }
+};
+}
 #pragma warning(pop)

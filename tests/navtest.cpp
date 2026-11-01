@@ -378,6 +378,104 @@ static void TestMediaElement() {
         namedOuter->Release();
         CHECK(DeleteFileW(namedPath.c_str()));
     }
+    // Asphalt 7: Heat's MainPage also names the text boxes over its panel, and
+    // reads their Visibility once the window shows.
+    const auto textPath = std::filesystem::path(exePath).parent_path() / L"TextBoxPage.xaml";
+    HANDLE textFile =
+        CreateFileW(textPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    CHECK(textFile != INVALID_HANDLE_VALUE);
+    if (textFile != INVALID_HANDLE_VALUE) {
+        const char source[] = "<Page xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' "
+                              "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>"
+                              "<SwapChainBackgroundPanel x:Name='DXSwapChainPanel'><Grid x:Name='LayoutRoot'>"
+                              "<TextBox x:ConnectionId='1' x:Name='xamlTextbox' Visibility='Collapsed'/>"
+                              "<PasswordBox x:ConnectionId='4' x:Name='xamlPassword' Visibility='Collapsed'/>"
+                              "<Button x:Name='xaml_HiddenButton'/>"
+                              "</Grid></SwapChainBackgroundPanel></Page>";
+        DWORD written = 0;
+        CHECK(WriteFile(textFile, source, sizeof(source) - 1, &written, nullptr) && written == sizeof(source) - 1);
+        CloseHandle(textFile);
+        auto* textOuter = new PageOuter("TextBoxPage");
+        ComPtr<IPage> textPage;
+        CHECK(SUCCEEDED(
+            pageFactory->CreateInstance(static_cast<IPageOverrides*>(textOuter), &textOuter->inner, &textPage)));
+        CHECK(
+            SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///TextBoxPage.xaml").Get(), &componentUri)));
+        CHECK(SUCCEEDED(appStatics->LoadComponent(textPage.Get(), componentUri.Get())));
+        CHECK(textOuter->connections == 0);
+        ComPtr<IFrameworkElement> textFramework;
+        CHECK(SUCCEEDED(textPage.As(&textFramework)));
+        auto find = [&](const wchar_t* name) {
+            ComPtr<IInspectable> found;
+            CHECK(textFramework && SUCCEEDED(textFramework->FindName(HStringReference(name).Get(), &found)) && found);
+            return found;
+        };
+        ComPtr<IGrid> grid;
+        ComPtr<IButton> button;
+        auto layout = find(L"LayoutRoot"), hidden = find(L"xaml_HiddenButton");
+        CHECK(layout && SUCCEEDED(layout.As(&grid)));
+        CHECK(hidden && SUCCEEDED(hidden.As(&button)));
+        ComPtr<ITextBox> text;
+        ComPtr<IUIElement> textElement;
+        auto box = find(L"xamlTextbox");
+        CHECK(box && SUCCEEDED(box.As(&text)) && SUCCEEDED(box.As(&textElement)));
+        Visibility visibility = Visibility_Visible;
+        CHECK(textElement && SUCCEEDED(textElement->get_Visibility(&visibility)) && visibility == Visibility_Collapsed);
+        int changes = 0;
+        auto changed = Callback<ITextChangedEventHandler>([&](IInspectable*, ITextChangedEventArgs*) {
+            ++changes;
+            return S_OK;
+        });
+        EventRegistrationToken token{};
+        HString read;
+        CHECK(text && SUCCEEDED(text->add_TextChanged(changed.Get(), &token)));
+        CHECK(text && SUCCEEDED(text->put_MaxLength(17)) &&
+              SUCCEEDED(text->put_Text(HStringReference(L"Racer").Get())));
+        CHECK(text && SUCCEEDED(text->get_Text(read.GetAddressOf())) &&
+              wcscmp(read.GetRawBuffer(nullptr), L"Racer") == 0);
+        CHECK(changes == 1);
+        int selections = 0;
+        auto selected = Callback<IRoutedEventHandler>([&](IInspectable* sender, IRoutedEventArgs* args) {
+            ComPtr<IInspectable> original;
+            ComPtr<ITextBox> originalText;
+            CHECK(sender && args && SUCCEEDED(args->get_OriginalSource(&original)) && original &&
+                  SUCCEEDED(original.As(&originalText)) && originalText.Get() == text.Get());
+            ++selections;
+            return S_OK;
+        });
+        EventRegistrationToken selectionToken{};
+        CHECK(text && SUCCEEDED(text->add_SelectionChanged(selected.Get(), &selectionToken)));
+        CHECK(text && SUCCEEDED(text->Select(1, 3)));
+        CHECK(text && SUCCEEDED(text->get_SelectedText(read.ReleaseAndGetAddressOf())) &&
+              wcscmp(read.GetRawBuffer(nullptr), L"ace") == 0);
+        CHECK(selections == 1);
+        CHECK(text && SUCCEEDED(text->Select(1, 3)) && text->Select(-1, 0) == E_INVALIDARG);
+        CHECK(selections == 1);
+        CHECK(text && SUCCEEDED(text->put_SelectedText(HStringReference(L"un").Get())));
+        CHECK(text && SUCCEEDED(text->get_Text(read.ReleaseAndGetAddressOf())) &&
+              wcscmp(read.GetRawBuffer(nullptr), L"Runr") == 0);
+        CHECK(text && SUCCEEDED(text->get_SelectedText(read.ReleaseAndGetAddressOf())) &&
+              wcscmp(read.GetRawBuffer(nullptr), L"un") == 0);
+        CHECK(selections == 2 && changes == 2);
+        CHECK(text && SUCCEEDED(text->put_Text(nullptr)));
+        INT32 selectionStart = -1, selectionLength = -1;
+        CHECK(text && SUCCEEDED(text->get_SelectionStart(&selectionStart)) && selectionStart == 0);
+        CHECK(text && SUCCEEDED(text->get_SelectionLength(&selectionLength)) && selectionLength == 0);
+        CHECK(selections == 3 && changes == 3);
+        CHECK(text && SUCCEEDED(text->remove_SelectionChanged(selectionToken)) &&
+              SUCCEEDED(text->remove_TextChanged(token)));
+        CHECK(text && SUCCEEDED(text->put_Text(HStringReference(L"Again").Get())) && SUCCEEDED(text->SelectAll()));
+        CHECK(selections == 3 && changes == 3);
+        ComPtr<IPasswordBox> password;
+        auto secret = find(L"xamlPassword");
+        CHECK(secret && SUCCEEDED(secret.As(&password)));
+        CHECK(password && SUCCEEDED(password->put_Password(HStringReference(L"secret").Get())) &&
+              SUCCEEDED(password->get_Password(read.ReleaseAndGetAddressOf())) &&
+              wcscmp(read.GetRawBuffer(nullptr), L"secret") == 0);
+        textPage.Reset();
+        textOuter->Release();
+        CHECK(DeleteFileW(textPath.c_str()));
+    }
     ComPtr<IMediaElement> media;
     ComPtr<IMediaElement2> media2;
     if (!object || FAILED(object.As(&media)) || FAILED(object.As(&media2))) {

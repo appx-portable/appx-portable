@@ -23,7 +23,8 @@ namespace appx {
 // Windows 8 packages retain source XAML, including the generated connection
 // IDs. Bind supported named elements and their handlers from those IDs. With
 // no connector, only register the names: Windows 8 pages bind their fields by
-// FindName after LoadComponent, under whatever x:Name the page chose.
+// FindName after LoadComponent, under whatever x:Name the page chose, and
+// a null field (such as a TextBox the shim lacked) crashes when first used.
 static HRESULT ConnectSourceXaml(ABI::Windows::UI::Xaml::Markup::IComponentConnector* connector,
                                  IFrameworkElement* element, const wchar_t* filename) {
     const auto path = CurrentPackage().directory / filename;
@@ -81,7 +82,7 @@ static HRESULT ConnectSourceXaml(ABI::Windows::UI::Xaml::Markup::IComponentConne
         } else if (CurrentPackage().universal) {
             hr = MakeWin10XamlElement(elementType.c_str(), &target);
         } else {
-            continue;
+            hr = MakeSourceXamlElement(elementType.c_str(), &target);
         }
         if (FAILED(hr)) return hr;
         if (!target) continue;

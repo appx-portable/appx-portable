@@ -20,6 +20,9 @@ MIDL_INTERFACE("B9D4328C-BA3E-4F70-A0E9-E604BB4DB236") INamedElementRegistry : I
 HRESULT MakePanel(IInspectable** value);
 HRESULT MakeBackgroundPanel(IInspectable** value);
 HRESULT MakeGrid(IInspectable** value);
+// A named element of Windows 8 source XAML: the Win10 elements plus text
+// entry. S_FALSE with null for element types the shim does not stand in.
+HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value);
 HRESULT MakeMediaElement(IInspectable** value);
 HRESULT QueueElementLoaded(IInspectable* value);
 HRESULT DeliverElementLoaded(IInspectable* object);
