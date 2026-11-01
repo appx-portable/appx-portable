@@ -237,6 +237,8 @@ if(WIN32)
     "-DFIXTURE=${CMAKE_CURRENT_BINARY_DIR}/islands-toast-fixture"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/islands_runtime.cmake")
 endif()
+add_library(component_projection_fixture SHARED tests/component_projection_fixture.cpp tests/component_projection_fixture.def)
+target_link_libraries(component_projection_fixture PRIVATE runtimeobject ole32)
 add_library(page_projection_fixture SHARED tests/page_projection_fixture.cpp tests/page_projection_fixture.def)
 target_link_libraries(page_projection_fixture PRIVATE runtimeobject ole32)
 add_library(network_projection_fixture SHARED tests/network_projection_fixture.cpp tests/network_projection_fixture.def)
@@ -329,6 +331,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
       --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
       --shim "$<TARGET_FILE:appxportable>" --network-fixture "$<TARGET_FILE:network_projection_fixture>" --page-fixture "$<TARGET_FILE:page_projection_fixture>" --output "${CMAKE_BINARY_DIR}/winrt-projection")
     set_tests_properties(winrt_projection PROPERTIES TIMEOUT 600 LABELS managed-clr)
+    add_test(NAME winrt_component_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-component-projection" --component-only)
+    set_tests_properties(winrt_component_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
     add_test(NAME winrt_page_projection COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
       --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
@@ -445,8 +453,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:winexe
       /win32manifest:${CMAKE_SOURCE_DIR}/host/managed.manifest
       /r:System.Windows.Forms.dll /out:${CMAKE_BINARY_DIR}/appx-host.exe
-      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}"
-    DEPENDS host/managed.cs host/components.cs host/managed.manifest VERBATIM)
+      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}" "${CMAKE_SOURCE_DIR}/host/projections.cs"
+    DEPENDS host/managed.cs host/components.cs host/projections.cs host/managed.manifest VERBATIM)
   # A native game's C# components: the shim loads this bridge into the desktop
   # CLR it starts in the game, so there is nothing for players to start.
   add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-components.dll"
