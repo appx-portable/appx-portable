@@ -315,6 +315,36 @@ int main(int argc, char**) {
         HString tag;
         CHECK(notification && SUCCEEDED(notification->put_Tag(HStringReference(L"race").Get())) &&
               SUCCEEDED(notification->get_Tag(tag.GetAddressOf())) && wcscmp(tag.GetRawBuffer(nullptr), L"race") == 0);
+        // ilomilo plus: TileWideImageAndText02 (slot 20), an image and two captions.
+        ComPtr<IInspectable> captioned;
+        CHECK(creator && SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), 20))(creator.Get(), &captioned)) &&
+              captioned);
+        if (captioned) {
+            // ITileWideImageAndText02: Image slot 6, TextCaption1 7, TextCaption2 8; Text's put_Text is slot 7.
+            ComPtr<IInspectable> image, first, second, captionedContent;
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(captioned.Get(), 6))(captioned.Get(), &image)) && image);
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(captioned.Get(), 7))(captioned.Get(), &first)) && first);
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(captioned.Get(), 8))(captioned.Get(), &second)) && second);
+            if (image)
+                CHECK(SUCCEEDED(reinterpret_cast<PutText>(slot(image.Get(), 7))(
+                    image.Get(), HStringReference(L"ms-appx:///level.png").Get())));
+            if (first)
+                CHECK(SUCCEEDED(
+                    reinterpret_cast<PutText>(slot(first.Get(), 7))(first.Get(), HStringReference(L"Safka").Get())));
+            if (second)
+                CHECK(SUCCEEDED(
+                    reinterpret_cast<PutText>(slot(second.Get(), 7))(second.Get(), HStringReference(L"1 < 2").Get())));
+            HString captionedXml;
+            CHECK(SUCCEEDED(captioned->QueryInterface(content, &captionedContent)) &&
+                  SUCCEEDED(reinterpret_cast<GetText>(slot(captionedContent.Get(), 6))(captionedContent.Get(),
+                                                                                       captionedXml.GetAddressOf())));
+            const std::wstring body = captionedXml.GetRawBuffer(nullptr);
+            CHECK(body.find(L"template=\"TileWideImageAndText02\"><image id=\"1\" src=\"ms-appx:///level.png\"/>"
+                            L"<text id=\"1\">Safka</text><text id=\"2\">1 &lt; 2</text></binding>") !=
+                  std::wstring::npos);
+            ComPtr<IInspectable> captionedWide;
+            CHECK(SUCCEEDED(captioned->QueryInterface(wideContent, &captionedWide)));
+        }
         // Other templates are not stood in; they fail rather than call a wrong slot.
         ComPtr<IInspectable> text01;
         CHECK(creator && FAILED(reinterpret_cast<Get>(slot(creator.Get(), 41))(creator.Get(), &text01)) && !text01);
