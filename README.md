@@ -19,7 +19,7 @@ The installer changes no game file except through a known game's patch. Game-spe
 - 🖱️ **Input.** Mouse and keyboard events are delivered as the game expects.
 - 💾 **Portable saves.** Saves and settings live beside the game by default, or in a folder you choose.
 - 🧩 **Store and package APIs.** `ApplicationData`, `Package`, `CurrentApp`, the Share and Settings charms, and live tiles are provided locally.
-- 📴 **Offline service stand-ins.** The Xbox LIVE SDK and similar shut-down services report "no connection" cleanly instead of crashing. Nothing is sent over the network.
+- 📴 **Offline service stand-ins.** The Xbox LIVE SDK and similar shut-down services report "no connection" cleanly instead of crashing; Xbox games get a signed-in local player, so they can start. Nothing is sent over the network.
 - 🧠 **Managed (C#) games.** `appx-host.exe` hosts .NET games through CoreWindow or XAML Islands, selected automatically.
 - 🏗️ **x86 and x64.** Windows 8/8.1 x86 games, plus experimental support for x64 Windows 10 UWP games.
 - 🍷 **Experimental Wine support.** Play on macOS through Wine: the installer sets up Wine, Rosetta 2 and GStreamer, and games draw through Vulkan on Metal. Managed games do not run under Wine yet.

@@ -79,29 +79,36 @@ int main(int argc, char**) {
     get = reinterpret_cast<GetFactoryCall>(GetProcAddress(dll, "ShimGetFactory"));
     if (!get) return 2;
 
-    // Xbox LIVE: nobody signed in; sign-in fails offline through its exact operation type.
+    // Xbox LIVE: a local player is signed in from the start, as Windows 8 signed
+    // in the Microsoft account. Sign-in completes with that player through its
+    // exact operation type; ilomilo plus waits for it at its loading screen.
     ComPtr<IActivationFactory> factory;
     ComPtr<appx::xbox::IXboxLIVEService> live;
     CHECK(SUCCEEDED(Factory(L"Microsoft.Xbox.XboxLIVEService", factory)) && SUCCEEDED(factory.As(&live)));
     if (live) {
         ComPtr<IInspectable> identity, signIn;
-        CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&identity)) && !identity);
+        CHECK(SUCCEEDED(live->get_SignedInUserIdentity(&identity)) && identity);
         CHECK(SUCCEEDED(live->SignInAsync(&signIn)) && signIn);
         ComPtr<IUnknown> typed;
-        CHECK(SUCCEEDED(signIn->QueryInterface(identityOperation, reinterpret_cast<void**>(typed.GetAddressOf()))));
+        CHECK(signIn &&
+              SUCCEEDED(signIn->QueryInterface(identityOperation, reinterpret_cast<void**>(typed.GetAddressOf()))));
         ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
         ABI::Windows::Foundation::AsyncStatus status{};
-        HRESULT error = S_OK;
-        CHECK(SUCCEEDED(signIn.As(&info)) && SUCCEEDED(info->get_Status(&status)) &&
-              status == ABI::Windows::Foundation::AsyncStatus::Error);
-        CHECK(info && SUCCEEDED(info->get_ErrorCode(&error)) && error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
-        Handler handler{handlerTable};
-        auto* operation = static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()));
-        CHECK(SUCCEEDED(operation->put_Completed(reinterpret_cast<IUnknown*>(&handler))));
-        CHECK(handler.calls == 1 && handler.status == ABI::Windows::Foundation::AsyncStatus::Error);
-        void* result = reinterpret_cast<void*>(1);
-        CHECK(operation->GetResults(&result) == error && !result);
-        CHECK(info && SUCCEEDED(info->Close()));
+        HRESULT error = E_FAIL;
+        CHECK(signIn && SUCCEEDED(signIn.As(&info)) && SUCCEEDED(info->get_Status(&status)) &&
+              status == ABI::Windows::Foundation::AsyncStatus::Completed);
+        CHECK(info && SUCCEEDED(info->get_ErrorCode(&error)) && error == S_OK);
+        if (typed) {
+            Handler handler{handlerTable};
+            auto* operation = static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()));
+            CHECK(SUCCEEDED(operation->put_Completed(reinterpret_cast<IUnknown*>(&handler))));
+            CHECK(handler.calls == 1 && handler.status == ABI::Windows::Foundation::AsyncStatus::Completed);
+            ComPtr<appx::xbox::IUserIdentity> player;
+            HString gamertag;
+            CHECK(SUCCEEDED(operation->GetResults(player.GetAddressOf())) && player);
+            CHECK(player && SUCCEEDED(player->get_Gamertag(gamertag.GetAddressOf())) &&
+                  wcscmp(gamertag.GetRawBuffer(nullptr), L"Local Player") == 0);
+        }
         ComPtr<IInspectable> client;
         CHECK(SUCCEEDED(live->get_ServiceClient(&client)) && client);
     }
@@ -125,6 +132,18 @@ int main(int argc, char**) {
             HRESULT error{};
             CHECK(info && SUCCEEDED(info->get_ErrorCode(&error)) &&
                   error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            // The local player's profile loads offline.
+            ComPtr<IInspectable> profile;
+            ComPtr<appx::xbox::IUserProfile> loaded;
+            CHECK(user && SUCCEEDED(user->GetProfileAsync(&profile)) && profile);
+            const auto profileOperation = appx::ParameterizedIid(
+                appx::AsyncOperationOfClass("Microsoft.Xbox.UserProfile", appx::xbox::defaults::UserProfile));
+            CHECK(profile && SUCCEEDED(profile->QueryInterface(
+                                 profileOperation, reinterpret_cast<void**>(typed.ReleaseAndGetAddressOf()))));
+            if (typed)
+                CHECK(SUCCEEDED(static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()))
+                                    ->GetResults(loaded.GetAddressOf())) &&
+                      loaded);
         };
         if (argc > 1) {
             ComPtr<appx::xbox::IUser12> user;

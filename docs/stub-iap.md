@@ -69,12 +69,13 @@ insufficient balances fail without consuming anything. Listings and balance and
 receipt queries return local snapshots. Without `StubIap`, these operations fail
 offline through their async callbacks.
 
-Stub IAP also supplies an Xbox identity named `Local Player` and completes both
-Xbox sign-in APIs locally, allowing games to reach their shop screens. This
-identity has no Xbox account or server credentials. Other Xbox services,
-including profiles, achievements and multiplayer, continue to fail offline.
-Sign-in does not supply a missing catalog: offer enumeration uses the configured
-`StubXboxProducts` entries, and a game may also require its own product metadata.
+Shop screens need a signed-in player. With or without Stub IAP, the offline Xbox
+stand-in signs in a local player named `Local Player` and completes both Xbox
+sign-in APIs locally. The player has a local profile but no Xbox account or
+server credentials. Other Xbox services, including achievements, friends and
+multiplayer, continue to fail offline. Sign-in does not supply a missing
+catalog: offer enumeration uses the configured `StubXboxProducts` entries, and a
+game may also require its own product metadata.
 
 Configure consumables in `[options] StubXboxProducts` as comma-separated
 `offer-guid:asset-id:quantity` entries. A GUID alone describes a durable offer

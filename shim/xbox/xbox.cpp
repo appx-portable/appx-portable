@@ -1,7 +1,8 @@
 // An offline stand-in for the Xbox LIVE SDK for Windows (Microsoft.Xbox.dll),
 // whose services have shut down; the real DLL also crashes unpackaged.
-// Services fail offline by default. StubIap supplies a local player for shop
-// listings and purchases. Every other Microsoft.Xbox class reports
+// A local player is signed in, with a profile, as Windows 8 signed in the
+// Microsoft account; games such as ilomilo plus wait for both before they
+// load. Remote services fail offline. Every other Microsoft.Xbox class reports
 // "not registered", so the real DLL is never loaded.
 #include "registry.h"
 #include "xbox_abi.h"
@@ -12,7 +13,6 @@
 #include "com/pinterface.h"
 #include "com/async_action.h"
 #include "log.h"
-#include "options.h"
 #include <wrl.h>
 #include <filesystem>
 #include <wrl/wrappers/corewrappers.h>
@@ -74,7 +74,7 @@ HRESULT Nobody(IInspectable** value) {
     *value = nullptr;
     return S_OK;
 }
-// The purchase stub uses a local player, with no Xbox account or credentials.
+// The local player, with no Xbox account or credentials.
 class LocalIdentity final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserIdentity, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.Foundation.UserIdentity", BaseTrust);
 
@@ -89,8 +89,55 @@ public:
         return WindowsCreateString(L"Local Player", 12, value);
     }
 };
+// The local player's profile; editable fields are kept for the session only.
+class LocalProfile final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserProfile, FtmBase> {
+    InspectableClass(L"Microsoft.Xbox.UserProfile", BaseTrust);
+    Wrappers::HString bio_, location_, motto_, name_;
+    static HRESULT Empty(HSTRING* value) {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return S_OK;
+    }
+
+public:
+    HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_Bio(HSTRING* v) override { return bio_.CopyTo(v); }
+    HRESULT STDMETHODCALLTYPE put_Bio(HSTRING v) override { return bio_.Set(v); }
+    HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_Gamerscore(INT32* v) override {
+        if (!v) return E_POINTER;
+        *v = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Gamertag(HSTRING* v) override {
+        if (!v) return E_POINTER;
+        return WindowsCreateString(L"Local Player", 12, v);
+    }
+    HRESULT STDMETHODCALLTYPE get_HasAvatar(boolean* v) override {
+        if (!v) return E_POINTER;
+        *v = false;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_MembershipLevel(INT32* v) override {
+        if (!v) return E_POINTER;
+        *v = 3; // Silver
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Location(HSTRING* v) override { return location_.CopyTo(v); }
+    HRESULT STDMETHODCALLTYPE put_Location(HSTRING v) override { return location_.Set(v); }
+    HRESULT STDMETHODCALLTYPE get_Motto(HSTRING* v) override { return motto_.CopyTo(v); }
+    HRESULT STDMETHODCALLTYPE put_Motto(HSTRING v) override { return motto_.Set(v); }
+    HRESULT STDMETHODCALLTYPE get_Name(HSTRING* v) override { return name_.CopyTo(v); }
+    HRESULT STDMETHODCALLTYPE put_Name(HSTRING v) override { return name_.Set(v); }
+    HRESULT STDMETHODCALLTYPE get_Reputation(DOUBLE* v) override {
+        if (!v) return E_POINTER;
+        *v = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING* v) override { return Empty(v); }
+};
 std::atomic<bool>& LocalSignedIn() {
-    static std::atomic<bool> signedIn{GetOptions().stubIap};
+    static std::atomic<bool> signedIn{true};
     return signedIn;
 }
 HRESULT SignedInIdentity(IInspectable** value) {
@@ -127,12 +174,9 @@ class ServiceClient final : public RuntimeClass<RuntimeClassFlags<WinRt>, IServi
 
 public:
     HRESULT STDMETHODCALLTYPE SignInAsync(IAsyncAction** action) override {
-        if (GetOptions().stubIap) {
-            auto hr = DoneAction(action);
-            if (SUCCEEDED(hr)) LocalSignedIn() = true;
-            return hr;
-        }
-        return FailedAction("ServiceClient.SignInAsync", action);
+        auto hr = DoneAction(action);
+        if (SUCCEEDED(hr)) LocalSignedIn() = true;
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override {
         auto hr = DoneAction(action);
@@ -165,6 +209,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_Identity(IInspectable** identity) override { return SignedInIdentity(identity); }    \
     HRESULT STDMETHODCALLTYPE get_Status(IInspectable** status) override { return Nobody(status); }                    \
     HRESULT STDMETHODCALLTYPE GetProfileAsync(IInspectable** op) override {                                            \
+        if (LocalSignedIn()) return Success<IUserProfile>(Make<LocalProfile>(), op);                                   \
         return FailedClass("User.GetProfileAsync", "Microsoft.Xbox.UserProfile", defaults::UserProfile, op);           \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetFriendsAsync(IInspectable** op) override {                                            \
@@ -282,14 +327,10 @@ class LiveFactory final : public Factory<IXboxLIVEService> {
 public:
     LiveFactory() : Factory(L"Microsoft.Xbox.XboxLIVEService") {}
     HRESULT STDMETHODCALLTYPE SignInAsync(IInspectable** op) override {
-        if (GetOptions().stubIap) {
-            ComPtr<IUserIdentity> identity = Make<LocalIdentity>();
-            auto hr = Success<IUserIdentity>(identity, op);
-            if (SUCCEEDED(hr)) LocalSignedIn() = true;
-            return hr;
-        }
-        return FailedClass("XboxLIVEService.SignInAsync", "Microsoft.Xbox.Foundation.UserIdentity",
-                           defaults::UserIdentity, op);
+        ComPtr<IUserIdentity> identity = Make<LocalIdentity>();
+        auto hr = Success<IUserIdentity>(identity, op);
+        if (SUCCEEDED(hr)) LocalSignedIn() = true;
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE SignOutAsync(IAsyncAction** action) override {
         auto hr = DoneAction(action);
