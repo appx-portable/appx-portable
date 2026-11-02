@@ -1,7 +1,8 @@
 // NotificationsExtensions: Microsoft's C# tile and toast XML helper library,
 // which Windows 8 games ship as a WinRT component hosted by Windows'
 // CLRHost.dll, which needs the package to run. Stood in for its tile image
-// templates, which Asphalt 7: Heat builds its live tile from at launch; the
+// templates, which Asphalt 7: Heat builds its live tile from at launch, and
+// TileWideImageAndText02, which ilomilo plus builds after its intro; the
 // offline TileUpdater discards the notification. Other templates fail with
 // E_NOTIMPL. Interfaces declared from NotificationsExtensions.winmd (same ABI
 // for object parameters as IInspectable*).
@@ -30,6 +31,13 @@ INotificationContentImage : public IInspectable {
     virtual HRESULT STDMETHODCALLTYPE put_Alt(HSTRING value) = 0;
     virtual HRESULT STDMETHODCALLTYPE get_AddImageQuery(boolean * value) = 0;
     virtual HRESULT STDMETHODCALLTYPE put_AddImageQuery(boolean value) = 0;
+};
+MIDL_INTERFACE("7B093628-752B-5D3A-42C0-ABE72D42D323")
+INotificationContentText : public IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE get_Text(HSTRING * value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Text(HSTRING value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Lang(HSTRING * value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Lang(HSTRING value) = 0;
 };
 MIDL_INTERFACE("4F5A7235-6BB2-553D-4000-4A58562B7072")
 ITileNotificationContent : public IInspectable {
@@ -61,6 +69,12 @@ ITileSquareImage : public IInspectable {
 MIDL_INTERFACE("4DCA931B-2D24-5435-78F2-49F4C6849A0D")
 ITileWideImage : public IInspectable {
     virtual HRESULT STDMETHODCALLTYPE get_Image(INotificationContentImage * *value) = 0;
+};
+MIDL_INTERFACE("E20B8C46-7868-5903-7B2D-C80B95BFEFF1")
+ITileWideImageAndText02 : public IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE get_Image(INotificationContentImage * *value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_TextCaption1(INotificationContentText * *value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_TextCaption2(INotificationContentText * *value) = 0;
 };
 // Every template, in ITileContentFactoryStatic's slot order.
 #define APPX_TILE_TEMPLATES(X)                                                                                         \
@@ -133,8 +147,8 @@ HRESULT CopyFlag(bool flag, boolean* value) {
     *value = flag;
     return S_OK;
 }
-std::wstring Attribute(const wchar_t* name, const std::wstring& value) {
-    std::wstring out = std::wstring(L" ") + name + L"=\"";
+std::wstring Escape(const std::wstring& value) {
+    std::wstring out;
     for (auto c : value) {
         if (c == L'&')
             out += L"&amp;";
@@ -145,7 +159,10 @@ std::wstring Attribute(const wchar_t* name, const std::wstring& value) {
         else
             out += c;
     }
-    return out + L"\"";
+    return out;
+}
+std::wstring Attribute(const wchar_t* name, const std::wstring& value) {
+    return std::wstring(L" ") + name + L"=\"" + Escape(value) + L"\"";
 }
 
 class Image final : public RuntimeClass<RuntimeClassFlags<WinRt>, INotificationContentImage, FtmBase> {
@@ -174,6 +191,28 @@ public:
         if (!alt_.empty()) out += Attribute(L"alt", alt_);
         if (query_) out += L" addImageQuery=\"true\"";
         return out + L"/>";
+    }
+};
+
+class TextField final : public RuntimeClass<RuntimeClassFlags<WinRt>, INotificationContentText, FtmBase> {
+    InspectableClass(L"NotificationsExtensions.NotificationContentText", BaseTrust);
+    std::wstring text_, lang_;
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Text(HSTRING* value) override { return CopyText(text_, value); }
+    HRESULT STDMETHODCALLTYPE put_Text(HSTRING value) override {
+        text_ = Text(value);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Lang(HSTRING* value) override { return CopyText(lang_, value); }
+    HRESULT STDMETHODCALLTYPE put_Lang(HSTRING value) override {
+        lang_ = Text(value);
+        return S_OK;
+    }
+    std::wstring Element(int id) const {
+        std::wstring out = L"<text id=\"" + std::to_wstring(id) + L"\"";
+        if (!lang_.empty()) out += Attribute(L"lang", lang_);
+        return out + L">" + Escape(text_) + L"</text>";
     }
 };
 
@@ -206,8 +245,9 @@ public:
     }
 };
 
-// An image template: TileSquareImage or TileWideImage. The wide one also
-// carries the square tile shown when the user makes the tile small.
+// A template led by one image: TileSquareImage, TileWideImage or
+// TileWideImageAndText02. Wide ones also carry the square tile shown when the
+// user makes the tile small.
 template <class Template, class Shape>
 class ImageTile : public RuntimeClass<RuntimeClassFlags<WinRt>, Template, ITileNotificationContent, Shape,
                                       INotificationContent, ITileBinding, FtmBase> {
@@ -219,10 +259,12 @@ class ImageTile : public RuntimeClass<RuntimeClassFlags<WinRt>, Template, ITileN
 protected:
     virtual const wchar_t* Name() const = 0;
     virtual std::wstring Bindings() { return Binding(); }
+    virtual std::wstring Texts() { return {}; }
 
 public:
     std::wstring STDMETHODCALLTYPE Binding() override {
-        return std::wstring(L"<binding") + Attribute(L"template", Name()) + L">" + image_->Element() + L"</binding>";
+        return std::wstring(L"<binding") + Attribute(L"template", Name()) + L">" + image_->Element() + Texts() +
+               L"</binding>";
     }
     HRESULT STDMETHODCALLTYPE get_Image(INotificationContentImage** value) override {
         if (!value) return E_POINTER;
@@ -295,16 +337,14 @@ class SquareImageTile final : public ImageTile<ITileSquareImage, ISquareTileNoti
 protected:
     const wchar_t* Name() const override { return L"TileSquareImage"; }
 };
-class WideImageTile final : public ImageTile<ITileWideImage, IWideTileNotificationContent> {
-    InspectableClass(L"NotificationsExtensions.TileContent.TileWideImage", BaseTrust);
+template <class Template> class WideTile : public ImageTile<Template, IWideTileNotificationContent> {
     ComPtr<ISquareTileNotificationContent> square_;
     bool requireSquare_ = true;
 
 protected:
-    const wchar_t* Name() const override { return L"TileWideImage"; }
     std::wstring Bindings() override {
         ComPtr<ITileBinding> square;
-        auto bindings = Binding();
+        auto bindings = this->Binding();
         if (square_ && SUCCEEDED(square_.As(&square))) bindings += square->Binding();
         return bindings;
     }
@@ -326,6 +366,30 @@ public:
         return S_OK;
     }
 };
+class WideImageTile final : public WideTile<ITileWideImage> {
+    InspectableClass(L"NotificationsExtensions.TileContent.TileWideImage", BaseTrust);
+
+protected:
+    const wchar_t* Name() const override { return L"TileWideImage"; }
+};
+class WideImageAndText02Tile final : public WideTile<ITileWideImageAndText02> {
+    InspectableClass(L"NotificationsExtensions.TileContent.TileWideImageAndText02", BaseTrust);
+    ComPtr<TextField> caption1_ = Make<TextField>(), caption2_ = Make<TextField>();
+
+protected:
+    const wchar_t* Name() const override { return L"TileWideImageAndText02"; }
+    std::wstring Texts() override { return caption1_->Element(1) + caption2_->Element(2); }
+
+public:
+    HRESULT STDMETHODCALLTYPE get_TextCaption1(INotificationContentText** value) override {
+        if (!value) return E_POINTER;
+        return caption1_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE get_TextCaption2(INotificationContentText** value) override {
+        if (!value) return E_POINTER;
+        return caption2_.CopyTo(value);
+    }
+};
 
 class TileContentFactory final : public Factory<ITileContentFactoryStatic> {
     template <class T> static HRESULT Create(IInspectable** value) {
@@ -337,6 +401,7 @@ class TileContentFactory final : public Factory<ITileContentFactoryStatic> {
         *value = nullptr;
         if (wcscmp(name, L"SquareImage") == 0) return Create<SquareImageTile>(value);
         if (wcscmp(name, L"WideImage") == 0) return Create<WideImageTile>(value);
+        if (wcscmp(name, L"WideImageAndText02") == 0) return Create<WideImageAndText02Tile>(value);
         Log("UNIMPL", "NotificationsExtensions TileContentFactory.CreateTile%ls", name);
         return E_NOTIMPL;
     }

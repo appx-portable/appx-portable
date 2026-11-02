@@ -74,7 +74,7 @@ int main() {
     auto get = dll ? reinterpret_cast<FactoryCall>(GetProcAddress(dll, "ShimGetFactory")) : nullptr;
     if (!get) return 1;
     ComPtr<IActivationFactory> factory;
-    // Stub IAP supplies one local player to both Xbox sign-in APIs. Sign-out
+    // One local player serves both Xbox sign-in APIs. Sign-out
     // is shared across service clients and threads; invalid calls do not sign in.
     CHECK(SUCCEEDED(get(HStringReference(L"Microsoft.Xbox.XboxLIVEService").Get(), &factory)));
     ComPtr<IXboxLIVEService> live;
@@ -132,6 +132,15 @@ int main() {
     CHECK(user && SUCCEEDED(user->get_Identity(rawIdentity.ReleaseAndGetAddressOf())) && rawIdentity);
     CHECK(rawIdentity && SUCCEEDED(rawIdentity.As(&identity)));
     CHECK(identity && SUCCEEDED(identity->get_Xuid(&xuid)) && xuid == 1);
+    // ilomilo plus stays on its loading screen until the player's profile loads.
+    ComPtr<IInspectable> profileOperation;
+    CHECK(user && SUCCEEDED(user->GetProfileAsync(&profileOperation)) && profileOperation);
+    auto profile = Result<IUserProfile>(profileOperation);
+    HString profileTag;
+    INT32 membership{};
+    CHECK(profile && SUCCEEDED(profile->get_Gamertag(profileTag.GetAddressOf())) &&
+          wcscmp(profileTag.GetRawBuffer(nullptr), L"Local Player") == 0);
+    CHECK(profile && SUCCEEDED(profile->get_MembershipLevel(&membership)) && membership == 3);
 
     CHECK(SUCCEEDED(get(HStringReference(L"Microsoft.Xbox.Marketplace.MarketplaceService").Get(), &factory)));
     ComPtr<IMarketplaceStatics> market;

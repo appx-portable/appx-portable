@@ -17,6 +17,26 @@ IUserIdentity : public IInspectable {
     virtual HRESULT STDMETHODCALLTYPE get_Gamertag(HSTRING*) = 0;
 };
 
+MIDL_INTERFACE("10D2C627-EAD4-46AA-B52C-36A934DB2C29")
+IUserProfile : public IInspectable { // Microsoft.Xbox.UserProfile
+    virtual HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Bio(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Bio(HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Gamerscore(INT32*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Gamertag(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_HasAvatar(boolean*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_MembershipLevel(INT32*) = 0; // MembershipType
+    virtual HRESULT STDMETHODCALLTYPE get_Location(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Location(HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Motto(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Motto(HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Name(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_Name(HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Reputation(DOUBLE*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING*) = 0;
+};
+
 // Xbox Marketplace uses offer GUIDs, assets and receipts, independently of
 // Windows.ApplicationModel.Store.CurrentApp and its optional purchase stub.
 MIDL_INTERFACE("5FB27D3F-F307-4DCC-B8C1-588ADCE62FBD")
