@@ -344,10 +344,61 @@ int main(int argc, char**) {
                   std::wstring::npos);
             ComPtr<IInspectable> captionedWide;
             CHECK(SUCCEEDED(captioned->QueryInterface(wideContent, &captionedWide)));
+            // Its square tile is TileSquareText04 (slot 15): TextBodyWrap is slot 6.
+            ComPtr<IInspectable> wrapped, bodyText, wrappedSquare;
+            CHECK(creator && SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), 15))(creator.Get(), &wrapped)) &&
+                  wrapped);
+            if (wrapped) {
+                CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(wrapped.Get(), 6))(wrapped.Get(), &bodyText)) && bodyText);
+                if (bodyText)
+                    CHECK(SUCCEEDED(reinterpret_cast<PutText>(slot(bodyText.Get(), 7))(
+                        bodyText.Get(), HStringReference(L"World 1 & 2").Get())));
+                CHECK(SUCCEEDED(wrapped->QueryInterface(squareContent, &wrappedSquare)));
+                CHECK(captionedWide && wrappedSquare &&
+                      SUCCEEDED(reinterpret_cast<PutObject>(slot(captionedWide.Get(), 7))(captionedWide.Get(),
+                                                                                          wrappedSquare.Get())));
+                HString both;
+                CHECK(captionedContent && SUCCEEDED(reinterpret_cast<GetText>(slot(captionedContent.Get(), 6))(
+                                              captionedContent.Get(), both.GetAddressOf())));
+                CHECK(std::wstring(both.GetRawBuffer(nullptr))
+                          .find(L"<binding template=\"TileSquareText04\"><text id=\"1\">World 1 &amp; 2</text>"
+                                L"</binding></visual></tile>") != std::wstring::npos);
+            }
         }
-        // Other templates are not stood in; they fail rather than call a wrong slot.
-        ComPtr<IInspectable> text01;
-        CHECK(creator && FAILED(reinterpret_cast<Get>(slot(creator.Get(), 41))(creator.Get(), &text01)) && !text01);
+        // Every Windows 8 template (slots 6 to 50) is stood in.
+        for (int index = 6; creator && index <= 50; ++index) {
+            ComPtr<IInspectable> made;
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), index))(creator.Get(), &made)) && made);
+        }
+        // TileWideText01 (slot 41): a heading and four lines, each a text field from slot 6.
+        ComPtr<IInspectable> text01, heading, line, text01Content;
+        CHECK(creator && SUCCEEDED(reinterpret_cast<Get>(slot(creator.Get(), 41))(creator.Get(), &text01)) && text01);
+        if (text01) {
+            HString className, text01Xml;
+            CHECK(SUCCEEDED(text01->GetRuntimeClassName(className.GetAddressOf())) &&
+                  wcscmp(className.GetRawBuffer(nullptr), L"NotificationsExtensions.TileContent.TileWideText01") == 0);
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(text01.Get(), 6))(text01.Get(), &heading)) && heading);
+            CHECK(SUCCEEDED(reinterpret_cast<Get>(slot(text01.Get(), 10))(text01.Get(), &line)) && line);
+            ComPtr<IInspectable> beyond;
+            CHECK(FAILED(reinterpret_cast<Get>(slot(text01.Get(), 11))(text01.Get(), &beyond)) && !beyond);
+            if (heading)
+                CHECK(SUCCEEDED(reinterpret_cast<PutText>(slot(heading.Get(), 7))(heading.Get(),
+                                                                                  HStringReference(L"Scores").Get())));
+            if (line)
+                CHECK(SUCCEEDED(
+                    reinterpret_cast<PutText>(slot(line.Get(), 7))(line.Get(), HStringReference(L"Safka 3").Get())));
+            CHECK(SUCCEEDED(text01->QueryInterface(content, &text01Content)) &&
+                  SUCCEEDED(reinterpret_cast<GetText>(slot(text01Content.Get(), 6))(text01Content.Get(),
+                                                                                    text01Xml.GetAddressOf())));
+            CHECK(std::wstring(text01Xml.GetRawBuffer(nullptr))
+                      .find(L"<binding template=\"TileWideText01\"><text id=\"1\">Scores</text><text id=\"2\"></text>"
+                            L"<text id=\"3\"></text><text id=\"4\"></text><text id=\"5\">Safka 3</text></binding>") !=
+                  std::wstring::npos);
+        }
+        // A template's known Windows 8 IID answers with the pointer the factory returned.
+        const GUID wideImage = {0x4dca931b, 0x2d24, 0x5435, {0x78, 0xf2, 0x49, 0xf4, 0xc6, 0x84, 0x9a, 0x0d}};
+        ComPtr<IInspectable> asWideImage;
+        CHECK(wide && SUCCEEDED(wide->QueryInterface(wideImage, &asWideImage)) && asWideImage.Get() == wide.Get());
     }
 
     // Outside a package there are no background tasks to enumerate or cancel.
