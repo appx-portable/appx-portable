@@ -103,7 +103,7 @@ public:
     }
 };
 static ComPtr<Window> xamlWindow;
-void XamlInputMessage(UINT message, WPARAM wparam, LPARAM lparam) {
+void XamlKeyMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     const bool released = message == WM_KEYUP || message == WM_SYSKEYUP;
     if (!released && message != WM_KEYDOWN && message != WM_SYSKEYDOWN) return;
     if (!xamlWindow) return;
