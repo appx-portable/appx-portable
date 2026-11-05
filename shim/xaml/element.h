@@ -5,6 +5,7 @@
 #include "host/host.h"
 #include "host/pointer.h"
 #include "host/dispatcher.h"
+#include "xaml/key.h"
 #include "compat/win10/xaml.h"
 #include <wrl.h>
 #include <wrl/event.h>
@@ -81,10 +82,12 @@ template <class Derived, class Primary, class... Interfaces>
 class Element
     : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                         ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, Interfaces...> {
-    using Base = Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
-                            ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                            IPointerTargetProvider, INamedElementRegistry, IGridPlacement, Interfaces...>;
+                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, IXamlKeyTarget, Interfaces...> {
+    using Base =
+        Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
+                   ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
+                   IPointerTargetProvider, INamedElementRegistry, IGridPlacement, IXamlKeyTarget, Interfaces...>;
+    XamlKeyEventSource keyDown_, keyUp_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_, unloaded_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
     Microsoft::WRL::ComPtr<IInspectable> panel_, backgroundPanel_, grid_, media_;
@@ -155,6 +158,21 @@ private:
     }
 
 public:
+    HRESULT STDMETHODCALLTYPE RaiseKey(boolean released,
+                                       ABI::Windows::UI::Xaml::Input::IKeyRoutedEventArgs* args) override {
+        auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+        return released ? keyUp_.Raise(source, args) : keyDown_.Raise(source, args);
+    }
+    HRESULT STDMETHODCALLTYPE add_KeyDown(ABI::Windows::UI::Xaml::Input::IKeyEventHandler* handler,
+                                          EventRegistrationToken* token) override {
+        return keyDown_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_KeyDown(EventRegistrationToken token) override { return keyDown_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE add_KeyUp(ABI::Windows::UI::Xaml::Input::IKeyEventHandler* handler,
+                                        EventRegistrationToken* token) override {
+        return keyUp_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_KeyUp(EventRegistrationToken token) override { return keyUp_.Remove(token); }
     HRESULT STDMETHODCALLTYPE GetPlacement(UINT index, INT32* value) override {
         if (!value) return E_POINTER;
         if (index >= 4) return E_INVALIDARG;
