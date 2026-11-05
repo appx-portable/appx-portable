@@ -1,9 +1,16 @@
 // The packaged C# Facebook bridge cannot use CLRHost outside a package.
 // Supply its exact ABI offline: no authentication or network requests, and
 // requested operations complete through the game's callback with an error.
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma warning(disable : 4996)
+#endif
 #include "stubs/facebook_abi.h"
 #include "registry.h"
 #include "com/factory.h"
+#include "xaml/element.h"
+#include "generated/controls.h"
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <mutex>
@@ -75,7 +82,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Login() override { return Offline(); }
     HRESULT STDMETHODCALLTYPE Logout(boolean) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE NavigationFailed(INT32) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE NavigationFailed(INT32) override { return Offline(); }
     HRESULT STDMETHODCALLTYPE NavigationStarting(ABI::Windows::Foundation::IUriRuntimeClass*) override { return S_OK; }
     HRESULT STDMETHODCALLTYPE OpenGraphAction(HSTRING, HSTRING, HSTRING, HSTRING) override { return Offline(); }
     HRESULT STDMETHODCALLTYPE PostPhotoWoWall(ABI::Windows::Foundation::Collections::IVector<BYTE>*, HSTRING) override {
@@ -130,7 +137,51 @@ HRESULT MakeFacebookFactory(IActivationFactory** value) {
     static auto factory = Make<FacebookFactory>();
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
+class FacebookWebView final
+    : public Element<FacebookWebView, IFacebookWebViewClass, ABI::Windows::UI::Xaml::Controls::DefaultIPage,
+                     ABI::Windows::UI::Xaml::Controls::DefaultIContentControl,
+                     ABI::Windows::UI::Xaml::Controls::DefaultIControl> {
+    ComPtr<IFacebookHelperClass> helper_;
+
+public:
+    static constexpr const wchar_t* Name = L"FacebookRuntimeComponent.FacebookWebView";
+    FacebookWebView(IInspectable* outer, IFacebookHelperClass* helper) : Element(outer), helper_(helper) {}
+    HRESULT STDMETHODCALLTYPE GoToPage(ABI::Windows::Foundation::IUriRuntimeClass* uri) override {
+        if (!uri) return E_INVALIDARG;
+        // Report through the helper's existing offline error callback.
+        return helper_->NavigationFailed(0);
+    }
+    HRESULT STDMETHODCALLTYPE HideBrowser() override { return S_OK; }
+};
+class FacebookWebViewFactory final : public Factory<IFacebookWebViewStatic, IFacebookWebViewFactory> {
+public:
+    FacebookWebViewFactory() : Factory(FacebookWebView::Name) {}
+    HRESULT STDMETHODCALLTYPE SetGamePanel(ABI::Windows::UI::Xaml::Controls::IPanel* panel, HSTRING* errorMessage,
+                                           boolean* result) override {
+        if (!errorMessage || !result) return E_POINTER;
+        *errorMessage = nullptr;
+        *result = panel != nullptr;
+        if (panel) return S_OK;
+        return WindowsCreateString(L"Missing game panel", 18, errorMessage);
+    }
+    HRESULT STDMETHODCALLTYPE CreateFacebookWebView(IFacebookHelperClass* helper,
+                                                    IFacebookWebViewClass** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        if (!helper) return E_INVALIDARG;
+        auto view = new (std::nothrow) FacebookWebView(nullptr, helper);
+        if (!view) return E_OUTOFMEMORY;
+        *value = static_cast<IFacebookWebViewClass*>(view);
+        return S_OK;
+    }
+};
+HRESULT MakeFacebookWebViewFactory(IActivationFactory** value) {
+    static auto factory = Make<FacebookWebViewFactory>();
+    return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
+}
 }
 const ShimClass facebookClass{L"FacebookRuntimeComponent.FacebookHelper", MakeFacebookFactory, ShimPolicy::Replace,
                               InIslands};
+const ShimClass facebookWebViewClass{L"FacebookRuntimeComponent.FacebookWebView", MakeFacebookWebViewFactory,
+                                     ShimPolicy::Replace, InIslands};
 }

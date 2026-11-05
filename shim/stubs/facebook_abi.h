@@ -3,7 +3,21 @@
 // Keep the metadata method order: C++/CX calls these slots directly.
 #include <windows.foundation.h>
 #include <windows.foundation.collections.h>
+#include <windows.ui.xaml.controls.h>
 namespace appx::facebook {
+struct IFacebookHelperClass;
+MIDL_INTERFACE("a66cf8d7-660c-532e-7202-cd6d3fd05fdb") IFacebookWebViewClass : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE GoToPage(ABI::Windows::Foundation::IUriRuntimeClass * uri) = 0;
+    virtual HRESULT STDMETHODCALLTYPE HideBrowser() = 0;
+};
+MIDL_INTERFACE("7545e2c9-8ece-59d3-622c-3690a30c66c5") IFacebookWebViewStatic : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE SetGamePanel(ABI::Windows::UI::Xaml::Controls::IPanel * panel,
+                                                   HSTRING * errorMessage, boolean * result) = 0;
+};
+MIDL_INTERFACE("aee719b7-71ea-5638-7b19-261492e4f530") IFacebookWebViewFactory : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE CreateFacebookWebView(IFacebookHelperClass * helper,
+                                                            IFacebookWebViewClass * *value) = 0;
+};
 MIDL_INTERFACE("cc66efa9-ed02-5572-4963-d67feac8252c") IRequestFinished : IUnknown {
     virtual HRESULT STDMETHODCALLTYPE Invoke(boolean errorOccurred, HSTRING response, boolean userCanceled) = 0;
 };
