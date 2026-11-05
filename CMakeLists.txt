@@ -116,6 +116,14 @@ add_executable(facebooktest tests/facebooktest.cpp)
 target_include_directories(facebooktest PRIVATE shim)
 target_link_libraries(facebooktest PRIVATE runtimeobject ole32)
 add_test(NAME facebooktest COMMAND facebooktest)
+add_executable(notificationsabitest tests/notificationsabitest.cpp)
+target_link_libraries(notificationsabitest PRIVATE runtimeobject ole32)
+foreach(mode legacy modern)
+  add_test(NAME notifications_abi_${mode} COMMAND "${CMAKE_COMMAND}"
+    "-DTEST_EXE=$<TARGET_FILE:notificationsabitest>" "-DSHIM=$<TARGET_FILE:appxportable>"
+    "-DFIXTURE=${CMAKE_BINARY_DIR}/notifications-abi-${mode}" "-DMODE=${mode}"
+    -P "${CMAKE_SOURCE_DIR}/tests/notifications_abi.cmake")
+endforeach()
 add_executable(marketplacetest tests/marketplacetest.cpp)
 target_include_directories(marketplacetest PRIVATE shim)
 target_link_libraries(marketplacetest PRIVATE runtimeobject ole32)
