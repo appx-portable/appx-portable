@@ -65,7 +65,32 @@ HRESULT MakeRectangleGeometryFactory(IActivationFactory** value) {
     auto factory = Make<RectangleGeometryFactory>();
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
-class Panel final : public Element<Panel, DefaultISwapChainPanel, ISwapChainPanelNative> {
+class __declspec(uuid("a50a4bbd-8361-469c-90da-e9a40c7474df")) PanelState : public DefaultIPanel {
+    winrt::Windows::Foundation::Collections::IVector<winrt::Windows::UI::Xaml::UIElement> children_ =
+        winrt::single_threaded_vector<winrt::Windows::UI::Xaml::UIElement>();
+    ComPtr<ABI::Windows::UI::Xaml::Media::IBrush> background_;
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Children(__FIVector_1_Windows__CUI__CXaml__CUIElement** value) override {
+        if (!value) return E_POINTER;
+        winrt::copy_to_abi(children_, *reinterpret_cast<void**>(value));
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Background(ABI::Windows::UI::Xaml::Media::IBrush** value) override {
+        if (!value) return E_POINTER;
+        return background_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Background(ABI::Windows::UI::Xaml::Media::IBrush* value) override {
+        background_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_IsItemsHost(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = false;
+        return S_OK;
+    }
+};
+class Panel final : public Element<Panel, DefaultISwapChainPanel, PanelState, ISwapChainPanelNative> {
     ComPtr<IDXGISwapChain> swapChain_;
     EventSource<ABI::Windows::Foundation::ITypedEventHandler<SwapChainPanel*, IInspectable*>> scaleChanged_;
 
@@ -116,7 +141,7 @@ HRESULT MakePanel(IInspectable** value) {
     return hr;
 }
 class BackgroundPanel final
-    : public Element<BackgroundPanel, ISwapChainBackgroundPanel, DefaultIPanel, ISwapChainBackgroundPanelNative> {
+    : public Element<BackgroundPanel, ISwapChainBackgroundPanel, PanelState, ISwapChainBackgroundPanelNative> {
     ComPtr<IDXGISwapChain> swapChain_;
 
 public:
@@ -144,7 +169,7 @@ HRESULT MakeBackgroundPanel(IInspectable** value) {
 }
 // MainPage's root Grid. InitializeComponent safe_casts FindName's result to
 // Grid^, so a null or non-Grid object breaks the generated field binding.
-class Grid final : public Element<Grid, DefaultIGrid, DefaultIPanel> {
+class Grid final : public Element<Grid, DefaultIGrid, PanelState> {
 public:
     static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.Grid";
     explicit Grid(IInspectable* outer) : Element(outer) {}
@@ -170,32 +195,10 @@ HRESULT MakeGrid(IInspectable** value) {
     return hr;
 }
 // DirectX games use a Canvas as an overlay without Windows' XAML core.
-class Canvas final : public Element<Canvas, ICanvas, DefaultIPanel> {
-    winrt::Windows::Foundation::Collections::IVector<winrt::Windows::UI::Xaml::UIElement> children_ =
-        winrt::single_threaded_vector<winrt::Windows::UI::Xaml::UIElement>();
-    ComPtr<ABI::Windows::UI::Xaml::Media::IBrush> background_;
-
+class Canvas final : public Element<Canvas, ICanvas, PanelState> {
 public:
     static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.Canvas";
     explicit Canvas(IInspectable* outer) : Element(outer) {}
-    HRESULT STDMETHODCALLTYPE get_Children(__FIVector_1_Windows__CUI__CXaml__CUIElement** value) override {
-        if (!value) return E_POINTER;
-        winrt::copy_to_abi(children_, *reinterpret_cast<void**>(value));
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_Background(ABI::Windows::UI::Xaml::Media::IBrush** value) override {
-        if (!value) return E_POINTER;
-        return background_.CopyTo(value);
-    }
-    HRESULT STDMETHODCALLTYPE put_Background(ABI::Windows::UI::Xaml::Media::IBrush* value) override {
-        background_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_IsItemsHost(boolean* value) override {
-        if (!value) return E_POINTER;
-        *value = false;
-        return S_OK;
-    }
 };
 class CanvasFactory final : public Factory<ICanvasFactory, ICanvasStatics> {
     HRESULT GetPosition(IUIElement* element, UINT index, DOUBLE* value) {

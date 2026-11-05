@@ -197,6 +197,17 @@ int main() {
     CHECK(grid && SUCCEEDED(grid.As(&gridType)));
     ComPtr<IPanel> gridPanel;
     CHECK(grid && SUCCEEDED(grid.As(&gridPanel)));
+    ComPtr<IPanel> swapPanel;
+    CHECK(SUCCEEDED(panel.As(&swapPanel)));
+    for (auto* container : {swapPanel.Get(), backgroundPanel.Get(), gridPanel.Get()}) {
+        ComPtr<__FIVector_1_Windows__CUI__CXaml__CUIElement> panelChildren, sameChildren;
+        CHECK(container && SUCCEEDED(container->get_Children(&panelChildren)) && panelChildren);
+        CHECK(container && SUCCEEDED(container->get_Children(&sameChildren)) && panelChildren == sameChildren);
+        CHECK(panelChildren && SUCCEEDED(panelChildren->Append(imageUi.Get())));
+        ComPtr<IUIElement> retainedChild;
+        CHECK(panelChildren && SUCCEEDED(panelChildren->GetAt(0, &retainedChild)) && retainedChild == imageUi);
+        CHECK(panelChildren && SUCCEEDED(panelChildren->Clear()));
+    }
     ComPtr<IFrameworkElement> gridElement;
     CHECK(grid && SUCCEEDED(grid.As(&gridElement)));
     CHECK(SUCCEEDED(element->FindName(HStringReference(L"missing").Get(), &same)) && !same);
