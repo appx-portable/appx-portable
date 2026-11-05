@@ -13,6 +13,7 @@
 #include <map>
 #include <string>
 #include <functional>
+#include <limits>
 namespace appx {
 // Internal namescope bridge used by the source-XAML loader.
 MIDL_INTERFACE("B9D4328C-BA3E-4F70-A0E9-E604BB4DB236") INamedElementRegistry : IUnknown {
@@ -82,11 +83,12 @@ template <class Derived, class Primary, class... Interfaces>
 class Element
     : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                         ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, IXamlKeyTarget, Interfaces...> {
-    using Base =
-        Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
-                   ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                   IPointerTargetProvider, INamedElementRegistry, IGridPlacement, IXamlKeyTarget, Interfaces...>;
+                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement, IXamlKeyTarget,
+                        Interfaces...> {
+    using Base = Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
+                            ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
+                            IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement,
+                            IXamlKeyTarget, Interfaces...>;
     XamlKeyEventSource keyDown_, keyUp_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_, unloaded_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
@@ -96,6 +98,7 @@ class Element
     Microsoft::WRL::Wrappers::HString name_;
     ABI::Windows::UI::Xaml::Visibility visibility_ = ABI::Windows::UI::Xaml::Visibility_Visible;
     INT32 placement_[4]{0, 0, 1, 1};
+    DOUBLE canvasPosition_[3]{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), 0};
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerPressed_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerMoved_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerReleased_;
@@ -158,6 +161,17 @@ private:
     }
 
 public:
+    HRESULT STDMETHODCALLTYPE GetCanvasPosition(UINT index, DOUBLE* value) override {
+        if (!value) return E_POINTER;
+        if (index >= 3) return E_INVALIDARG;
+        *value = canvasPosition_[index];
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE SetCanvasPosition(UINT index, DOUBLE value) override {
+        if (index >= 3) return E_INVALIDARG;
+        canvasPosition_[index] = value;
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE RaiseKey(boolean released,
                                        ABI::Windows::UI::Xaml::Input::IKeyRoutedEventArgs* args) override {
         auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
