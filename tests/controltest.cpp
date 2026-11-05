@@ -84,6 +84,43 @@ int main() {
     CHECK(canvasStatics && SUCCEEDED(canvasStatics->GetTop(ui.Get(), &top)) && top == -20);
     CHECK(canvasStatics && SUCCEEDED(canvasStatics->GetZIndex(ui.Get(), &zIndex)) && zIndex == -3);
     CHECK(canvasStatics && canvasStatics->SetLeft(nullptr, 0) == E_INVALIDARG);
+    ComPtr<IActivationFactory> imageFactory;
+    CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Controls.Image").Get(), &imageFactory)));
+    ComPtr<IInspectable> imageObject;
+    CHECK(imageFactory && SUCCEEDED(imageFactory->ActivateInstance(&imageObject)));
+    ComPtr<IImage> image;
+    CHECK(imageObject && SUCCEEDED(imageObject.As(&image)));
+    ComPtr<ABI::Windows::UI::Xaml::Media::IImageSource> source;
+    CHECK(image && SUCCEEDED(image->get_Source(&source)) && !source);
+    ABI::Windows::UI::Xaml::Media::Stretch stretch{};
+    CHECK(image && SUCCEEDED(image->get_Stretch(&stretch)) &&
+          stretch == ABI::Windows::UI::Xaml::Media::Stretch_Uniform);
+    CHECK(image && SUCCEEDED(image->put_Stretch(ABI::Windows::UI::Xaml::Media::Stretch_Fill)));
+    CHECK(image && SUCCEEDED(image->get_Stretch(&stretch)) && stretch == ABI::Windows::UI::Xaml::Media::Stretch_Fill);
+    ComPtr<IUIElement> imageUi;
+    CHECK(image && SUCCEEDED(image.As(&imageUi)));
+    ComPtr<IFrameworkElement> imageElement;
+    CHECK(image && SUCCEEDED(image.As(&imageElement)));
+    HorizontalAlignment horizontal{};
+    VerticalAlignment vertical{};
+    Thickness margin{};
+    CHECK(imageElement && SUCCEEDED(imageElement->put_HorizontalAlignment(HorizontalAlignment_Right)));
+    CHECK(imageElement && SUCCEEDED(imageElement->get_HorizontalAlignment(&horizontal)) &&
+          horizontal == HorizontalAlignment_Right);
+    CHECK(imageElement && SUCCEEDED(imageElement->put_VerticalAlignment(VerticalAlignment_Bottom)));
+    CHECK(imageElement && SUCCEEDED(imageElement->get_VerticalAlignment(&vertical)) &&
+          vertical == VerticalAlignment_Bottom);
+    CHECK(imageElement && SUCCEEDED(imageElement->put_Margin({1, -2, 3, 4})));
+    CHECK(imageElement && SUCCEEDED(imageElement->get_Margin(&margin)) && margin.Top == -2 && margin.Right == 3);
+    DOUBLE opacity = 0;
+    boolean hitTest = true;
+    CHECK(imageUi && SUCCEEDED(imageUi->put_Opacity(0.5)));
+    CHECK(imageUi && SUCCEEDED(imageUi->get_Opacity(&opacity)) && opacity == 0.5);
+    CHECK(imageUi && SUCCEEDED(imageUi->put_IsHitTestVisible(false)));
+    CHECK(imageUi && SUCCEEDED(imageUi->get_IsHitTestVisible(&hitTest)) && !hitTest);
+    CHECK(children && SUCCEEDED(children->Append(imageUi.Get())));
+    CHECK(children && SUCCEEDED(children->GetAt(0, &child)) && child == imageUi);
+    CHECK(children && SUCCEEDED(children->Clear()));
     // An OS XAML factory can be obtained without a XAML core, but creating a
     // RectangleGeometry then fails with RPC_E_WRONG_THREAD. Use the shim object.
     ComPtr<IActivationFactory> geometryFactory;
