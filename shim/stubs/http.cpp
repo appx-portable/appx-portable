@@ -11,10 +11,34 @@
 #include "registry.h"
 #include "options.h"
 #include <wrl/event.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Web.Http.h>
 using namespace Microsoft::WRL;
 using namespace ABI::Windows::Web::Http;
 using namespace ABI::Windows::Web::Http::Filters;
 namespace appx {
+namespace {
+using HttpOperation =
+    __FIAsyncOperationWithProgress_2_Windows__CWeb__CHttp__CHttpResponseMessage_Windows__CWeb__CHttp__CHttpProgress;
+winrt::Windows::Foundation::IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage,
+                                                        winrt::Windows::Web::Http::HttpProgress>
+OfflineHttpRequest() {
+    // A coroutine captures this exception in the operation rather than throwing
+    // while the game starts a request. Its completion handler receives Error.
+    co_return[]()->winrt::Windows::Web::Http::HttpResponseMessage {
+        throw winrt::hresult_error(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+    }
+    ();
+}
+HRESULT MakeOfflineHttpRequest(HttpOperation** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    auto operation = OfflineHttpRequest();
+    *value = reinterpret_cast<HttpOperation*>(winrt::detach_abi(operation));
+    Log("TRACE", "HttpClient request completed offline");
+    return S_OK;
+}
+}
 class Cache final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIHttpCacheControl, FtmBase> {
     InspectableClass(L"Windows.Web.Http.Filters.HttpCacheControl", BaseTrust);
     HttpCacheReadBehavior read_ = HttpCacheReadBehavior_Default;
@@ -80,9 +104,7 @@ public:
         IHttpRequestMessage*,
         __FIAsyncOperationWithProgress_2_Windows__CWeb__CHttp__CHttpResponseMessage_Windows__CWeb__CHttp__CHttpProgress**
             value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return E_ACCESSDENIED;
+        return MakeOfflineHttpRequest(value);
     }
     HRESULT STDMETHODCALLTYPE Close() override { return S_OK; }
 };
@@ -91,6 +113,25 @@ class Client final
     InspectableClass(L"Windows.Web.Http.HttpClient", BaseTrust);
 
 public:
+    HRESULT STDMETHODCALLTYPE GetAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri,
+                                       HttpOperation** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return uri ? MakeOfflineHttpRequest(value) : E_INVALIDARG;
+    }
+    HRESULT STDMETHODCALLTYPE GetWithOptionAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri, HttpCompletionOption,
+                                                 HttpOperation** value) override {
+        return GetAsync(uri, value);
+    }
+    HRESULT STDMETHODCALLTYPE SendRequestAsync(IHttpRequestMessage* request, HttpOperation** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return request ? MakeOfflineHttpRequest(value) : E_INVALIDARG;
+    }
+    HRESULT STDMETHODCALLTYPE SendRequestWithOptionAsync(IHttpRequestMessage* request, HttpCompletionOption,
+                                                         HttpOperation** value) override {
+        return SendRequestAsync(request, value);
+    }
     HRESULT STDMETHODCALLTYPE Close() override { return S_OK; }
 };
 class HttpFactory final : public Factory<DefaultIHttpClientFactory> {
