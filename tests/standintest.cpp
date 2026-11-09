@@ -221,6 +221,20 @@ int main(int argc, char**) {
                 CHECK(SUCCEEDED(static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()))
                                     ->GetResults(loaded.GetAddressOf())) &&
                       loaded);
+            // Picture URLs are valid URIs: Minion Rush builds a Uri from one on
+            // every frame of its achievements screen, and an empty one throws.
+            // Without a package, they name the package root.
+            if (loaded) {
+                using Getter = HRESULT (STDMETHODCALLTYPE appx::xbox::IUserProfile::*)(HSTRING*);
+                for (Getter getter : {&appx::xbox::IUserProfile::get_GamerPictureUrl,
+                                      &appx::xbox::IUserProfile::get_SmallGamerPictureUrl,
+                                      &appx::xbox::IUserProfile::get_AvatarImageUrl}) {
+                    HString picture;
+                    CHECK(SUCCEEDED((loaded.Get()->*getter)(picture.GetAddressOf())) &&
+                          wcscmp(picture.GetRawBuffer(nullptr), L"ms-appx:///") == 0);
+                }
+                CHECK(loaded->get_GamerPictureUrl(nullptr) == E_POINTER);
+            }
             // Unlocking completes locally. Minion Rush attaches a value-based
             // continuation and never reads the error, so a failed unlock ends
             // the game when the task is released after a level.

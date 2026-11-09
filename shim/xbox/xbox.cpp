@@ -5,6 +5,7 @@
 // load. Remote services fail offline. Every other Microsoft.Xbox class reports
 // "not registered", so the real DLL is never loaded.
 #include "registry.h"
+#include "package/package.h"
 #include "xbox_abi.h"
 #include "marketplace_abi.h"
 #include "achievements_abi.h"
@@ -189,17 +190,22 @@ public:
 class LocalProfile final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserProfile, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.UserProfile", BaseTrust);
     Wrappers::HString bio_, location_, motto_, name_;
-    static HRESULT Empty(HSTRING* value) {
+    // The player's pictures are the game's own small logo, a valid URI as
+    // Xbox LIVE's always were: Minion Rush builds a Uri from one on every frame
+    // of its achievements screen and stops drawing when that throws.
+    static HRESULT Picture(HSTRING* value) {
         if (!value) return E_POINTER;
-        *value = nullptr;
-        return S_OK;
+        std::wstring uri = L"ms-appx:///" + CurrentPackage().smallLogo;
+        for (auto& character : uri)
+            if (character == L'\\') character = L'/';
+        return WindowsCreateString(uri.c_str(), static_cast<UINT32>(uri.size()), value);
     }
 
 public:
-    HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING* v) override { return Picture(v); }
     HRESULT STDMETHODCALLTYPE get_Bio(HSTRING* v) override { return bio_.CopyTo(v); }
     HRESULT STDMETHODCALLTYPE put_Bio(HSTRING v) override { return bio_.Set(v); }
-    HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING* v) override { return Picture(v); }
     HRESULT STDMETHODCALLTYPE get_Gamerscore(INT32* v) override {
         if (!v) return E_POINTER;
         *v = 0;
@@ -230,7 +236,7 @@ public:
         *v = 0;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING* v) override { return Picture(v); }
 };
 std::atomic<bool>& LocalSignedIn() {
     static std::atomic<bool> signedIn{true};
