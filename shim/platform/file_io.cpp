@@ -122,8 +122,9 @@ HRESULT WriteBuffer(IStorageFile* file, IBuffer* buffer, std::wstring& path) {
     BYTE* bytes = nullptr;
     if (SUCCEEDED(hr)) hr = access->Buffer(&bytes);
     if (FAILED(hr)) return hr;
-    HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
-                                TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // A game may still hold a writable stream on the file (file_stream.cpp), so share writing.
+    HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                nullptr, TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
     DWORD written = 0;
     if (length && (!WriteFile(handle, bytes, length, &written, nullptr) || written != length))
