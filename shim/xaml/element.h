@@ -16,9 +16,11 @@
 #include <limits>
 #include <cmath>
 namespace appx {
-// Internal namescope bridge used by the source-XAML loader.
+// Internal namescope bridge used by the XAML loaders: names, and the markup's
+// URI that FrameworkElement.BaseUri reports.
 MIDL_INTERFACE("B9D4328C-BA3E-4F70-A0E9-E604BB4DB236") INamedElementRegistry : IUnknown {
     virtual HRESULT STDMETHODCALLTYPE RegisterName(HSTRING name, IInspectable * value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetBaseUri(HSTRING uri) = 0;
 };
 HRESULT MakePanel(IInspectable** value);
 HRESULT MakeBackgroundPanel(IInspectable** value);
@@ -97,7 +99,7 @@ class Element
     Microsoft::WRL::ComPtr<IInspectable> panel_, backgroundPanel_, grid_, media_;
     Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::Media::IRectangleGeometry> clip_;
     std::map<std::wstring, Microsoft::WRL::ComPtr<IInspectable>> namedElements_;
-    Microsoft::WRL::Wrappers::HString name_;
+    Microsoft::WRL::Wrappers::HString name_, baseUri_;
     ABI::Windows::UI::Xaml::Visibility visibility_ = ABI::Windows::UI::Xaml::Visibility_Visible;
     ABI::Windows::UI::Xaml::HorizontalAlignment horizontal_ = ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch;
     ABI::Windows::UI::Xaml::VerticalAlignment vertical_ = ABI::Windows::UI::Xaml::VerticalAlignment_Stretch;
@@ -412,6 +414,20 @@ public:
         return name_.CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE put_Name(HSTRING value) override { return name_.Set(value); }
+    // The loaded page's URI for it and its markup; elements created in code
+    // resolve against the package root.
+    HRESULT STDMETHODCALLTYPE get_BaseUri(ABI::Windows::Foundation::IUriRuntimeClass** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IUriRuntimeClassFactory> uris;
+        auto hr = RoGetActivationFactory(Microsoft::WRL::Wrappers::HStringReference(L"Windows.Foundation.Uri").Get(),
+                                         IID_PPV_ARGS(&uris));
+        if (FAILED(hr)) return hr;
+        return uris->CreateUri(baseUri_.IsValid() ? baseUri_.Get()
+                                                  : Microsoft::WRL::Wrappers::HStringReference(L"ms-appx:///").Get(),
+                               value);
+    }
+    HRESULT STDMETHODCALLTYPE SetBaseUri(HSTRING uri) override { return baseUri_.Set(uri); }
     HRESULT STDMETHODCALLTYPE get_Visibility(ABI::Windows::UI::Xaml::Visibility* value) override {
         if (!value) return E_POINTER;
         *value = visibility_;

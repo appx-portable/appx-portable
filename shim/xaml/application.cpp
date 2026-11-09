@@ -34,13 +34,23 @@ static HRESULT MakeXamlElement(IFrameworkElement* element, const std::wstring& t
     if (CurrentPackage().universal) return MakeWin10XamlElement(type.c_str(), target);
     return MakeSourceXamlElement(type.c_str(), target);
 }
-// Registers a created element under its x:Name and applies Visibility="Collapsed".
+// Registers a created element under its x:Name, gives it the page's BaseUri,
+// and applies Visibility="Collapsed".
 static HRESULT RegisterXamlElement(IFrameworkElement* element, const std::wstring& name, IInspectable* target,
                                    bool collapsed) {
     ComPtr<INamedElementRegistry> names;
     auto hr = element->QueryInterface(IID_PPV_ARGS(&names));
     if (SUCCEEDED(hr) && !name.empty()) hr = names->RegisterName(Wrappers::HStringReference(name.c_str()).Get(), target);
-    if (FAILED(hr) || !collapsed) return hr;
+    if (FAILED(hr)) return hr;
+    ComPtr<INamedElementRegistry> child;
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri;
+    Wrappers::HString text;
+    if (SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&child))) && child.Get() != names.Get() &&
+        SUCCEEDED(element->get_BaseUri(&uri)) && uri && SUCCEEDED(uri->get_AbsoluteUri(text.GetAddressOf()))) {
+        hr = child->SetBaseUri(text.Get());
+        if (FAILED(hr)) return hr;
+    }
+    if (!collapsed) return S_OK;
     ComPtr<IUIElement> ui;
     hr = target->QueryInterface(IID_PPV_ARGS(&ui));
     return SUCCEEDED(hr) ? ui->put_Visibility(Visibility_Collapsed) : hr;
@@ -351,6 +361,17 @@ public:
         HSTRING text{};
         uri->get_AbsoluteUri(&text);
         Log("TRACE", "Application::LoadComponent %ls", WindowsGetStringRawBuffer(text, nullptr));
+        if (component) {
+            // The page reports its markup's URI as BaseUri, as do its elements.
+            ComPtr<INamedElementRegistry> page;
+            if (SUCCEEDED(component->QueryInterface(IID_PPV_ARGS(&page)))) {
+                const auto hr = page->SetBaseUri(text);
+                if (FAILED(hr)) {
+                    WindowsDeleteString(text);
+                    return hr;
+                }
+            }
+        }
         const bool movie = wcscmp(WindowsGetStringRawBuffer(text, nullptr), L"ms-appx:///MovieMgrPage.xaml") == 0;
         const bool directX = wcscmp(WindowsGetStringRawBuffer(text, nullptr), L"ms-appx:///DirectXPage.xaml") == 0;
         // The page's file at the package root, or empty for any other URI.

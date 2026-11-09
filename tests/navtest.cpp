@@ -9,6 +9,7 @@
 #include <windows.ui.xaml.markup.h>
 #include <windows.ui.xaml.navigation.h>
 #include <windows.ui.xaml.media.dxinterop.h>
+#include <windows.ui.xaml.media.imaging.h>
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <atomic>
@@ -492,7 +493,20 @@ static void TestMediaElement() {
         CloseHandle(handle);
         return path;
     };
-    auto checkCompiledNames = [&](IPage* compiledPage) {
+    // FrameworkElement.BaseUri: the page's component URI for the page and its
+    // markup, ms-appx:/// for code-created elements. Minion Rush resolves the
+    // Xbox avatar against it on every frame of its achievements screen.
+    auto baseUri = [&](IInspectable* object) {
+        ComPtr<IFrameworkElement> framework;
+        ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri;
+        HString text;
+        if (!object || FAILED(object->QueryInterface(IID_PPV_ARGS(&framework))) ||
+            FAILED(framework->get_BaseUri(&uri)) || !uri || FAILED(uri->get_AbsoluteUri(text.GetAddressOf())))
+            return std::wstring(L"<none>");
+        return std::wstring(text.GetRawBuffer(nullptr));
+    };
+    auto checkCompiledNames = [&](IPage* compiledPage, const wchar_t* component) {
+        CHECK(baseUri(compiledPage) == component);
         ComPtr<IFrameworkElement> framework;
         CHECK(SUCCEEDED(compiledPage->QueryInterface(IID_PPV_ARGS(&framework))));
         ComPtr<IInspectable> box, cursor;
@@ -507,6 +521,13 @@ static void TestMediaElement() {
         CHECK(textElement && SUCCEEDED(textElement->get_Visibility(&visibility)) && visibility == Visibility_Collapsed);
         CHECK(imageElement && SUCCEEDED(imageElement->get_Visibility(&visibility)) && visibility == Visibility_Visible);
         CHECK(imageElement && SUCCEEDED(imageElement->put_Visibility(Visibility_Collapsed)));
+        CHECK(baseUri(cursor.Get()) == component && baseUri(box.Get()) == component);
+        ComPtr<IActivationFactory> images;
+        ComPtr<IInspectable> coded;
+        CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Controls.Image").Get(), &images)) && images &&
+              SUCCEEDED(images->ActivateInstance(&coded)));
+        CHECK(baseUri(coded.Get()) == L"ms-appx:///");
+        CHECK(framework && framework->get_BaseUri(nullptr) == E_POINTER);
     };
     const auto compiledPath = writeCompiled(L"CompiledPage.xbf");
     if (!compiledPath.empty()) {
@@ -518,7 +539,7 @@ static void TestMediaElement() {
             componentUris->CreateUri(HStringReference(L"ms-appx:///CompiledPage.xaml").Get(), &componentUri)));
         CHECK(SUCCEEDED(appStatics->LoadComponent(compiledPage.Get(), componentUri.Get())));
         CHECK(compiledOuter->connections == 0);
-        if (compiledPage) checkCompiledNames(compiledPage.Get());
+        if (compiledPage) checkCompiledNames(compiledPage.Get(), L"ms-appx:///CompiledPage.xaml");
         compiledPage.Reset();
         compiledOuter->Release();
         CHECK(DeleteFileW(compiledPath.c_str()));
@@ -531,7 +552,7 @@ static void TestMediaElement() {
         CHECK(SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///DirectXPage.xaml").Get(), &componentUri)));
         CHECK(SUCCEEDED(appStatics->LoadComponent(directXPage.Get(), componentUri.Get())));
         CHECK(compiledOuter->connections == 1);
-        if (directXPage) checkCompiledNames(directXPage.Get());
+        if (directXPage) checkCompiledNames(directXPage.Get(), L"ms-appx:///DirectXPage.xaml");
         directXPage.Reset();
         compiledOuter->Release();
         CHECK(DeleteFileW(compiledDirectXPath.c_str()));
@@ -560,6 +581,45 @@ static void TestMediaElement() {
     CHECK(SUCCEEDED(media->Play()));
     CHECK(SUCCEEDED(media->Stop()));
     CHECK(SUCCEEDED(media->put_AutoPlay(false)));
+}
+// Windows' BitmapImage needs its own XAML core and fails on the native host's
+// thread with RPC_E_WRONG_THREAD; Minion Rush builds one for the Xbox avatar
+// on every frame of its achievements screen.
+static void TestBitmapImage() {
+    using namespace ABI::Windows::UI::Xaml::Media;
+    using namespace ABI::Windows::UI::Xaml::Media::Imaging;
+    ComPtr<IActivationFactory> factory;
+    ComPtr<IBitmapImageFactory> bitmaps;
+    CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Media.Imaging.BitmapImage").Get(), &factory)) &&
+          SUCCEEDED(factory.As(&bitmaps)));
+    if (!bitmaps) return;
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClassFactory> uris;
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri, read;
+    CHECK(SUCCEEDED(RoGetActivationFactory(HStringReference(L"Windows.Foundation.Uri").Get(), IID_PPV_ARGS(&uris))) &&
+          SUCCEEDED(uris->CreateUri(HStringReference(L"ms-appx:///Assets/Logo.png").Get(), &uri)));
+    ComPtr<IBitmapImage> bitmap;
+    CHECK(SUCCEEDED(bitmaps->CreateInstanceWithUriSource(uri.Get(), &bitmap)) && bitmap);
+    CHECK(bitmaps->CreateInstanceWithUriSource(uri.Get(), nullptr) == E_POINTER);
+    if (!bitmap) return;
+    CHECK(SUCCEEDED(bitmap->get_UriSource(&read)) && read.Get() == uri.Get());
+    CHECK(SUCCEEDED(bitmap->put_UriSource(nullptr)) && SUCCEEDED(bitmap->get_UriSource(&read)) && !read);
+    INT32 size = -1;
+    CHECK(SUCCEEDED(bitmap->put_DecodePixelWidth(64)) && SUCCEEDED(bitmap->get_DecodePixelWidth(&size)) && size == 64);
+    ComPtr<IBitmapSource> source;
+    CHECK(SUCCEEDED(bitmap.As(&source)) && SUCCEEDED(source->get_PixelWidth(&size)) && size == 0);
+    ComPtr<IImageSource> image;
+    CHECK(SUCCEEDED(bitmap.As(&image)));
+    ComPtr<IInspectable> plain;
+    CHECK(SUCCEEDED(factory->ActivateInstance(&plain)) && plain);
+    // An Image takes it as its Source.
+    ComPtr<IActivationFactory> images;
+    ComPtr<IInspectable> element;
+    ComPtr<IImage> control;
+    ComPtr<IImageSource> shown;
+    CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Controls.Image").Get(), &images)) &&
+          SUCCEEDED(images->ActivateInstance(&element)) && SUCCEEDED(element.As(&control)));
+    CHECK(control && SUCCEEDED(control->put_Source(image.Get())) && SUCCEEDED(control->get_Source(&shown)) &&
+          shown.Get() == image.Get());
 }
 static int ticks = 0;
 static DWORD uiThread = 0;
@@ -630,6 +690,7 @@ int main() {
         CHECK(SUCCEEDED(compose->CreateInstance(appOuter, &appOuter->inner, &app)));
         TestNavigation();
         TestMediaElement();
+        TestBitmapImage();
         StartTimer();
         return S_OK;
     });

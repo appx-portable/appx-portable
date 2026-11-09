@@ -49,12 +49,14 @@ Windows 8 packages that ship only compiled XBF 1.0 pages, such as Despicable Me:
 Minion Rush 4.1.4.1, get a names-only pass: `LoadComponent` creates the named
 elements the shim stands in for (TextBox, Image, PasswordBox, Canvas, Grid,
 Button, Rectangle and the page's swap-chain or media element) and registers them
-for `FindName`, as it does for loose source XAML. It applies `Visibility="Collapsed"`;
-connection IDs and other properties are not applied, and named elements of other types stay unregistered. The 1.0
+for `FindName`, as it does for loose source XAML. It applies `Visibility="Collapsed"`
+and gives each element the page's `BaseUri`; connection IDs and other properties
+are not applied, and named elements of other types stay unregistered. The 1.0
 node stream is a flat sequence of object and property scopes whose names,
 connection IDs and values are ordinary properties; unrecognized nodes or value
 kinds fail the pass, which leaves the page as before. Minion Rush's achievements
-screen collapses these images on every frame, and froze while they were null.
+screen collapsed and sized these images on every frame, and froze while they
+were null.
 
 PEU uses XBF v1 and real system XAML in Islands mode. A separate
 [WebView memory adapter](webview.md) substitutes its type name while retaining
