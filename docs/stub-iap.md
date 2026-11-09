@@ -18,7 +18,7 @@ Rerun `pyappxportable` first so the game folder has a runtime that supports it. 
 With this option:
 
 - Both product purchase APIs complete with `AsyncStatus.Completed`; callbacks are queued on the game dispatcher so purchase progress dialogs can close normally. The Windows 8 API returns an empty string unless `includeReceipt` is requested, in which case it returns unsigned XML marked `appxportable:Stub="true"`; Windows 8.1 purchase results report `Succeeded`, a fresh transaction ID, and the same marked, unsigned receipt XML, whose `ProductReceipt` names the product.
-- Product licenses are inactive initially and become active after a successful stub purchase in the current process.
+- Product licenses are inactive initially and become active after a successful stub purchase in the current process. As in Windows, every product has a license, including products the listing does not name; only the listed and purchased products are enumerated. This holds without `StubIap` too, where licenses stay inactive and purchases fail offline.
 - Consumable fulfillment completes with `Succeeded`.
 - Store listings succeed. The shim discovers bundled XML catalogs by their `CurrentApp/ListingInformation/Product` structure, regardless of filename or location inside the package, and caches their product IDs for the run. License entries are ignored. Product names use their IDs and prices are placeholders (`0.00`), not Store prices. Packages without a catalog receive an empty listing, unless `StubIapProducts` names their products (see below).
 - Unfulfilled consumables are an empty list: stub purchases are fulfilled when the game reports them, or forgotten when it exits.

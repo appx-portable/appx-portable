@@ -154,13 +154,26 @@ int main(int argc, char** argv) {
     boolean found = true;
     ComPtr<IProductLicense> product;
     auto sizeHr = products->get_Size(&size);
+    // Windows lists a license for each of the app's products, inactive until
+    // bought. Offline the product IDs are unknown, so any product has one:
+    // Jetpack Joyride looks up win8_coinPack1 before a purchase and exits on
+    // E_BOUNDS. Only known products are enumerated.
+    found = false;
     auto keyHr = products->HasKey(HStringReference(L"anything").Get(), &found);
     auto lookupHr = products->Lookup(HStringReference(L"anything").Get(), &product);
-    if (FAILED(sizeHr) || size != (catalog ? 2u : 0u) || FAILED(keyHr) || found || lookupHr != E_BOUNDS || product) {
-        printf("FAIL empty map sizehr=%08lx size=%u keyhr=%08lx found=%u lookup=%08lx expected=%08lx product=%p\n",
-               sizeHr, size, keyHr, found, lookupHr, (E_BOUNDS), product.Get());
+    boolean productActive = true;
+    HString productId;
+    if (FAILED(sizeHr) || size != (catalog ? 2u : 0u) || FAILED(keyHr) || !found || FAILED(lookupHr) || !product ||
+        FAILED(product->get_IsActive(&productActive)) || productActive ||
+        FAILED(product->get_ProductId(productId.GetAddressOf())) ||
+        wcscmp(productId.GetRawBuffer(nullptr), L"anything")) {
+        printf("FAIL product map sizehr=%08lx size=%u keyhr=%08lx found=%u lookup=%08lx product=%p active=%u\n",
+               sizeHr, size, keyHr, found, lookupHr, product.Get(), productActive);
         return 9;
     }
+    if (products->Lookup(HStringReference(L"anything").Get(), nullptr) != E_POINTER ||
+        products->HasKey(HStringReference(L"anything").Get(), nullptr) != E_POINTER)
+        return 56;
     if (!catalog) {
         ComPtr<Map> left, right;
         if (FAILED(products->Split(&left, &right)) || left || right) return 10;

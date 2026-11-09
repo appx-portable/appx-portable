@@ -68,14 +68,17 @@ public:
         return S_OK;
     }
 };
+// With anyKey, every key is present (Lookup builds its item) while only ids are
+// enumerated: license maps cover products whose IDs the offline Store never saw.
 template <class Map, class Iterable, class Iterator, class Pair, class Value, class Item>
 class StoreMap final : public RuntimeClass<RuntimeClassFlags<WinRt>, Map, Iterable, FtmBase> {
     using RuntimeClassT = RuntimeClass<RuntimeClassFlags<WinRt>, Map, Iterable, FtmBase>;
     InspectableClass(L"Windows.Foundation.Collections.IMapView`2", BaseTrust);
     std::vector<std::wstring> ids_;
+    bool anyKey_;
 
 public:
-    explicit StoreMap(std::vector<std::wstring> ids) : ids_(std::move(ids)) {}
+    explicit StoreMap(std::vector<std::wstring> ids, bool anyKey = false) : ids_(std::move(ids)), anyKey_(anyKey) {}
     HRESULT STDMETHODCALLTYPE Lookup(HSTRING key, Value** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
@@ -97,7 +100,7 @@ public:
         UINT32 length{};
         const auto* raw = WindowsGetStringRawBuffer(key, &length);
         const std::wstring id(raw, length);
-        *value = std::find(ids_.begin(), ids_.end(), id) != ids_.end();
+        *value = anyKey_ || std::find(ids_.begin(), ids_.end(), id) != ids_.end();
         Log("TRACE", "StoreMap HasKey id=%ls found=%u", id.c_str(), static_cast<unsigned>(*value));
         return S_OK;
     }
@@ -107,8 +110,8 @@ public:
         if (!first || !second) return E_POINTER;
         if (ids_.size() < 2) return S_OK;
         const auto middle = ids_.begin() + ids_.size() / 2;
-        auto left = Make<StoreMap>(std::vector<std::wstring>(ids_.begin(), middle));
-        auto right = Make<StoreMap>(std::vector<std::wstring>(middle, ids_.end()));
+        auto left = Make<StoreMap>(std::vector<std::wstring>(ids_.begin(), middle), anyKey_);
+        auto right = Make<StoreMap>(std::vector<std::wstring>(middle, ids_.end()), anyKey_);
         if (!left || !right) return E_OUTOFMEMORY;
         left.CopyTo(first);
         return right.CopyTo(second);
