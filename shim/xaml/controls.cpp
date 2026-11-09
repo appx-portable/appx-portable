@@ -526,6 +526,7 @@ HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value) {
     if (!wcscmp(tag, L"Canvas")) return MakeElement<Canvas, ICanvas>(value);
     if (!wcscmp(tag, L"TextBox")) return MakeElement<TextBox, ITextBox>(value);
     if (!wcscmp(tag, L"PasswordBox")) return MakeElement<PasswordBox, IPasswordBox>(value);
+    if (!wcscmp(tag, L"Image")) return MakeImage(value);
     return MakeWin10XamlElement(tag, value);
 }
 // Lets a Frame tell the shim Page it hosts which frame that is (Page.Frame).

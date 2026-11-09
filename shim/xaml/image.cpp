@@ -70,16 +70,17 @@ public:
         return opened_.Remove(token);
     }
 };
+HRESULT MakeImage(IInspectable** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    ComPtr<IImage> image;
+    const auto hr = Compose<Image>(nullptr, nullptr, image.GetAddressOf());
+    return FAILED(hr) ? hr : image.CopyTo(value);
+}
 class ImageFactory final : public Factory<> {
 public:
     ImageFactory() : Factory(Image::Name) {}
-    HRESULT STDMETHODCALLTYPE ActivateInstance(IInspectable** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        ComPtr<IImage> image;
-        const auto hr = Compose<Image>(nullptr, nullptr, image.GetAddressOf());
-        return FAILED(hr) ? hr : image.CopyTo(value);
-    }
+    HRESULT STDMETHODCALLTYPE ActivateInstance(IInspectable** value) override { return MakeImage(value); }
 };
 HRESULT MakeImageFactory(IActivationFactory** value) {
     auto factory = Make<ImageFactory>();

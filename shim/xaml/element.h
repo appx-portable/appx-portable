@@ -27,6 +27,7 @@ HRESULT MakeGrid(IInspectable** value);
 // entry. S_FALSE with null for element types the shim does not stand in.
 HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value);
 HRESULT MakeMediaElement(IInspectable** value);
+HRESULT MakeImage(IInspectable** value);
 HRESULT QueueElementLoaded(IInspectable* value);
 HRESULT DeliverElementLoaded(IInspectable* object);
 HRESULT CurrentApplication(ABI::Windows::UI::Xaml::IApplication** value);

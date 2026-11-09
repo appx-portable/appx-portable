@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 #include <filesystem>
+#include "xbf_v1_fixture.h"
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows::UI::Xaml;
@@ -475,6 +476,65 @@ static void TestMediaElement() {
         textPage.Reset();
         textOuter->Release();
         CHECK(DeleteFileW(textPath.c_str()));
+    }
+    // Minion Rush ships only compiled Windows 8.1 XBF. Its pages bind fields by
+    // FindName and collapse the cursor/avatar images each frame on the
+    // achievements screen; a null field froze rendering there.
+    const auto compiled = xbf_v1::Fixture();
+    auto writeCompiled = [&](const wchar_t* file) {
+        const auto path = std::filesystem::path(exePath).parent_path() / file;
+        HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        CHECK(handle != INVALID_HANDLE_VALUE);
+        if (handle == INVALID_HANDLE_VALUE) return std::filesystem::path();
+        DWORD written = 0;
+        CHECK(WriteFile(handle, compiled.data(), static_cast<DWORD>(compiled.size()), &written, nullptr) &&
+              written == compiled.size());
+        CloseHandle(handle);
+        return path;
+    };
+    auto checkCompiledNames = [&](IPage* compiledPage) {
+        ComPtr<IFrameworkElement> framework;
+        CHECK(SUCCEEDED(compiledPage->QueryInterface(IID_PPV_ARGS(&framework))));
+        ComPtr<IInspectable> box, cursor;
+        CHECK(framework && SUCCEEDED(framework->FindName(HStringReference(L"AgeTextBox").Get(), &box)) && box);
+        CHECK(framework && SUCCEEDED(framework->FindName(HStringReference(L"cursor").Get(), &cursor)) && cursor);
+        ComPtr<ITextBox> text;
+        ComPtr<IImage> image;
+        ComPtr<IUIElement> textElement, imageElement;
+        CHECK(box && SUCCEEDED(box.As(&text)) && SUCCEEDED(box.As(&textElement)));
+        CHECK(cursor && SUCCEEDED(cursor.As(&image)) && SUCCEEDED(cursor.As(&imageElement)));
+        Visibility visibility = Visibility_Visible;
+        CHECK(textElement && SUCCEEDED(textElement->get_Visibility(&visibility)) && visibility == Visibility_Collapsed);
+        CHECK(imageElement && SUCCEEDED(imageElement->get_Visibility(&visibility)) && visibility == Visibility_Visible);
+        CHECK(imageElement && SUCCEEDED(imageElement->put_Visibility(Visibility_Collapsed)));
+    };
+    const auto compiledPath = writeCompiled(L"CompiledPage.xbf");
+    if (!compiledPath.empty()) {
+        auto* compiledOuter = new PageOuter("CompiledPage");
+        ComPtr<IPage> compiledPage;
+        CHECK(SUCCEEDED(pageFactory->CreateInstance(static_cast<IPageOverrides*>(compiledOuter), &compiledOuter->inner,
+                                                    &compiledPage)));
+        CHECK(SUCCEEDED(
+            componentUris->CreateUri(HStringReference(L"ms-appx:///CompiledPage.xaml").Get(), &componentUri)));
+        CHECK(SUCCEEDED(appStatics->LoadComponent(compiledPage.Get(), componentUri.Get())));
+        CHECK(compiledOuter->connections == 0);
+        if (compiledPage) checkCompiledNames(compiledPage.Get());
+        compiledPage.Reset();
+        compiledOuter->Release();
+        CHECK(DeleteFileW(compiledPath.c_str()));
+    }
+    const auto compiledDirectXPath = writeCompiled(L"DirectXPage.xbf");
+    if (!compiledDirectXPath.empty()) {
+        auto* compiledOuter = new PageOuter("DirectXPage");
+        CHECK(SUCCEEDED(pageFactory->CreateInstance(static_cast<IPageOverrides*>(compiledOuter), &compiledOuter->inner,
+                                                    &directXPage)));
+        CHECK(SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///DirectXPage.xaml").Get(), &componentUri)));
+        CHECK(SUCCEEDED(appStatics->LoadComponent(directXPage.Get(), componentUri.Get())));
+        CHECK(compiledOuter->connections == 1);
+        if (directXPage) checkCompiledNames(directXPage.Get());
+        directXPage.Reset();
+        compiledOuter->Release();
+        CHECK(DeleteFileW(compiledDirectXPath.c_str()));
     }
     ComPtr<IMediaElement> media;
     ComPtr<IMediaElement2> media2;

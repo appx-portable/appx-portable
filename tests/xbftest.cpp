@@ -1,5 +1,6 @@
 #include "xaml/xbf.h"
 #include "package/resources.h"
+#include "xbf_v1_fixture.h"
 #include <shlwapi.h>
 #include <wrl/client.h>
 #include <cstdio>
@@ -78,6 +79,11 @@ static HRESULT Parse(const std::vector<BYTE>& bytes, std::vector<appx::XbfConnec
     stream.Attach(SHCreateMemStream(bytes.data(), static_cast<UINT>(bytes.size())));
     return appx::ReadXbfConnections(stream.Get(), connections);
 }
+static HRESULT ParseObjects(const std::vector<BYTE>& bytes, std::vector<appx::XbfConnection>& objects) {
+    ComPtr<IStream> stream;
+    stream.Attach(SHCreateMemStream(bytes.data(), static_cast<UINT>(bytes.size())));
+    return appx::ReadXbfObjects(stream.Get(), objects);
+}
 int wmain(int argc, wchar_t** argv) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (argc == 3 && wcscmp(argv[1], L"--write-fixture") == 0) {
@@ -134,8 +140,35 @@ int wmain(int argc, wchar_t** argv) {
     CHECK(FAILED(Parse(Fixture(true), connections)) && connections.empty());
     CHECK(Parse(Fixture(false, true), connections) == E_NOTIMPL && connections.empty());
     auto version = fixture;
-    version[12] = 1;
+    version[12] = 3;
     CHECK(Parse(version, connections) == E_NOTIMPL);
+    // Windows 8.1 XBF 1.0 (Minion Rush's DirectXPage): connections, and every
+    // named object for pages that bind fields by FindName without one.
+    const auto v1 = xbf_v1::Fixture();
+    CHECK(Parse(v1, connections) == S_OK && connections.size() == 2);
+    if (connections.size() == 2) {
+        CHECK(connections[0].id == 1 && connections[0].root && connections[0].type == L"Page");
+        CHECK(connections[1].id == 2 && connections[1].type == L"TextBox" && connections[1].name == L"AgeTextBox" &&
+              connections[1].collapsed);
+    }
+    std::vector<appx::XbfConnection> objects;
+    CHECK(ParseObjects(v1, objects) == S_OK && objects.size() == 4);
+    if (objects.size() == 4) {
+        CHECK(objects[0].type == L"Page" && objects[0].root && objects[0].id == 1);
+        CHECK(objects[1].type == L"SwapChainBackgroundPanel" && objects[1].name == L"SwapChainPanel" &&
+              !objects[1].id && !objects[1].collapsed);
+        CHECK(objects[2].type == L"TextBox" && objects[2].name == L"AgeTextBox" && objects[2].collapsed);
+        CHECK(objects[3].type == L"Image" && objects[3].name == L"cursor" && !objects[3].id && !objects[3].root);
+    }
+    CHECK(ParseObjects(fixture, objects) == S_OK && objects.size() == 2);
+    for (size_t size = 0; size < v1.size(); ++size) {
+        CHECK(FAILED(ParseObjects({v1.begin(), v1.begin() + size}, objects)));
+        CHECK(objects.empty());
+    }
+    CHECK(ParseObjects(xbf_v1::Fixture(xbf_v1::Defect::UnknownNode), objects) == E_NOTIMPL && objects.empty());
+    CHECK(ParseObjects(xbf_v1::Fixture(xbf_v1::Defect::UnknownValue), objects) == E_NOTIMPL && objects.empty());
+    CHECK(FAILED(ParseObjects(xbf_v1::Fixture(xbf_v1::Defect::BadType), objects)) && objects.empty());
+    CHECK(appx::ReadXbfObjects(nullptr, objects) == E_POINTER);
     auto strings = fixture;
     strings[132] = 255;
     CHECK(FAILED(Parse(strings, connections)));
