@@ -130,8 +130,10 @@ public:
     }
 };
 // The stand-in identity has no server account and therefore no cached Xbox
-// achievements. Enumeration still completes successfully, just like its local
-// profile lookup, instead of producing an unobserved network-error task.
+// achievements. Enumeration and unlocking still complete successfully, just
+// like its local profile lookup, instead of producing an unobserved
+// network-error task: C++/CX games such as Minion Rush chain value-based
+// continuations on them and fail fast when the error is never read.
 class LocalAchievements final : public RuntimeClass<RuntimeClassFlags<WinRt>, IAchievementCollection, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.AchievementCollection", BaseTrust);
     ComPtr<EmptyAchievementView> items_ = Make<EmptyAchievementView>();
@@ -298,7 +300,11 @@ public:
         return FailedClass("User.GetAchievementsAsync", "Microsoft.Xbox.AchievementCollection",                        \
                            defaults::AchievementCollection, op);                                                       \
     }                                                                                                                  \
-    HRESULT STDMETHODCALLTYPE UnlockAchievementAsync(UINT32, IAsyncAction** action) override {                         \
+    HRESULT STDMETHODCALLTYPE UnlockAchievementAsync(UINT32 id, IAsyncAction** action) override {                      \
+        if (LocalSignedIn()) {                                                                                         \
+            Log("TRACE", "Xbox LIVE local: User.UnlockAchievementAsync(%u) (not recorded)", id);                       \
+            return DoneAction(action);                                                                                 \
+        }                                                                                                              \
         return FailedAction("User.UnlockAchievementAsync", action);                                                    \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetAvatarManifestAsync(IInspectable** op) override {                                     \

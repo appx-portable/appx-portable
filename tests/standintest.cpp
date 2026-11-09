@@ -182,6 +182,16 @@ int main(int argc, char**) {
                 CHECK(SUCCEEDED(static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()))
                                     ->GetResults(loaded.GetAddressOf())) &&
                       loaded);
+            // Unlocking completes locally. Minion Rush attaches a value-based
+            // continuation and never reads the error, so a failed unlock ends
+            // the game when the task is released after a level.
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> unlock;
+            CHECK(user && user->UnlockAchievementAsync(1, nullptr) == E_POINTER);
+            CHECK(user && SUCCEEDED(user->UnlockAchievementAsync(1, &unlock)) && unlock);
+            CHECK(unlock && SUCCEEDED(unlock.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) && error == S_OK);
+            CHECK(info && SUCCEEDED(info->get_Status(&achievementStatus)) &&
+                  achievementStatus == ABI::Windows::Foundation::AsyncStatus::Completed);
+            CHECK(unlock && SUCCEEDED(unlock->GetResults()));
             // Signed-out requests retain the normal offline error path.
             ComPtr<ABI::Windows::Foundation::IAsyncAction> signOut;
             CHECK(live && SUCCEEDED(live->SignOutAsync(&signOut)));
@@ -189,6 +199,10 @@ int main(int argc, char**) {
             CHECK(SUCCEEDED(user->GetAchievementsAsync(0, 100, false, nullptr, &signedOutAchievements)));
             CHECK(signedOutAchievements && SUCCEEDED(signedOutAchievements.As(&info)) &&
                   SUCCEEDED(info->get_ErrorCode(&error)) && error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> signedOutUnlock;
+            CHECK(SUCCEEDED(user->UnlockAchievementAsync(1, &signedOutUnlock)) && signedOutUnlock &&
+                  SUCCEEDED(signedOutUnlock.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+                  error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
             CHECK(live && SUCCEEDED(live->SignInAsync(&signIn)));
         };
         if (argc > 1) {
