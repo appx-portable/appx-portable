@@ -9,6 +9,8 @@
 #include <wrl/wrappers/corewrappers.h>
 #include <cstdio>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows::UI::Xaml;
@@ -277,24 +279,52 @@ int main() {
     const unsigned stopped = frames;
     pump(65);
     CHECK(frames == stopped);
-    // Angry Birds Space presents with vsync inside Rendering. The next event
-    // must be due when that frame ends, or 60 Hz slips to every other vblank.
-    LARGE_INTEGER frequency{}, start{};
+    // Angry Birds Space presents with vsync inside Rendering, so each frame
+    // ends at a vblank. The next event must already be due then, or 60 Hz
+    // slips to every other vblank: a 16 ms timer fires about 15 ms later.
+    // Judge the median gap between a frame's end and the next event, not the
+    // frames counted in a wall-clock window: hosted runners stall the thread
+    // for tens of milliseconds, which costs frames but not the typical gap.
+    LARGE_INTEGER frequency{}, start{}, ended{};
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&start);
+    const LONGLONG vblankPeriod = frequency.QuadPart / 60;
     unsigned vsynced = 0;
+    std::vector<LONGLONG> gaps;
     auto present =
         Callback<ABI::Windows::Foundation::IEventHandler<IInspectable*>>([&](IInspectable*, IInspectable*) -> HRESULT {
-            const LONGLONG vblank = start.QuadPart + ++vsynced * frequency.QuadPart / 60;
             LARGE_INTEGER now{};
+            QueryPerformanceCounter(&now);
+            if (vsynced++) gaps.push_back(now.QuadPart - ended.QuadPart);
+            // Present waits for the next vblank, however late the frame began.
+            const LONGLONG vblank =
+                start.QuadPart + ((now.QuadPart - start.QuadPart) / vblankPeriod + 1) * vblankPeriod;
             do QueryPerformanceCounter(&now);
             while (now.QuadPart < vblank);
+            ended = now;
             return S_OK;
         });
     CHECK(SUCCEEDED(composition->add_Rendering(present.Get(), &renderingToken)));
-    pump(500);
+    // One message at a time: with a frame due on every tick the queue never
+    // drains, so a pump() would run on well past the frames it needs.
+    const ULONGLONG deadline = GetTickCount64() + 5000;
+    while (vsynced < 31 && GetTickCount64() < deadline) {
+        MSG message{};
+        if (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+            DispatchMessageW(&message);
+        else
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 10, QS_ALLINPUT);
+    }
     CHECK(SUCCEEDED(composition->remove_Rendering(renderingToken)));
-    CHECK(vsynced >= 28);
+    CHECK(gaps.size() >= 30);
+    if (!gaps.empty()) {
+        std::nth_element(gaps.begin(), gaps.begin() + gaps.size() / 2, gaps.end());
+        const LONGLONG median = gaps[gaps.size() / 2];
+        printf("vsync: %u frames, median gap %.2f ms\n", vsynced, median * 1000.0 / frequency.QuadPart);
+        // Due timers dispatch within ~5 ms even on a loaded machine; a 16 ms
+        // timer leaves at least 31.25 - 16.67 = 14.6 ms after each frame.
+        CHECK(median < vblankPeriod * 2 / 3);
+    }
     printf("controltest: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }
