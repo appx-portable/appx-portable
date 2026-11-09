@@ -75,11 +75,16 @@ HRESULT Check(int stage) {
     if (!names || FAILED(iterator->get_HasCurrent(&found)) || found || iterator->get_Current(&leaf) != E_BOUNDS ||
         FAILED(view->GetMany(2, 0, nullptr, &actual)) || actual || view->GetMany(3, 0, nullptr, &actual) != E_BOUNDS)
         return E_FAIL;
-    if (children->GetAt(2, &leaf) != E_BOUNDS || children->Clear() != E_NOTIMPL ||
-        children->Append(first.Get()) != E_NOTIMPL)
+    // Code-behind can change the children; the view and iterator above keep their snapshot.
+    if (children->GetAt(2, &leaf) != E_BOUNDS || FAILED(children->Append(first.Get())) ||
+        FAILED(children->get_Size(&size)) || size != 3 || FAILED(children->RemoveAtEnd()) ||
+        FAILED(children->get_Size(&size)) || size != 2 || children->Append(nullptr) != E_INVALIDARG)
         return E_FAIL;
     ComPtr<IUIElementCollection> collection;
-    if (FAILED(children.As(&collection)) || collection->Move(0, 1) != E_NOTIMPL) return E_FAIL;
+    ComPtr<IUIElement> moved;
+    if (FAILED(children.As(&collection)) || FAILED(collection->Move(0, 1)) || FAILED(children->GetAt(0, &moved)) ||
+        !Name(moved.Get(), L"second") || FAILED(collection->Move(0, 1)) || collection->Move(0, 2) != E_BOUNDS)
+        return E_FAIL;
     HRESULT wrong = S_OK, wrongView = S_OK, wrongIterator = S_OK;
     std::thread worker([&] {
         UINT32 count;
