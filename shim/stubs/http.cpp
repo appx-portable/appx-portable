@@ -12,8 +12,8 @@
 #include "options.h"
 #include "com/completed_operation.h"
 #include <wrl/event.h>
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Web.Http.h>
+#include "com/async_id.h"
+#include <mutex>
 using namespace Microsoft::WRL;
 using namespace ABI::Windows::Web::Http;
 using namespace ABI::Windows::Web::Http::Filters;
@@ -21,23 +21,103 @@ namespace appx {
 namespace {
 using HttpOperation =
     __FIAsyncOperationWithProgress_2_Windows__CWeb__CHttp__CHttpResponseMessage_Windows__CWeb__CHttp__CHttpProgress;
-winrt::Windows::Foundation::IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage,
-                                                        winrt::Windows::Web::Http::HttpProgress>
-OfflineHttpRequest() {
-    // A coroutine captures this exception in the operation rather than throwing
-    // while the game starts a request. Its completion handler receives Error.
-    co_return[]()->winrt::Windows::Web::Http::HttpResponseMessage {
-        throw winrt::hresult_error(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+using HttpCompleted = ABI::Windows::Foundation::IAsyncOperationWithProgressCompletedHandler<HttpResponseMessage*,
+                                                                                         HttpProgress>;
+using HttpProgressHandler =
+    ABI::Windows::Foundation::IAsyncOperationProgressHandler<HttpResponseMessage*, HttpProgress>;
+// A request that has already failed with a network error, as Windows reports one
+// for an offline device: the game's completion handler receives Error. Written
+// without a coroutine, which clang-cl does not support for 32-bit x86.
+class OfflineRequest final
+    : public RuntimeClass<RuntimeClassFlags<WinRt>, HttpOperation, ABI::Windows::Foundation::IAsyncInfo, FtmBase> {
+    InspectableClass(L"Windows.Foundation.IAsyncOperationWithProgress`2", BaseTrust);
+    static constexpr HRESULT error_ = HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE);
+    std::mutex mutex_;
+    ComPtr<HttpCompleted> completed_;
+    ComPtr<HttpProgressHandler> progress_;
+    bool assigned_ = false, closed_ = false;
+    const UINT32 id_ = NextAsyncId();
+
+public:
+    HRESULT STDMETHODCALLTYPE put_Progress(HttpProgressHandler* handler) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (closed_) return RO_E_CLOSED;
+        progress_ = handler;
+        return S_OK;
     }
-    ();
-}
+    HRESULT STDMETHODCALLTYPE get_Progress(HttpProgressHandler** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : progress_.CopyTo(value);
+    }
+    // Already complete, so the handler runs before put_Completed returns.
+    HRESULT STDMETHODCALLTYPE put_Completed(HttpCompleted* handler) override {
+        ComPtr<HttpCompleted> callback(handler);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (closed_) return RO_E_CLOSED;
+            if (assigned_) return E_ILLEGAL_DELEGATE_ASSIGNMENT;
+            assigned_ = true;
+            completed_ = callback;
+        }
+        if (callback) callback->Invoke(this, ABI::Windows::Foundation::AsyncStatus::Error);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Completed(HttpCompleted** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : completed_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE GetResults(IHttpResponseMessage** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : error_;
+    }
+    HRESULT STDMETHODCALLTYPE get_Id(UINT32* value) override {
+        if (!value) return E_POINTER;
+        *value = id_;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Status(ABI::Windows::Foundation::AsyncStatus* value) override {
+        if (!value) return E_POINTER;
+        *value = ABI::Windows::Foundation::AsyncStatus::Error;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_ErrorCode(HRESULT* value) override {
+        if (!value) return E_POINTER;
+        *value = error_;
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Cancel() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return closed_ ? RO_E_CLOSED : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Close() override {
+        ComPtr<HttpCompleted> completed;
+        ComPtr<HttpProgressHandler> progress;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            closed_ = true;
+            completed.Attach(completed_.Detach());
+            progress.Attach(progress_.Detach());
+        }
+        // Delegate destruction can reenter this operation; release after unlock.
+        return S_OK;
+    }
+};
 HRESULT MakeOfflineHttpRequest(HttpOperation** value) {
     if (!value) return E_POINTER;
     *value = nullptr;
-    auto operation = OfflineHttpRequest();
-    *value = reinterpret_cast<HttpOperation*>(winrt::detach_abi(operation));
+    auto operation = Make<OfflineRequest>();
+    if (!operation) return E_OUTOFMEMORY;
     Log("TRACE", "HttpClient request completed offline");
-    return S_OK;
+    return operation.CopyTo(value);
 }
 }
 class Cache final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIHttpCacheControl, FtmBase> {
