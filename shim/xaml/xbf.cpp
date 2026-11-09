@@ -412,7 +412,5 @@ HRESULT Read(IStream* stream, std::vector<XbfConnection>& result, bool named) {
 HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connections) {
     return Read(stream, connections, false);
 }
-HRESULT ReadXbfObjects(IStream* stream, std::vector<XbfConnection>& objects) {
-    return Read(stream, objects, true);
-}
+HRESULT ReadXbfObjects(IStream* stream, std::vector<XbfConnection>& objects) { return Read(stream, objects, true); }
 }

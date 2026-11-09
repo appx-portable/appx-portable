@@ -18,10 +18,21 @@ inline void String(std::vector<BYTE>& bytes, const std::wstring& value) {
     for (auto character : value) Add<UINT16>(bytes, character);
 }
 inline std::vector<BYTE> Fixture(Defect defect = Defect::None) {
-    const std::vector<std::wstring> strings = {L"Page", L"SwapChainBackgroundPanel", L"UIElementCollection",
-                                               L"TextBox", L"Image", L"ConnectionId", L"Name", L"Children",
-                                               L"__implicit_items", L"Visibility", L"Collapsed", L"Margin",
-                                               L"Height", L"IsEnabled", L"presentation"};
+    const std::vector<std::wstring> strings = {L"Page",
+                                               L"SwapChainBackgroundPanel",
+                                               L"UIElementCollection",
+                                               L"TextBox",
+                                               L"Image",
+                                               L"ConnectionId",
+                                               L"Name",
+                                               L"Children",
+                                               L"__implicit_items",
+                                               L"Visibility",
+                                               L"Collapsed",
+                                               L"Margin",
+                                               L"Height",
+                                               L"IsEnabled",
+                                               L"presentation"};
     std::vector<BYTE> metadata(120), nodes;
     metadata[0] = 1; // Major version 1, minor 0.
     for (size_t table = 0; table < 6; ++table) {

@@ -40,7 +40,8 @@ static HRESULT RegisterXamlElement(IFrameworkElement* element, const std::wstrin
                                    bool collapsed) {
     ComPtr<INamedElementRegistry> names;
     auto hr = element->QueryInterface(IID_PPV_ARGS(&names));
-    if (SUCCEEDED(hr) && !name.empty()) hr = names->RegisterName(Wrappers::HStringReference(name.c_str()).Get(), target);
+    if (SUCCEEDED(hr) && !name.empty())
+        hr = names->RegisterName(Wrappers::HStringReference(name.c_str()).Get(), target);
     if (FAILED(hr)) return hr;
     ComPtr<INamedElementRegistry> child;
     ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri;

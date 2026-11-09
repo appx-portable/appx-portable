@@ -167,8 +167,8 @@ int main(int argc, char** argv) {
         FAILED(product->get_IsActive(&productActive)) || productActive ||
         FAILED(product->get_ProductId(productId.GetAddressOf())) ||
         wcscmp(productId.GetRawBuffer(nullptr), L"anything")) {
-        printf("FAIL product map sizehr=%08lx size=%u keyhr=%08lx found=%u lookup=%08lx product=%p active=%u\n",
-               sizeHr, size, keyHr, found, lookupHr, product.Get(), productActive);
+        printf("FAIL product map sizehr=%08lx size=%u keyhr=%08lx found=%u lookup=%08lx product=%p active=%u\n", sizeHr,
+               size, keyHr, found, lookupHr, product.Get(), productActive);
         return 9;
     }
     if (products->Lookup(HStringReference(L"anything").Get(), nullptr) != E_POINTER ||

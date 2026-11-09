@@ -484,7 +484,8 @@ static void TestMediaElement() {
     const auto compiled = xbf_v1::Fixture();
     auto writeCompiled = [&](const wchar_t* file) {
         const auto path = std::filesystem::path(exePath).parent_path() / file;
-        HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE handle =
+            CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         CHECK(handle != INVALID_HANDLE_VALUE);
         if (handle == INVALID_HANDLE_VALUE) return std::filesystem::path();
         DWORD written = 0;
@@ -549,7 +550,8 @@ static void TestMediaElement() {
         auto* compiledOuter = new PageOuter("DirectXPage");
         CHECK(SUCCEEDED(pageFactory->CreateInstance(static_cast<IPageOverrides*>(compiledOuter), &compiledOuter->inner,
                                                     &directXPage)));
-        CHECK(SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///DirectXPage.xaml").Get(), &componentUri)));
+        CHECK(
+            SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///DirectXPage.xaml").Get(), &componentUri)));
         CHECK(SUCCEEDED(appStatics->LoadComponent(directXPage.Get(), componentUri.Get())));
         CHECK(compiledOuter->connections == 1);
         if (directXPage) checkCompiledNames(directXPage.Get(), L"ms-appx:///DirectXPage.xaml");
