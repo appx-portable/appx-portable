@@ -421,11 +421,20 @@ public:
         return FailedClass("LeaderboardService.GetSystemLeaderboardAsync", "Microsoft.Xbox.Leaderboards.Leaderboard",
                            defaults::Leaderboard, op);
     }
-    HRESULT STDMETHODCALLTYPE PostResultAsync(UINT32, INT32, INT64, IAsyncAction** action) override {
-        return FailedAction("LeaderboardService.PostResultAsync", action);
+    // A signed-in player's score post completes locally without being sent:
+    // Jetpack Joyride posts at the end of every run and never reads the error.
+    HRESULT STDMETHODCALLTYPE PostResultAsync(UINT32 id, INT32, INT64, IAsyncAction** action) override {
+        return Post("LeaderboardService.PostResultAsync", id, action);
     }
-    HRESULT STDMETHODCALLTYPE PostResultsAsync(UINT32, IInspectable*, IAsyncAction** action) override {
-        return FailedAction("LeaderboardService.PostResultsAsync", action);
+    HRESULT STDMETHODCALLTYPE PostResultsAsync(UINT32 id, IInspectable*, IAsyncAction** action) override {
+        return Post("LeaderboardService.PostResultsAsync", id, action);
+    }
+
+private:
+    static HRESULT Post(const char* what, UINT32 id, IAsyncAction** action) {
+        if (!LocalSignedIn()) return FailedAction(what, action);
+        Log("TRACE", "Xbox LIVE local: %s(%u) (not sent)", what, id);
+        return DoneAction(action);
     }
 };
 

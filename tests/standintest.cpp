@@ -261,6 +261,41 @@ int main(int argc, char**) {
             checkUser(user.Get());
         }
     }
+    // Posting a score completes locally for the signed-in player: Jetpack
+    // Joyride never reads the error and fails fast at the end of a run.
+    // Reading a leaderboard keeps failing offline, which it reports in-game.
+    CHECK(SUCCEEDED(Factory(L"Microsoft.Xbox.Leaderboards.LeaderboardService", factory)));
+    if (factory) {
+        ComPtr<IInspectable> instance;
+        ComPtr<appx::xbox::ILeaderboardService> leaderboards;
+        CHECK(SUCCEEDED(factory->ActivateInstance(&instance)) && SUCCEEDED(instance.As(&leaderboards)));
+        auto posted = [&](HRESULT expected) {
+            for (int many = 0; many < 2 && leaderboards; ++many) {
+                ComPtr<ABI::Windows::Foundation::IAsyncAction> post;
+                ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
+                HRESULT error = E_FAIL;
+                CHECK(SUCCEEDED(many ? leaderboards->PostResultsAsync(1, nullptr, &post)
+                                     : leaderboards->PostResultAsync(1, 0, 100, &post)) &&
+                      post);
+                CHECK(post && SUCCEEDED(post.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) && error == expected);
+            }
+        };
+        posted(S_OK);
+        CHECK(leaderboards && leaderboards->PostResultAsync(1, 0, 100, nullptr) == E_POINTER);
+        ComPtr<IInspectable> board;
+        ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
+        HRESULT error = S_OK;
+        CHECK(leaderboards && SUCCEEDED(leaderboards->GetLeaderboardAsync(0, 10, 1, false, nullptr, nullptr, &board)) &&
+              board && SUCCEEDED(board.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+              error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+        if (live) {
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> signOut;
+            ComPtr<IInspectable> signIn;
+            CHECK(SUCCEEDED(live->SignOutAsync(&signOut)));
+            posted(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            CHECK(SUCCEEDED(live->SignInAsync(&signIn)));
+        }
+    }
     // Xbox classes without a stand-in are "not registered", never the real DLL.
     // Marketplace activation must work even with StubIap enabled. Xbox purchases
     // fail through their async callback, which iStunt 2 handles, instead of
