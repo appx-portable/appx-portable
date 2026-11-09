@@ -140,13 +140,19 @@ class ChildrenView final : public ChildrenReader<View> {
 public:
     explicit ChildrenView(Snapshot items) : ChildrenReader(std::move(items)) {}
 };
+// Mutations copy the snapshot, so views and iterators already handed out keep
+// the children they were created over.
 class ChildrenCollection final : public ChildrenReader<GridChildren, IUIElementCollection, ISourceChildren> {
     InspectableClass(L"Windows.UI.Xaml.Controls.UIElementCollection", BaseTrust);
-    HRESULT Unsupported(const wchar_t* member) {
+    template <class F> HRESULT Mutate(F&& change) {
         auto hr = CheckThread();
         if (FAILED(hr)) return hr;
-        Log("UNIMPL", "Grid.Children.%ls hr=%08lx", member, E_NOTIMPL);
-        return E_NOTIMPL;
+        return Guard([&]() -> HRESULT {
+            auto items = std::make_shared<VisualChildren>(*items_);
+            const auto result = change(*items);
+            if (SUCCEEDED(result)) items_ = std::move(items);
+            return result;
+        });
     }
 
 public:
@@ -166,14 +172,71 @@ public:
         auto result = Make<ChildrenView>(items_);
         return result ? result.CopyTo(value) : E_OUTOFMEMORY;
     }
-    HRESULT STDMETHODCALLTYPE SetAt(UINT32, IUIElement*) override { return Unsupported(L"SetAt"); }
-    HRESULT STDMETHODCALLTYPE InsertAt(UINT32, IUIElement*) override { return Unsupported(L"InsertAt"); }
-    HRESULT STDMETHODCALLTYPE RemoveAt(UINT32) override { return Unsupported(L"RemoveAt"); }
-    HRESULT STDMETHODCALLTYPE Append(IUIElement*) override { return Unsupported(L"Append"); }
-    HRESULT STDMETHODCALLTYPE RemoveAtEnd() override { return Unsupported(L"RemoveAtEnd"); }
-    HRESULT STDMETHODCALLTYPE Clear() override { return Unsupported(L"Clear"); }
-    HRESULT STDMETHODCALLTYPE ReplaceAll(UINT32, IUIElement**) override { return Unsupported(L"ReplaceAll"); }
-    HRESULT STDMETHODCALLTYPE Move(UINT32, UINT32) override { return Unsupported(L"Move"); }
+    HRESULT STDMETHODCALLTYPE SetAt(UINT32 index, IUIElement* value) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (!value) return E_INVALIDARG;
+            if (index >= items.size()) return E_BOUNDS;
+            items[index] = value;
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE InsertAt(UINT32 index, IUIElement* value) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (!value) return E_INVALIDARG;
+            if (index > items.size()) return E_BOUNDS;
+            items.emplace(items.begin() + index, value);
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE RemoveAt(UINT32 index) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (index >= items.size()) return E_BOUNDS;
+            items.erase(items.begin() + index);
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE Append(IUIElement* value) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (!value) return E_INVALIDARG;
+            items.emplace_back(value);
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE RemoveAtEnd() override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (items.empty()) return E_BOUNDS;
+            items.pop_back();
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE Clear() override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            items.clear();
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE ReplaceAll(UINT32 count, IUIElement** values) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (count && !values) return E_POINTER;
+            VisualChildren replaced;
+            replaced.reserve(count);
+            for (UINT32 i = 0; i < count; ++i) {
+                if (!values[i]) return E_INVALIDARG;
+                replaced.emplace_back(values[i]);
+            }
+            items = std::move(replaced);
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE Move(UINT32 oldIndex, UINT32 newIndex) override {
+        return Mutate([&](VisualChildren& items) -> HRESULT {
+            if (oldIndex >= items.size() || newIndex >= items.size()) return E_BOUNDS;
+            auto moved = items[oldIndex];
+            items.erase(items.begin() + oldIndex);
+            items.emplace(items.begin() + newIndex, std::move(moved));
+            return S_OK;
+        });
+    }
 };
 }
 HRESULT MakeGridChildren(GridChildren** value) {
