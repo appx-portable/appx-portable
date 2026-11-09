@@ -8,6 +8,7 @@
 #include "xbox_abi.h"
 #include "marketplace_abi.h"
 #include "achievements_abi.h"
+#include "users_abi.h"
 #include "class_operation.h"
 #include "com/factory.h"
 #include "com/failed_operation.h"
@@ -75,7 +76,10 @@ HRESULT Nobody(IInspectable** value) {
     *value = nullptr;
     return S_OK;
 }
-class EmptyAchievementIterator final : public RuntimeClass<RuntimeClassFlags<WinRt>, IAchievementIterator, FtmBase> {
+// Empty IVectorView<T>/IIterable<T>/IIterator<T> of an Xbox runtime class; the
+// interfaces differ by element type only in their parameterized IIDs.
+template <class Iterator> class EmptyIterator final : public RuntimeClass<RuntimeClassFlags<WinRt>, Iterator, FtmBase> {
+    using RuntimeClassT = RuntimeClass<RuntimeClassFlags<WinRt>, Iterator, FtmBase>;
     InspectableClass(L"Windows.Foundation.Collections.IIterator`1", BaseTrust);
 
 public:
@@ -96,8 +100,9 @@ public:
         return S_OK;
     }
 };
-class EmptyAchievementView final
-    : public RuntimeClass<RuntimeClassFlags<WinRt>, IAchievementVectorView, IAchievementIterable, FtmBase> {
+template <class View, class Iterable, class Iterator>
+class EmptyView final : public RuntimeClass<RuntimeClassFlags<WinRt>, View, Iterable, FtmBase> {
+    using RuntimeClassT = RuntimeClass<RuntimeClassFlags<WinRt>, View, Iterable, FtmBase>;
     InspectableClass(L"Windows.Foundation.Collections.IVectorView`1", BaseTrust);
 
 public:
@@ -122,18 +127,33 @@ public:
         *actual = 0;
         return start == 0 ? S_OK : E_BOUNDS;
     }
-    HRESULT STDMETHODCALLTYPE First(IAchievementIterator** value) override {
+    HRESULT STDMETHODCALLTYPE First(Iterator** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        auto iterator = Make<EmptyAchievementIterator>();
+        auto iterator = Make<EmptyIterator<Iterator>>();
         return iterator ? iterator.CopyTo(value) : E_OUTOFMEMORY;
     }
 };
+using EmptyAchievementView = EmptyView<IAchievementVectorView, IAchievementIterable, IAchievementIterator>;
+// The local player has no Xbox friends.
+class LocalFriends final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserCollection, FtmBase> {
+    InspectableClass(L"Microsoft.Xbox.UserCollection", BaseTrust);
+    ComPtr<EmptyView<IUserVectorView, IUserIterable, IUserIterator>> items_ =
+        Make<EmptyView<IUserVectorView, IUserIterable, IUserIterator>>();
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Items(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return items_ ? items_.CopyTo(value) : E_OUTOFMEMORY;
+    }
+};
 // The stand-in identity has no server account and therefore no cached Xbox
-// achievements. Enumeration and unlocking still complete successfully, just
-// like its local profile lookup, instead of producing an unobserved
-// network-error task: C++/CX games such as Minion Rush chain value-based
-// continuations on them and fail fast when the error is never read.
+// achievements or friends. Enumeration, unlocking and the friends list still
+// complete successfully, just like its local profile lookup, instead of
+// producing an unobserved network-error task: C++/CX games such as Minion Rush
+// and Jetpack Joyride chain value-based continuations on them and fail fast
+// when the error is never read.
 class LocalAchievements final : public RuntimeClass<RuntimeClassFlags<WinRt>, IAchievementCollection, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.AchievementCollection", BaseTrust);
     ComPtr<EmptyAchievementView> items_ = Make<EmptyAchievementView>();
@@ -289,6 +309,10 @@ public:
         return FailedClass("User.GetProfileAsync", "Microsoft.Xbox.UserProfile", defaults::UserProfile, op);           \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetFriendsAsync(IInspectable** op) override {                                            \
+        if (LocalSignedIn()) {                                                                                         \
+            Log("TRACE", "Xbox LIVE local: User.GetFriendsAsync (no friends)");                                        \
+            return Success<IUserCollection>(Make<LocalFriends>(), op);                                                 \
+        }                                                                                                              \
         return FailedClass("User.GetFriendsAsync", "Microsoft.Xbox.UserCollection", defaults::UserCollection, op);     \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetAchievementsAsync(UINT32, UINT32, boolean, IInspectable*, IInspectable** op)          \

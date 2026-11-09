@@ -5,6 +5,7 @@
 #include "com/pinterface.h"
 #include "xbox/xbox_abi.h"
 #include "xbox/achievements_abi.h"
+#include "xbox/users_abi.h"
 #include <windows.applicationmodel.h>
 #include <windows.applicationmodel.background.h>
 #include <windows.ui.core.h>
@@ -118,8 +119,46 @@ int main(int argc, char**) {
         ComPtr<IInspectable> instance;
         CHECK(SUCCEEDED(factory->ActivateInstance(&instance)));
         auto checkUser = [&](auto* user) {
+            // The local player has no friends list. Jetpack Joyride requests it
+            // after loading the profile and fails fast if the request errors.
             ComPtr<IInspectable> friends;
             CHECK(user && SUCCEEDED(user->GetFriendsAsync(&friends)) && friends);
+            {
+                ComPtr<IUnknown> friendsTyped;
+                const auto friendsOperation = appx::ParameterizedIid(
+                    appx::AsyncOperationOfClass("Microsoft.Xbox.UserCollection", appx::xbox::defaults::UserCollection));
+                CHECK(friendsOperation == __uuidof(appx::xbox::OperationAbi<appx::xbox::IUserCollection>));
+                CHECK(friends && SUCCEEDED(friends->QueryInterface(friendsOperation, &friendsTyped)));
+                ComPtr<ABI::Windows::Foundation::IAsyncInfo> friendsInfo;
+                HRESULT friendsError = E_FAIL;
+                ABI::Windows::Foundation::AsyncStatus friendsStatus{};
+                CHECK(friends && SUCCEEDED(friends.As(&friendsInfo)) &&
+                      SUCCEEDED(friendsInfo->get_ErrorCode(&friendsError)) && friendsError == S_OK &&
+                      SUCCEEDED(friendsInfo->get_Status(&friendsStatus)) &&
+                      friendsStatus == ABI::Windows::Foundation::AsyncStatus::Completed);
+                ComPtr<appx::xbox::IUserCollection> list;
+                auto* friendsAsync = static_cast<appx::xbox::OperationAbi<appx::xbox::IUserCollection>*>(
+                    static_cast<IInspectable*>(friendsTyped.Get()));
+                CHECK(friendsAsync && SUCCEEDED(friendsAsync->GetResults(list.GetAddressOf())) && list);
+                ComPtr<IInspectable> users;
+                ComPtr<appx::xbox::IUserVectorView> userView;
+                ComPtr<appx::xbox::IUserIterable> userIterable;
+                ComPtr<appx::xbox::IUserIterator> userIterator;
+                CHECK(list && SUCCEEDED(list->get_Items(&users)) && users && SUCCEEDED(users.As(&userView)) &&
+                      SUCCEEDED(users.As(&userIterable)));
+                UINT32 size = 99;
+                boolean more = true;
+                CHECK(userView && SUCCEEDED(userView->get_Size(&size)) && size == 0);
+                CHECK(userIterable && SUCCEEDED(userIterable->First(&userIterator)) && userIterator &&
+                      SUCCEEDED(userIterator->get_HasCurrent(&more)) && !more);
+                const std::string userClass = "rc(Microsoft.Xbox.User;{d7fba214-e744-4093-9fee-ab68795b70a0})";
+                CHECK(appx::ParameterizedIid("pinterface({bbe1fa4c-b0e3-4583-baef-1f1b2e483e56};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserVectorView));
+                CHECK(appx::ParameterizedIid("pinterface({faa585ea-6214-4217-afda-7f46de5869b3};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserIterable));
+                CHECK(appx::ParameterizedIid("pinterface({6a79e863-4300-459a-9966-cbb660963ee1};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserIterator));
+            }
             // Exercise both SDK layouts: SetProfileAsync precedes this slot
             // only in 1.0/1.1. A wrong layout also produces the wrong async IID.
             ComPtr<IInspectable> achievements;
@@ -199,6 +238,10 @@ int main(int argc, char**) {
             CHECK(SUCCEEDED(user->GetAchievementsAsync(0, 100, false, nullptr, &signedOutAchievements)));
             CHECK(signedOutAchievements && SUCCEEDED(signedOutAchievements.As(&info)) &&
                   SUCCEEDED(info->get_ErrorCode(&error)) && error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            ComPtr<IInspectable> signedOutFriends;
+            CHECK(SUCCEEDED(user->GetFriendsAsync(&signedOutFriends)) && signedOutFriends &&
+                  SUCCEEDED(signedOutFriends.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+                  error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
             ComPtr<ABI::Windows::Foundation::IAsyncAction> signedOutUnlock;
             CHECK(SUCCEEDED(user->UnlockAchievementAsync(1, &signedOutUnlock)) && signedOutUnlock &&
                   SUCCEEDED(signedOutUnlock.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
