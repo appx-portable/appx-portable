@@ -76,7 +76,6 @@ public:
         *value = (type & StorageItemTypes_File) != 0;
         return S_OK;
     }
-    // Reading only: the stream refuses writes, so ReadWrite fails here instead.
     HRESULT STDMETHODCALLTYPE OpenReadAsync(IAsyncOperation<IRandomAccessStreamWithContentType*>** operation) override {
         return Open<IRandomAccessStreamWithContentType*, IRandomAccessStreamWithContentType>(operation);
     }
@@ -85,23 +84,21 @@ public:
     }
     HRESULT STDMETHODCALLTYPE OpenAsync(FileAccessMode mode,
                                         IAsyncOperation<IRandomAccessStream*>** operation) override {
-        if (mode != FileAccessMode_Read) {
-            if (operation) *operation = nullptr;
-            Log("UNIMPL", "StorageFile %ls OpenAsync for writing", path_.c_str());
-            return E_NOTIMPL;
-        }
-        return Open<IRandomAccessStream*, IRandomAccessStream>(operation);
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        if (mode != FileAccessMode_Read && mode != FileAccessMode_ReadWrite) return E_INVALIDARG;
+        return Open<IRandomAccessStream*, IRandomAccessStream>(operation, mode == FileAccessMode_ReadWrite);
     }
 
 private:
-    template <class T, class Stream> HRESULT Open(IAsyncOperation<T>** operation) {
+    template <class T, class Stream> HRESULT Open(IAsyncOperation<T>** operation, bool writable = false) {
         if (!operation) return E_POINTER;
         *operation = nullptr;
         Wrappers::HString type;
         auto hr = get_ContentType(type.GetAddressOf());
         if (FAILED(hr)) return hr;
         ComPtr<IRandomAccessStreamWithContentType> opened;
-        hr = OpenFileStream(path_, type.GetRawBuffer(nullptr), &opened);
+        hr = OpenFileStream(path_, type.GetRawBuffer(nullptr), &opened, writable);
         ComPtr<Stream> stream;
         if (SUCCEEDED(hr)) hr = opened.As(&stream);
         if (FAILED(hr)) {

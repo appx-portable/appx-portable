@@ -75,6 +75,20 @@ int main() {
     if (FAILED(activation->ActivateInstance(&instance)) || FAILED(instance.As(&writer)) ||
         FAILED(writer->WriteString(nullptr, &written)) || written != 0)
         return 17;
+    // Native saves append serialized binary bytes, then detach that buffer for FileIO.
+    byte binary[] = {0, 0x80, 0xff, 'B'};
+    if (writer->WriteBytes(1, nullptr) != E_POINTER || FAILED(writer->WriteBytes(0, nullptr)) ||
+        FAILED(writer->WriteBytes(ARRAYSIZE(binary), binary)) ||
+        FAILED(writer->WriteString(HStringReference(L"!").Get(), &written)) ||
+        FAILED(writer->get_UnstoredBufferLength(&length)) || length != 5)
+        return 18;
+    if (FAILED(writer->DetachBuffer(&buffer)) || FAILED(buffer->get_Length(&length)) || length != 5 ||
+        FAILED(buffer.As(&access)) || FAILED(access->Buffer(&bytes)) || memcmp(bytes, binary, sizeof(binary)) ||
+        bytes[4] != '!')
+        return 19;
+    if (FAILED(writer->get_UnstoredBufferLength(&length)) || length != 0 || FAILED(writer.As(&close)) ||
+        FAILED(close->Close()) || writer->WriteBytes(ARRAYSIZE(binary), binary) != RO_E_CLOSED)
+        return 20;
     puts("writertest: 0 failure(s)");
     return 0;
 }

@@ -1,4 +1,4 @@
-// A small native writer for systems whose DataWriter cannot encode strings.
+// A native writer for strings and binary buffers on systems whose DataWriter is incomplete.
 #include "registry.h"
 #include "com/factory.h"
 #include "generated/streams.h"
@@ -46,6 +46,21 @@ public:
         *value = 0;
         if (closed_) return RO_E_CLOSED;
         *value = static_cast<UINT32>(bytes_.size());
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE WriteBytes(UINT32 length, BYTE* value) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (closed_) return RO_E_CLOSED;
+        if (length && !value) return E_POINTER;
+        if (length > UINT32_MAX - bytes_.size()) return E_OUTOFMEMORY;
+        if (!length) return S_OK;
+        try {
+            bytes_.insert(bytes_.end(), value, value + length);
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        } catch (const std::length_error&) {
+            return E_OUTOFMEMORY;
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE WriteString(HSTRING value, UINT32* count) override {
@@ -141,7 +156,7 @@ public:
     }
 };
 HRESULT MakeWriterFactory(IActivationFactory** value) {
-    // Activation alone is not sufficient: Wine supplies a factory but stubs WriteString.
+    // Activation alone is not sufficient: Wine supplies a factory with missing writer methods.
     // Probe the consumed constructor and operations using an isolated output stream.
     ComPtr<IActivationFactory> system;
     if (SUCCEEDED(OsGetActivationFactory(HStringReference(L"Windows.Storage.Streams.DataWriter").Get(),
@@ -156,9 +171,15 @@ HRESULT MakeWriterFactory(IActivationFactory** value) {
             UINT32 written = 0;
             const auto result = writer->WriteString(HStringReference(L"x").Get(), &written);
             ComPtr<IBuffer> buffer;
+            ComPtr<IBufferByteAccess> access;
+            BYTE binary = 0xa5;
+            BYTE* bytes = nullptr;
             UINT32 length = 0;
-            const bool detached = SUCCEEDED(result) && written == 1 && SUCCEEDED(writer->DetachBuffer(&buffer)) &&
-                                  buffer && SUCCEEDED(buffer->get_Length(&length)) && length == 1;
+            const bool detached = SUCCEEDED(result) && written == 1 && SUCCEEDED(writer->WriteBytes(1, &binary)) &&
+                                  SUCCEEDED(writer->DetachBuffer(&buffer)) && buffer &&
+                                  SUCCEEDED(buffer->get_Length(&length)) && length == 2 &&
+                                  SUCCEEDED(buffer.As(&access)) && SUCCEEDED(access->Buffer(&bytes)) && bytes &&
+                                  bytes[0] == 'x' && bytes[1] == binary;
             const auto closed = close->Close();
             if (detached && SUCCEEDED(closed)) return system.CopyTo(value);
         }
