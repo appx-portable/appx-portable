@@ -104,8 +104,9 @@ class StorageIoProjectionTest
             Check(await reader.LoadAsync((uint)bytes.Length) == bytes.Length &&
                 reader.ReadString((uint)bytes.Length) == System.Text.Encoding.UTF8.GetString(bytes), "OpenAsync device-ID text");
         }
-        try { await file.OpenAsync(FileAccessMode.ReadWrite); throw new Exception("writable stream fabricated"); }
-        catch (NotImplementedException) { }
+        // Saves open their file for ReadWrite, as Bejeweled does when pausing.
+        using (IRandomAccessStream writable = await file.OpenAsync(FileAccessMode.ReadWrite))
+            Check(writable.CanRead && writable.CanWrite && writable.Size == (ulong)bytes.Length, "OpenAsync read-write stream");
         string gonePath = Path.GetFullPath("open-vanished.bin");
         File.WriteAllBytes(gonePath, bytes);
         StorageFile gone = await StorageFile.GetFileFromPathAsync(gonePath);
