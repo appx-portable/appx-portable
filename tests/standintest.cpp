@@ -4,6 +4,8 @@
 // Package.Current, and CoreWindow.GetForCurrentThread off the UI thread.
 #include "com/pinterface.h"
 #include "xbox/xbox_abi.h"
+#include "xbox/achievements_abi.h"
+#include "xbox/users_abi.h"
 #include <windows.applicationmodel.h>
 #include <windows.applicationmodel.background.h>
 #include <windows.ui.core.h>
@@ -117,8 +119,46 @@ int main(int argc, char**) {
         ComPtr<IInspectable> instance;
         CHECK(SUCCEEDED(factory->ActivateInstance(&instance)));
         auto checkUser = [&](auto* user) {
+            // The local player has no friends list. Jetpack Joyride requests it
+            // after loading the profile and fails fast if the request errors.
             ComPtr<IInspectable> friends;
             CHECK(user && SUCCEEDED(user->GetFriendsAsync(&friends)) && friends);
+            {
+                ComPtr<IUnknown> friendsTyped;
+                const auto friendsOperation = appx::ParameterizedIid(
+                    appx::AsyncOperationOfClass("Microsoft.Xbox.UserCollection", appx::xbox::defaults::UserCollection));
+                CHECK(friendsOperation == __uuidof(appx::xbox::OperationAbi<appx::xbox::IUserCollection>));
+                CHECK(friends && SUCCEEDED(friends->QueryInterface(friendsOperation, &friendsTyped)));
+                ComPtr<ABI::Windows::Foundation::IAsyncInfo> friendsInfo;
+                HRESULT friendsError = E_FAIL;
+                ABI::Windows::Foundation::AsyncStatus friendsStatus{};
+                CHECK(friends && SUCCEEDED(friends.As(&friendsInfo)) &&
+                      SUCCEEDED(friendsInfo->get_ErrorCode(&friendsError)) && friendsError == S_OK &&
+                      SUCCEEDED(friendsInfo->get_Status(&friendsStatus)) &&
+                      friendsStatus == ABI::Windows::Foundation::AsyncStatus::Completed);
+                ComPtr<appx::xbox::IUserCollection> list;
+                auto* friendsAsync = static_cast<appx::xbox::OperationAbi<appx::xbox::IUserCollection>*>(
+                    static_cast<IInspectable*>(friendsTyped.Get()));
+                CHECK(friendsAsync && SUCCEEDED(friendsAsync->GetResults(list.GetAddressOf())) && list);
+                ComPtr<IInspectable> users;
+                ComPtr<appx::xbox::IUserVectorView> userView;
+                ComPtr<appx::xbox::IUserIterable> userIterable;
+                ComPtr<appx::xbox::IUserIterator> userIterator;
+                CHECK(list && SUCCEEDED(list->get_Items(&users)) && users && SUCCEEDED(users.As(&userView)) &&
+                      SUCCEEDED(users.As(&userIterable)));
+                UINT32 size = 99;
+                boolean more = true;
+                CHECK(userView && SUCCEEDED(userView->get_Size(&size)) && size == 0);
+                CHECK(userIterable && SUCCEEDED(userIterable->First(&userIterator)) && userIterator &&
+                      SUCCEEDED(userIterator->get_HasCurrent(&more)) && !more);
+                const std::string userClass = "rc(Microsoft.Xbox.User;{d7fba214-e744-4093-9fee-ab68795b70a0})";
+                CHECK(appx::ParameterizedIid("pinterface({bbe1fa4c-b0e3-4583-baef-1f1b2e483e56};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserVectorView));
+                CHECK(appx::ParameterizedIid("pinterface({faa585ea-6214-4217-afda-7f46de5869b3};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserIterable));
+                CHECK(appx::ParameterizedIid("pinterface({6a79e863-4300-459a-9966-cbb660963ee1};" + userClass + ")") ==
+                      __uuidof(appx::xbox::IUserIterator));
+            }
             // Exercise both SDK layouts: SetProfileAsync precedes this slot
             // only in 1.0/1.1. A wrong layout also produces the wrong async IID.
             ComPtr<IInspectable> achievements;
@@ -130,8 +170,45 @@ int main(int argc, char**) {
             ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
             CHECK(achievements && SUCCEEDED(achievements.As(&info)));
             HRESULT error{};
-            CHECK(info && SUCCEEDED(info->get_ErrorCode(&error)) &&
-                  error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            CHECK(info && SUCCEEDED(info->get_ErrorCode(&error)) && error == S_OK);
+            ABI::Windows::Foundation::AsyncStatus achievementStatus{};
+            CHECK(info && SUCCEEDED(info->get_Status(&achievementStatus)) &&
+                  achievementStatus == ABI::Windows::Foundation::AsyncStatus::Completed);
+            ComPtr<appx::xbox::IAchievementCollection> collection;
+            auto* achievementAsync = static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()));
+            CHECK(achievementAsync && SUCCEEDED(achievementAsync->GetResults(collection.GetAddressOf())) && collection);
+            Handler achievementHandler{handlerTable};
+            CHECK(achievementAsync &&
+                  SUCCEEDED(achievementAsync->put_Completed(reinterpret_cast<IUnknown*>(&achievementHandler))));
+            CHECK(achievementHandler.calls == 1 &&
+                  achievementHandler.status == ABI::Windows::Foundation::AsyncStatus::Completed);
+            UINT32 count = 99;
+            CHECK(collection && SUCCEEDED(collection->get_TotalRecords(&count)) && count == 0);
+            ComPtr<IInspectable> items;
+            ComPtr<appx::xbox::IAchievementVectorView> view;
+            ComPtr<appx::xbox::IAchievementIterable> iterable;
+            CHECK(collection && SUCCEEDED(collection->get_Items(&items)) && items && SUCCEEDED(items.As(&view)) &&
+                  SUCCEEDED(items.As(&iterable)));
+            CHECK(view && SUCCEEDED(view->get_Size(&count)) && count == 0);
+            ComPtr<IInspectable> missing;
+            CHECK(view && view->GetAt(0, &missing) == E_BOUNDS && !missing);
+            CHECK(view && view->GetAt(0, nullptr) == E_POINTER);
+            CHECK(view && SUCCEEDED(view->GetMany(0, 0, nullptr, &count)) && count == 0);
+            CHECK(view && view->GetMany(1, 0, nullptr, &count) == E_BOUNDS);
+            ComPtr<appx::xbox::IAchievementIterator> iterator;
+            boolean hasCurrent = true;
+            CHECK(iterable && SUCCEEDED(iterable->First(&iterator)) && iterator);
+            CHECK(iterator && SUCCEEDED(iterator->get_HasCurrent(&hasCurrent)) && !hasCurrent);
+            CHECK(iterator && SUCCEEDED(iterator->MoveNext(&hasCurrent)) && !hasCurrent);
+            CHECK(iterator && iterator->get_Current(&missing) == E_BOUNDS && !missing);
+            const std::string achievementClass =
+                "rc(Microsoft.Xbox.Achievement;{843a65e0-8ed2-45a3-8524-6983a9ad7fdd})";
+            CHECK(appx::ParameterizedIid("pinterface({bbe1fa4c-b0e3-4583-baef-1f1b2e483e56};" + achievementClass +
+                                         ")") == __uuidof(appx::xbox::IAchievementVectorView));
+            CHECK(appx::ParameterizedIid("pinterface({faa585ea-6214-4217-afda-7f46de5869b3};" + achievementClass +
+                                         ")") == __uuidof(appx::xbox::IAchievementIterable));
+            CHECK(appx::ParameterizedIid("pinterface({6a79e863-4300-459a-9966-cbb660963ee1};" + achievementClass +
+                                         ")") == __uuidof(appx::xbox::IAchievementIterator));
             // The local player's profile loads offline.
             ComPtr<IInspectable> profile;
             ComPtr<appx::xbox::IUserProfile> loaded;
@@ -144,6 +221,46 @@ int main(int argc, char**) {
                 CHECK(SUCCEEDED(static_cast<OperationAbi*>(static_cast<IInspectable*>(typed.Get()))
                                     ->GetResults(loaded.GetAddressOf())) &&
                       loaded);
+            // Picture URLs are valid URIs: Minion Rush builds a Uri from one on
+            // every frame of its achievements screen, and an empty one throws.
+            // Without a package, they name the package root.
+            if (loaded) {
+                using Getter = HRESULT (STDMETHODCALLTYPE appx::xbox::IUserProfile::*)(HSTRING*);
+                for (Getter getter : {&appx::xbox::IUserProfile::get_GamerPictureUrl,
+                                      &appx::xbox::IUserProfile::get_SmallGamerPictureUrl,
+                                      &appx::xbox::IUserProfile::get_AvatarImageUrl}) {
+                    HString picture;
+                    CHECK(SUCCEEDED((loaded.Get()->*getter)(picture.GetAddressOf())) &&
+                          wcscmp(picture.GetRawBuffer(nullptr), L"ms-appx:///") == 0);
+                }
+                CHECK(loaded->get_GamerPictureUrl(nullptr) == E_POINTER);
+            }
+            // Unlocking completes locally. Minion Rush attaches a value-based
+            // continuation and never reads the error, so a failed unlock ends
+            // the game when the task is released after a level.
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> unlock;
+            CHECK(user && user->UnlockAchievementAsync(1, nullptr) == E_POINTER);
+            CHECK(user && SUCCEEDED(user->UnlockAchievementAsync(1, &unlock)) && unlock);
+            CHECK(unlock && SUCCEEDED(unlock.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) && error == S_OK);
+            CHECK(info && SUCCEEDED(info->get_Status(&achievementStatus)) &&
+                  achievementStatus == ABI::Windows::Foundation::AsyncStatus::Completed);
+            CHECK(unlock && SUCCEEDED(unlock->GetResults()));
+            // Signed-out requests retain the normal offline error path.
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> signOut;
+            CHECK(live && SUCCEEDED(live->SignOutAsync(&signOut)));
+            ComPtr<IInspectable> signedOutAchievements, signIn;
+            CHECK(SUCCEEDED(user->GetAchievementsAsync(0, 100, false, nullptr, &signedOutAchievements)));
+            CHECK(signedOutAchievements && SUCCEEDED(signedOutAchievements.As(&info)) &&
+                  SUCCEEDED(info->get_ErrorCode(&error)) && error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            ComPtr<IInspectable> signedOutFriends;
+            CHECK(SUCCEEDED(user->GetFriendsAsync(&signedOutFriends)) && signedOutFriends &&
+                  SUCCEEDED(signedOutFriends.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+                  error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> signedOutUnlock;
+            CHECK(SUCCEEDED(user->UnlockAchievementAsync(1, &signedOutUnlock)) && signedOutUnlock &&
+                  SUCCEEDED(signedOutUnlock.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+                  error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            CHECK(live && SUCCEEDED(live->SignInAsync(&signIn)));
         };
         if (argc > 1) {
             ComPtr<appx::xbox::IUser12> user;
@@ -156,6 +273,41 @@ int main(int argc, char**) {
             ComPtr<appx::xbox::IUser10> user;
             CHECK(SUCCEEDED(instance.As(&user)));
             checkUser(user.Get());
+        }
+    }
+    // Posting a score completes locally for the signed-in player: Jetpack
+    // Joyride never reads the error and fails fast at the end of a run.
+    // Reading a leaderboard keeps failing offline, which it reports in-game.
+    CHECK(SUCCEEDED(Factory(L"Microsoft.Xbox.Leaderboards.LeaderboardService", factory)));
+    if (factory) {
+        ComPtr<IInspectable> instance;
+        ComPtr<appx::xbox::ILeaderboardService> leaderboards;
+        CHECK(SUCCEEDED(factory->ActivateInstance(&instance)) && SUCCEEDED(instance.As(&leaderboards)));
+        auto posted = [&](HRESULT expected) {
+            for (int many = 0; many < 2 && leaderboards; ++many) {
+                ComPtr<ABI::Windows::Foundation::IAsyncAction> post;
+                ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
+                HRESULT error = E_FAIL;
+                CHECK(SUCCEEDED(many ? leaderboards->PostResultsAsync(1, nullptr, &post)
+                                     : leaderboards->PostResultAsync(1, 0, 100, &post)) &&
+                      post);
+                CHECK(post && SUCCEEDED(post.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) && error == expected);
+            }
+        };
+        posted(S_OK);
+        CHECK(leaderboards && leaderboards->PostResultAsync(1, 0, 100, nullptr) == E_POINTER);
+        ComPtr<IInspectable> board;
+        ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
+        HRESULT error = S_OK;
+        CHECK(leaderboards && SUCCEEDED(leaderboards->GetLeaderboardAsync(0, 10, 1, false, nullptr, nullptr, &board)) &&
+              board && SUCCEEDED(board.As(&info)) && SUCCEEDED(info->get_ErrorCode(&error)) &&
+              error == HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+        if (live) {
+            ComPtr<ABI::Windows::Foundation::IAsyncAction> signOut;
+            ComPtr<IInspectable> signIn;
+            CHECK(SUCCEEDED(live->SignOutAsync(&signOut)));
+            posted(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
+            CHECK(SUCCEEDED(live->SignInAsync(&signIn)));
         }
     }
     // Xbox classes without a stand-in are "not registered", never the real DLL.

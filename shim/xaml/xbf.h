@@ -9,8 +9,11 @@ struct XbfConnection {
     std::wstring type, name;
     bool root = false, collapsed = false;
 };
-// XBF 2.0/2.1 connection metadata for the portable native XAML backend.
-// This does not render a visual tree. Deferred/custom-runtime-data opcodes are
-// rejected, and no connections are returned unless the entire stream validates.
+// XBF 1.0 (Windows 8.1) and 2.0/2.1 connection metadata for the portable native
+// XAML backend. This does not render a visual tree. Deferred/custom-runtime-data
+// opcodes are rejected, and nothing is returned unless the entire stream validates.
 HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connections);
+// Every object with a connection ID or a name, in document order: Windows 8
+// pages bind named fields by FindName, with or without a connection.
+HRESULT ReadXbfObjects(IStream* stream, std::vector<XbfConnection>& objects);
 }

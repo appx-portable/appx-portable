@@ -20,6 +20,42 @@ using namespace Microsoft::WRL;
 using namespace ABI::Windows::UI::Xaml;
 using namespace ABI::Windows::ApplicationModel::Activation;
 namespace appx {
+// The stand-in for a XAML element type in a page's markup: the page itself for
+// its UserControl root, the page's one swap-chain or media element, or a new
+// portable control. S_FALSE with null for types the shim does not stand in.
+static HRESULT MakeXamlElement(IFrameworkElement* element, const std::wstring& type, IInspectable** target) {
+    *target = nullptr;
+    const wchar_t* canonical = type == L"MediaElement"               ? L"mediaElement"
+                               : type == L"SwapChainBackgroundPanel" ? L"SwapChainPanel"
+                                                                     : L"swapChainPanel";
+    if (type == L"UserControl") return element->QueryInterface(IID_PPV_ARGS(target));
+    if (type == L"MediaElement" || type == L"SwapChainBackgroundPanel" || type == L"SwapChainPanel")
+        return element->FindName(Wrappers::HStringReference(canonical).Get(), target);
+    if (CurrentPackage().universal) return MakeWin10XamlElement(type.c_str(), target);
+    return MakeSourceXamlElement(type.c_str(), target);
+}
+// Registers a created element under its x:Name, gives it the page's BaseUri,
+// and applies Visibility="Collapsed".
+static HRESULT RegisterXamlElement(IFrameworkElement* element, const std::wstring& name, IInspectable* target,
+                                   bool collapsed) {
+    ComPtr<INamedElementRegistry> names;
+    auto hr = element->QueryInterface(IID_PPV_ARGS(&names));
+    if (SUCCEEDED(hr) && !name.empty())
+        hr = names->RegisterName(Wrappers::HStringReference(name.c_str()).Get(), target);
+    if (FAILED(hr)) return hr;
+    ComPtr<INamedElementRegistry> child;
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri;
+    Wrappers::HString text;
+    if (SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&child))) && child.Get() != names.Get() &&
+        SUCCEEDED(element->get_BaseUri(&uri)) && uri && SUCCEEDED(uri->get_AbsoluteUri(text.GetAddressOf()))) {
+        hr = child->SetBaseUri(text.Get());
+        if (FAILED(hr)) return hr;
+    }
+    if (!collapsed) return S_OK;
+    ComPtr<IUIElement> ui;
+    hr = target->QueryInterface(IID_PPV_ARGS(&ui));
+    return SUCCEEDED(hr) ? ui->put_Visibility(Visibility_Collapsed) : hr;
+}
 // Windows 8 packages retain source XAML, including the generated connection
 // IDs. Bind supported named elements and their handlers from those IDs. With
 // no connector, only register the names: Windows 8 pages bind their fields by
@@ -71,37 +107,46 @@ static HRESULT ConnectSourceXaml(ABI::Windows::UI::Xaml::Markup::IComponentConne
             if (!end || *end || id <= 0 || id == LONG_MAX) return E_INVALIDARG;
         }
         ComPtr<IInspectable> target;
-        const wchar_t* canonical = elementType == L"MediaElement"               ? L"mediaElement"
-                                   : elementType == L"SwapChainBackgroundPanel" ? L"SwapChainPanel"
-                                                                                : L"swapChainPanel";
-        if (elementType == L"UserControl") {
-            hr = element->QueryInterface(IID_PPV_ARGS(&target));
-        } else if (elementType == L"MediaElement" || elementType == L"SwapChainBackgroundPanel" ||
-                   elementType == L"SwapChainPanel") {
-            hr = element->FindName(Wrappers::HStringReference(canonical).Get(), &target);
-        } else if (CurrentPackage().universal) {
-            hr = MakeWin10XamlElement(elementType.c_str(), &target);
-        } else {
-            hr = MakeSourceXamlElement(elementType.c_str(), &target);
-        }
+        hr = MakeXamlElement(element, elementType, &target);
         if (FAILED(hr)) return hr;
         if (!target) continue;
-        ComPtr<INamedElementRegistry> names;
-        hr = element->QueryInterface(IID_PPV_ARGS(&names));
-        if (SUCCEEDED(hr) && !name.empty())
-            hr = names->RegisterName(Wrappers::HStringReference(name.c_str()).Get(), target.Get());
+        hr = RegisterXamlElement(element, name, target.Get(), visibility == L"Collapsed");
         if (FAILED(hr)) return hr;
-        if (visibility == L"Collapsed") {
-            ComPtr<IUIElement> ui;
-            hr = target.As(&ui);
-            if (SUCCEEDED(hr)) hr = ui->put_Visibility(Visibility_Collapsed);
-            if (FAILED(hr)) return hr;
-        }
         if (!connector) continue;
         hr = connector->Connect(id, target.Get());
         if (FAILED(hr)) return hr;
     }
     return hr == S_FALSE ? S_OK : hr;
+}
+// The names-only pass for Windows 8 packages that ship just the compiled page,
+// such as Minion Rush's Windows 8.1 XBF: create and register its named elements,
+// without connecting handlers. S_FALSE when the package has no compiled page.
+static HRESULT RegisterCompiledXamlNames(IFrameworkElement* element, const std::wstring& filename) {
+    auto path = std::filesystem::path(filename);
+    if (_wcsicmp(path.extension().c_str(), L".xaml") != 0) return S_FALSE;
+    path.replace_extension(L".xbf");
+    ComPtr<IStream> stream;
+    auto hr = OpenPackageResource(CurrentPackage(), path.wstring(), &stream);
+    if (hr != S_OK) return hr;
+    std::vector<XbfConnection> objects;
+    hr = ReadXbfObjects(stream.Get(), objects);
+    if (FAILED(hr)) return hr;
+    size_t registered = 0;
+    for (const auto& entry : objects) {
+        if (entry.root || entry.name.empty()) continue;
+        ComPtr<IInspectable> target;
+        hr = MakeXamlElement(element, entry.type, &target);
+        if (FAILED(hr)) return hr;
+        if (!target) {
+            Log("TRACE", "XBF %ls: no stand-in for %ls %ls", path.c_str(), entry.type.c_str(), entry.name.c_str());
+            continue;
+        }
+        hr = RegisterXamlElement(element, entry.name, target.Get(), entry.collapsed);
+        if (FAILED(hr)) return hr;
+        ++registered;
+    }
+    Log("TRACE", "XBF names %ls: %zu registered", path.c_str(), registered);
+    return S_OK;
 }
 static HRESULT ConnectCompiledXaml(ABI::Windows::UI::Xaml::Markup::IComponentConnector* connector,
                                    IFrameworkElement* element, const std::wstring& filename) {
@@ -317,6 +362,17 @@ public:
         HSTRING text{};
         uri->get_AbsoluteUri(&text);
         Log("TRACE", "Application::LoadComponent %ls", WindowsGetStringRawBuffer(text, nullptr));
+        if (component) {
+            // The page reports its markup's URI as BaseUri, as do its elements.
+            ComPtr<INamedElementRegistry> page;
+            if (SUCCEEDED(component->QueryInterface(IID_PPV_ARGS(&page)))) {
+                const auto hr = page->SetBaseUri(text);
+                if (FAILED(hr)) {
+                    WindowsDeleteString(text);
+                    return hr;
+                }
+            }
+        }
         const bool movie = wcscmp(WindowsGetStringRawBuffer(text, nullptr), L"ms-appx:///MovieMgrPage.xaml") == 0;
         const bool directX = wcscmp(WindowsGetStringRawBuffer(text, nullptr), L"ms-appx:///DirectXPage.xaml") == 0;
         // The page's file at the package root, or empty for any other URI.
@@ -360,6 +416,9 @@ public:
             if (directX) {
                 hr = ConnectSourceXaml(connector.Get(), element.Get(), L"DirectXPage.xaml");
                 if (hr != S_FALSE) return hr;
+                // Best effort, as for other Windows 8 pages below.
+                hr = RegisterCompiledXamlNames(element.Get(), L"DirectXPage.xaml");
+                if (FAILED(hr)) Log("FAIL", "compiled XAML names DirectXPage.xaml hr=%08lx", hr);
             }
             ComPtr<IInspectable> target;
             hr = element->FindName(Wrappers::HStringReference(movie ? L"mediaElement" : L"SwapChainPanel").Get(),
@@ -372,8 +431,12 @@ public:
             ComPtr<IFrameworkElement> element;
             if (SUCCEEDED(component->QueryInterface(IID_PPV_ARGS(&element)))) {
                 // Best effort: the page loaded fine before this pass existed.
-                const auto hr = ConnectSourceXaml(nullptr, element.Get(), path.c_str());
+                auto hr = ConnectSourceXaml(nullptr, element.Get(), path.c_str());
                 if (FAILED(hr)) Log("FAIL", "source XAML names %ls hr=%08lx", path.c_str(), hr);
+                if (hr == S_FALSE) {
+                    hr = RegisterCompiledXamlNames(element.Get(), path);
+                    if (FAILED(hr)) Log("FAIL", "compiled XAML names %ls hr=%08lx", path.c_str(), hr);
+                }
             }
         }
         return S_OK;

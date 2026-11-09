@@ -5,6 +5,7 @@
 #include "host/host.h"
 #include "host/pointer.h"
 #include "host/dispatcher.h"
+#include "xaml/key.h"
 #include "compat/win10/xaml.h"
 #include <wrl.h>
 #include <wrl/event.h>
@@ -12,10 +13,14 @@
 #include <map>
 #include <string>
 #include <functional>
+#include <limits>
+#include <cmath>
 namespace appx {
-// Internal namescope bridge used by the source-XAML loader.
+// Internal namescope bridge used by the XAML loaders: names, and the markup's
+// URI that FrameworkElement.BaseUri reports.
 MIDL_INTERFACE("B9D4328C-BA3E-4F70-A0E9-E604BB4DB236") INamedElementRegistry : IUnknown {
     virtual HRESULT STDMETHODCALLTYPE RegisterName(HSTRING name, IInspectable * value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetBaseUri(HSTRING uri) = 0;
 };
 HRESULT MakePanel(IInspectable** value);
 HRESULT MakeBackgroundPanel(IInspectable** value);
@@ -24,6 +29,7 @@ HRESULT MakeGrid(IInspectable** value);
 // entry. S_FALSE with null for element types the shim does not stand in.
 HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value);
 HRESULT MakeMediaElement(IInspectable** value);
+HRESULT MakeImage(IInspectable** value);
 HRESULT QueueElementLoaded(IInspectable* value);
 HRESULT DeliverElementLoaded(IInspectable* object);
 HRESULT CurrentApplication(ABI::Windows::UI::Xaml::IApplication** value);
@@ -81,18 +87,27 @@ template <class Derived, class Primary, class... Interfaces>
 class Element
     : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                         ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, Interfaces...> {
+                        IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement, IXamlKeyTarget,
+                        Interfaces...> {
     using Base = Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                             ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
-                            IPointerTargetProvider, INamedElementRegistry, IGridPlacement, Interfaces...>;
+                            IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement,
+                            IXamlKeyTarget, Interfaces...>;
+    XamlKeyEventSource keyDown_, keyUp_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_, unloaded_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
     Microsoft::WRL::ComPtr<IInspectable> panel_, backgroundPanel_, grid_, media_;
     Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::Media::IRectangleGeometry> clip_;
     std::map<std::wstring, Microsoft::WRL::ComPtr<IInspectable>> namedElements_;
-    Microsoft::WRL::Wrappers::HString name_;
+    Microsoft::WRL::Wrappers::HString name_, baseUri_;
     ABI::Windows::UI::Xaml::Visibility visibility_ = ABI::Windows::UI::Xaml::Visibility_Visible;
+    ABI::Windows::UI::Xaml::HorizontalAlignment horizontal_ = ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch;
+    ABI::Windows::UI::Xaml::VerticalAlignment vertical_ = ABI::Windows::UI::Xaml::VerticalAlignment_Stretch;
+    ABI::Windows::UI::Xaml::Thickness margin_{};
+    DOUBLE opacity_ = 1;
+    boolean hitTestVisible_ = true;
     INT32 placement_[4]{0, 0, 1, 1};
+    DOUBLE canvasPosition_[3]{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), 0};
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerPressed_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerMoved_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerReleased_;
@@ -155,6 +170,87 @@ private:
     }
 
 public:
+    HRESULT STDMETHODCALLTYPE get_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = horizontal_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment value) override {
+        if (value < ABI::Windows::UI::Xaml::HorizontalAlignment_Left ||
+            value > ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch)
+            return E_INVALIDARG;
+        horizontal_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = vertical_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment value) override {
+        if (value < ABI::Windows::UI::Xaml::VerticalAlignment_Top ||
+            value > ABI::Windows::UI::Xaml::VerticalAlignment_Stretch)
+            return E_INVALIDARG;
+        vertical_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Margin(ABI::Windows::UI::Xaml::Thickness* value) override {
+        if (!value) return E_POINTER;
+        *value = margin_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_Margin(ABI::Windows::UI::Xaml::Thickness value) override {
+        if (!std::isfinite(value.Left) || !std::isfinite(value.Top) || !std::isfinite(value.Right) ||
+            !std::isfinite(value.Bottom))
+            return E_INVALIDARG;
+        margin_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Opacity(DOUBLE* value) override {
+        if (!value) return E_POINTER;
+        *value = opacity_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_Opacity(DOUBLE value) override {
+        if (!std::isfinite(value) || value < 0 || value > 1) return E_INVALIDARG;
+        opacity_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_IsHitTestVisible(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = hitTestVisible_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_IsHitTestVisible(boolean value) override {
+        hitTestVisible_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetCanvasPosition(UINT index, DOUBLE* value) override {
+        if (!value) return E_POINTER;
+        if (index >= 3) return E_INVALIDARG;
+        *value = canvasPosition_[index];
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE SetCanvasPosition(UINT index, DOUBLE value) override {
+        if (index >= 3) return E_INVALIDARG;
+        canvasPosition_[index] = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE RaiseKey(boolean released,
+                                       ABI::Windows::UI::Xaml::Input::IKeyRoutedEventArgs* args) override {
+        auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+        return released ? keyUp_.Raise(source, args) : keyDown_.Raise(source, args);
+    }
+    HRESULT STDMETHODCALLTYPE add_KeyDown(ABI::Windows::UI::Xaml::Input::IKeyEventHandler* handler,
+                                          EventRegistrationToken* token) override {
+        return keyDown_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_KeyDown(EventRegistrationToken token) override { return keyDown_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE add_KeyUp(ABI::Windows::UI::Xaml::Input::IKeyEventHandler* handler,
+                                        EventRegistrationToken* token) override {
+        return keyUp_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_KeyUp(EventRegistrationToken token) override { return keyUp_.Remove(token); }
     HRESULT STDMETHODCALLTYPE GetPlacement(UINT index, INT32* value) override {
         if (!value) return E_POINTER;
         if (index >= 4) return E_INVALIDARG;
@@ -318,6 +414,20 @@ public:
         return name_.CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE put_Name(HSTRING value) override { return name_.Set(value); }
+    // The loaded page's URI for it and its markup; elements created in code
+    // resolve against the package root.
+    HRESULT STDMETHODCALLTYPE get_BaseUri(ABI::Windows::Foundation::IUriRuntimeClass** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IUriRuntimeClassFactory> uris;
+        auto hr = RoGetActivationFactory(Microsoft::WRL::Wrappers::HStringReference(L"Windows.Foundation.Uri").Get(),
+                                         IID_PPV_ARGS(&uris));
+        if (FAILED(hr)) return hr;
+        return uris->CreateUri(baseUri_.IsValid() ? baseUri_.Get()
+                                                  : Microsoft::WRL::Wrappers::HStringReference(L"ms-appx:///").Get(),
+                               value);
+    }
+    HRESULT STDMETHODCALLTYPE SetBaseUri(HSTRING uri) override { return baseUri_.Set(uri); }
     HRESULT STDMETHODCALLTYPE get_Visibility(ABI::Windows::UI::Xaml::Visibility* value) override {
         if (!value) return E_POINTER;
         *value = visibility_;

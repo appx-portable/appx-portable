@@ -5,8 +5,11 @@
 // load. Remote services fail offline. Every other Microsoft.Xbox class reports
 // "not registered", so the real DLL is never loaded.
 #include "registry.h"
+#include "package/package.h"
 #include "xbox_abi.h"
 #include "marketplace_abi.h"
+#include "achievements_abi.h"
+#include "users_abi.h"
 #include "class_operation.h"
 #include "com/factory.h"
 #include "com/failed_operation.h"
@@ -74,6 +77,100 @@ HRESULT Nobody(IInspectable** value) {
     *value = nullptr;
     return S_OK;
 }
+// Empty IVectorView<T>/IIterable<T>/IIterator<T> of an Xbox runtime class; the
+// interfaces differ by element type only in their parameterized IIDs.
+template <class Iterator> class EmptyIterator final : public RuntimeClass<RuntimeClassFlags<WinRt>, Iterator, FtmBase> {
+    using RuntimeClassT = RuntimeClass<RuntimeClassFlags<WinRt>, Iterator, FtmBase>;
+    InspectableClass(L"Windows.Foundation.Collections.IIterator`1", BaseTrust);
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Current(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return E_BOUNDS;
+    }
+    HRESULT STDMETHODCALLTYPE get_HasCurrent(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = false;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE MoveNext(boolean* value) override { return get_HasCurrent(value); }
+    HRESULT STDMETHODCALLTYPE GetMany(UINT32 capacity, IInspectable** values, UINT32* actual) override {
+        if (!actual || (capacity && !values)) return E_POINTER;
+        *actual = 0;
+        return S_OK;
+    }
+};
+template <class View, class Iterable, class Iterator>
+class EmptyView final : public RuntimeClass<RuntimeClassFlags<WinRt>, View, Iterable, FtmBase> {
+    using RuntimeClassT = RuntimeClass<RuntimeClassFlags<WinRt>, View, Iterable, FtmBase>;
+    InspectableClass(L"Windows.Foundation.Collections.IVectorView`1", BaseTrust);
+
+public:
+    HRESULT STDMETHODCALLTYPE GetAt(UINT32, IInspectable** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return E_BOUNDS;
+    }
+    HRESULT STDMETHODCALLTYPE get_Size(UINT32* value) override {
+        if (!value) return E_POINTER;
+        *value = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE IndexOf(IInspectable*, UINT32* index, boolean* found) override {
+        if (!index || !found) return E_POINTER;
+        *index = 0;
+        *found = false;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetMany(UINT32 start, UINT32 capacity, IInspectable** values, UINT32* actual) override {
+        if (!actual || (capacity && !values)) return E_POINTER;
+        *actual = 0;
+        return start == 0 ? S_OK : E_BOUNDS;
+    }
+    HRESULT STDMETHODCALLTYPE First(Iterator** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        auto iterator = Make<EmptyIterator<Iterator>>();
+        return iterator ? iterator.CopyTo(value) : E_OUTOFMEMORY;
+    }
+};
+using EmptyAchievementView = EmptyView<IAchievementVectorView, IAchievementIterable, IAchievementIterator>;
+// The local player has no Xbox friends.
+class LocalFriends final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserCollection, FtmBase> {
+    InspectableClass(L"Microsoft.Xbox.UserCollection", BaseTrust);
+    ComPtr<EmptyView<IUserVectorView, IUserIterable, IUserIterator>> items_ =
+        Make<EmptyView<IUserVectorView, IUserIterable, IUserIterator>>();
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Items(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return items_ ? items_.CopyTo(value) : E_OUTOFMEMORY;
+    }
+};
+// The stand-in identity has no server account and therefore no cached Xbox
+// achievements or friends. Enumeration, unlocking and the friends list still
+// complete successfully, just like its local profile lookup, instead of
+// producing an unobserved network-error task: C++/CX games such as Minion Rush
+// and Jetpack Joyride chain value-based continuations on them and fail fast
+// when the error is never read.
+class LocalAchievements final : public RuntimeClass<RuntimeClassFlags<WinRt>, IAchievementCollection, FtmBase> {
+    InspectableClass(L"Microsoft.Xbox.AchievementCollection", BaseTrust);
+    ComPtr<EmptyAchievementView> items_ = Make<EmptyAchievementView>();
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Items(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return items_ ? items_.CopyTo(value) : E_OUTOFMEMORY;
+    }
+    HRESULT STDMETHODCALLTYPE get_TotalRecords(UINT32* value) override {
+        if (!value) return E_POINTER;
+        *value = 0;
+        return S_OK;
+    }
+};
 // The local player, with no Xbox account or credentials.
 class LocalIdentity final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserIdentity, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.Foundation.UserIdentity", BaseTrust);
@@ -93,17 +190,22 @@ public:
 class LocalProfile final : public RuntimeClass<RuntimeClassFlags<WinRt>, IUserProfile, FtmBase> {
     InspectableClass(L"Microsoft.Xbox.UserProfile", BaseTrust);
     Wrappers::HString bio_, location_, motto_, name_;
-    static HRESULT Empty(HSTRING* value) {
+    // The player's pictures are the game's own small logo, a valid URI as
+    // Xbox LIVE's always were: Minion Rush builds a Uri from one on every frame
+    // of its achievements screen and stops drawing when that throws.
+    static HRESULT Picture(HSTRING* value) {
         if (!value) return E_POINTER;
-        *value = nullptr;
-        return S_OK;
+        std::wstring uri = L"ms-appx:///" + CurrentPackage().smallLogo;
+        for (auto& character : uri)
+            if (character == L'\\') character = L'/';
+        return WindowsCreateString(uri.c_str(), static_cast<UINT32>(uri.size()), value);
     }
 
 public:
-    HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_AvatarImageUrl(HSTRING* v) override { return Picture(v); }
     HRESULT STDMETHODCALLTYPE get_Bio(HSTRING* v) override { return bio_.CopyTo(v); }
     HRESULT STDMETHODCALLTYPE put_Bio(HSTRING v) override { return bio_.Set(v); }
-    HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_GamerPictureUrl(HSTRING* v) override { return Picture(v); }
     HRESULT STDMETHODCALLTYPE get_Gamerscore(INT32* v) override {
         if (!v) return E_POINTER;
         *v = 0;
@@ -134,7 +236,7 @@ public:
         *v = 0;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING* v) override { return Empty(v); }
+    HRESULT STDMETHODCALLTYPE get_SmallGamerPictureUrl(HSTRING* v) override { return Picture(v); }
 };
 std::atomic<bool>& LocalSignedIn() {
     static std::atomic<bool> signedIn{true};
@@ -204,7 +306,7 @@ public:
     }
 };
 
-// Microsoft.Xbox.User in both SDK layouts; remote service methods fail offline.
+// Microsoft.Xbox.User in both SDK layouts, including the local player's data.
 #define APPX_XBOX_USER_COMMON                                                                                          \
     HRESULT STDMETHODCALLTYPE get_Identity(IInspectable** identity) override { return SignedInIdentity(identity); }    \
     HRESULT STDMETHODCALLTYPE get_Status(IInspectable** status) override { return Nobody(status); }                    \
@@ -213,14 +315,26 @@ public:
         return FailedClass("User.GetProfileAsync", "Microsoft.Xbox.UserProfile", defaults::UserProfile, op);           \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetFriendsAsync(IInspectable** op) override {                                            \
+        if (LocalSignedIn()) {                                                                                         \
+            Log("TRACE", "Xbox LIVE local: User.GetFriendsAsync (no friends)");                                        \
+            return Success<IUserCollection>(Make<LocalFriends>(), op);                                                 \
+        }                                                                                                              \
         return FailedClass("User.GetFriendsAsync", "Microsoft.Xbox.UserCollection", defaults::UserCollection, op);     \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetAchievementsAsync(UINT32, UINT32, boolean, IInspectable*, IInspectable** op)          \
         override {                                                                                                     \
+        if (LocalSignedIn()) {                                                                                         \
+            Log("TRACE", "Xbox LIVE local: User.GetAchievementsAsync (empty cache)");                                  \
+            return Success<IAchievementCollection>(Make<LocalAchievements>(), op);                                     \
+        }                                                                                                              \
         return FailedClass("User.GetAchievementsAsync", "Microsoft.Xbox.AchievementCollection",                        \
                            defaults::AchievementCollection, op);                                                       \
     }                                                                                                                  \
-    HRESULT STDMETHODCALLTYPE UnlockAchievementAsync(UINT32, IAsyncAction** action) override {                         \
+    HRESULT STDMETHODCALLTYPE UnlockAchievementAsync(UINT32 id, IAsyncAction** action) override {                      \
+        if (LocalSignedIn()) {                                                                                         \
+            Log("TRACE", "Xbox LIVE local: User.UnlockAchievementAsync(%u) (not recorded)", id);                       \
+            return DoneAction(action);                                                                                 \
+        }                                                                                                              \
         return FailedAction("User.UnlockAchievementAsync", action);                                                    \
     }                                                                                                                  \
     HRESULT STDMETHODCALLTYPE GetAvatarManifestAsync(IInspectable** op) override {                                     \
@@ -313,11 +427,20 @@ public:
         return FailedClass("LeaderboardService.GetSystemLeaderboardAsync", "Microsoft.Xbox.Leaderboards.Leaderboard",
                            defaults::Leaderboard, op);
     }
-    HRESULT STDMETHODCALLTYPE PostResultAsync(UINT32, INT32, INT64, IAsyncAction** action) override {
-        return FailedAction("LeaderboardService.PostResultAsync", action);
+    // A signed-in player's score post completes locally without being sent:
+    // Jetpack Joyride posts at the end of every run and never reads the error.
+    HRESULT STDMETHODCALLTYPE PostResultAsync(UINT32 id, INT32, INT64, IAsyncAction** action) override {
+        return Post("LeaderboardService.PostResultAsync", id, action);
     }
-    HRESULT STDMETHODCALLTYPE PostResultsAsync(UINT32, IInspectable*, IAsyncAction** action) override {
-        return FailedAction("LeaderboardService.PostResultsAsync", action);
+    HRESULT STDMETHODCALLTYPE PostResultsAsync(UINT32 id, IInspectable*, IAsyncAction** action) override {
+        return Post("LeaderboardService.PostResultsAsync", id, action);
+    }
+
+private:
+    static HRESULT Post(const char* what, UINT32 id, IAsyncAction** action) {
+        if (!LocalSignedIn()) return FailedAction(what, action);
+        Log("TRACE", "Xbox LIVE local: %s(%u) (not sent)", what, id);
+        return DoneAction(action);
     }
 };
 

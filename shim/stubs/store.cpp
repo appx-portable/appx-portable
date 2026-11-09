@@ -25,59 +25,6 @@ using ProductPair = __FIKeyValuePair_2_HSTRING_Windows__CApplicationModel__CStor
 using ProductIterable = __FIIterable_1___FIKeyValuePair_2_HSTRING_Windows__CApplicationModel__CStore__CProductLicense;
 using ProductIterator = __FIIterator_1___FIKeyValuePair_2_HSTRING_Windows__CApplicationModel__CStore__CProductLicense;
 using UnfulfilledView = __FIVectorView_1_Windows__CApplicationModel__CStore__CUnfulfilledConsumable;
-class EmptyProductIterator final : public RuntimeClass<RuntimeClassFlags<WinRt>, ProductIterator, FtmBase> {
-    InspectableClass(L"Windows.Foundation.Collections.IIterator`1", BaseTrust);
-
-public:
-    HRESULT STDMETHODCALLTYPE get_Current(ProductPair** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return E_BOUNDS;
-    }
-    HRESULT STDMETHODCALLTYPE get_HasCurrent(boolean* value) override {
-        if (!value) return E_POINTER;
-        *value = false;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE MoveNext(boolean* value) override { return get_HasCurrent(value); }
-    HRESULT STDMETHODCALLTYPE GetMany(UINT32 capacity, ProductPair** values, UINT32* actual) override {
-        if (!actual) return E_POINTER;
-        *actual = 0;
-        if (capacity && !values) return E_POINTER;
-        return S_OK;
-    }
-};
-class EmptyProductMap final : public RuntimeClass<RuntimeClassFlags<WinRt>, ProductMap, ProductIterable, FtmBase> {
-    InspectableClass(L"Windows.Foundation.Collections.IMapView`2", BaseTrust);
-
-public:
-    HRESULT STDMETHODCALLTYPE Lookup(HSTRING, IProductLicense** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return E_BOUNDS;
-    }
-    HRESULT STDMETHODCALLTYPE get_Size(UINT32* value) override {
-        if (!value) return E_POINTER;
-        *value = 0;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE HasKey(HSTRING, boolean* value) override {
-        if (!value) return E_POINTER;
-        *value = false;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE Split(ProductMap** first, ProductMap** second) override {
-        if (first) *first = nullptr;
-        if (second) *second = nullptr;
-        return first && second ? S_OK : E_POINTER;
-    }
-    HRESULT STDMETHODCALLTYPE First(ProductIterator** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        auto iterator = Make<EmptyProductIterator>();
-        return iterator ? iterator.CopyTo(value) : E_OUTOFMEMORY;
-    }
-};
 using UnfulfilledIterable = __FIIterable_1_Windows__CApplicationModel__CStore__CUnfulfilledConsumable;
 using UnfulfilledIterator = __FIIterator_1_Windows__CApplicationModel__CStore__CUnfulfilledConsumable;
 class EmptyUnfulfilledIterator final : public RuntimeClass<RuntimeClassFlags<WinRt>, UnfulfilledIterator, FtmBase> {
@@ -139,7 +86,7 @@ public:
         return iterator ? iterator.CopyTo(value) : E_OUTOFMEMORY;
     }
 };
-HRESULT MakeStubProductMap(ProductMap** value);
+HRESULT MakeProductMap(ProductMap** value);
 class OfflineLicense final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultILicenseInformation, FtmBase> {
     InspectableClass(L"Windows.ApplicationModel.Store.LicenseInformation", BaseTrust);
     EventSource<ILicenseChangedEventHandler> changed_;
@@ -149,9 +96,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_ProductLicenses(ProductMap** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        if (GetOptions().stubIap) return MakeStubProductMap(value);
-        auto products = Make<EmptyProductMap>();
-        return products ? products.CopyTo(value) : E_OUTOFMEMORY;
+        return MakeProductMap(value);
     }
     HRESULT STDMETHODCALLTYPE get_IsActive(boolean* value) override {
         if (!value) return E_POINTER;
@@ -302,12 +247,13 @@ const std::vector<std::wstring>& ReadStubCatalog() {
 }
 std::mutex stubPurchasesMutex;
 std::set<std::wstring> stubPurchases;
-class StubProductLicense final : public RuntimeClass<RuntimeClassFlags<WinRt>, IProductLicense, FtmBase> {
+// Inactive until a stub purchase of the product; without StubIap, never active.
+class LocalProductLicense final : public RuntimeClass<RuntimeClassFlags<WinRt>, IProductLicense, FtmBase> {
     InspectableClass(L"Windows.ApplicationModel.Store.ProductLicense", BaseTrust);
     std::wstring id_;
 
 public:
-    explicit StubProductLicense(std::wstring id) : id_(std::move(id)) {}
+    explicit LocalProductLicense(std::wstring id) : id_(std::move(id)) {}
     HRESULT STDMETHODCALLTYPE get_ProductId(HSTRING* value) override { return store::CopyString(id_, value); }
     HRESULT STDMETHODCALLTYPE get_IsActive(boolean* value) override {
         if (!value) return E_POINTER;
@@ -322,16 +268,21 @@ public:
         return S_OK;
     }
 };
-using StubLicenseMap =
-    store::StoreMap<ProductMap, ProductIterable, ProductIterator, ProductPair, IProductLicense, StubProductLicense>;
-HRESULT MakeStubProductMap(ProductMap** value) {
-    auto ids = ReadStubCatalog();
-    {
+using LicenseMap =
+    store::StoreMap<ProductMap, ProductIterable, ProductIterator, ProductPair, IProductLicense, LocalProductLicense>;
+// Windows lists a license for each of the app's products. Offline, their IDs
+// are unknown, so every product has one, and only known ones are enumerated:
+// the stub catalog and purchases. Jetpack Joyride looks up its coin pack's
+// license before buying and exits on E_BOUNDS.
+HRESULT MakeProductMap(ProductMap** value) {
+    std::vector<std::wstring> ids;
+    if (GetOptions().stubIap) {
+        ids = ReadStubCatalog();
         std::lock_guard<std::mutex> lock(stubPurchasesMutex);
         for (const auto& id : stubPurchases)
             if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
     }
-    auto products = Make<StubLicenseMap>(std::move(ids));
+    auto products = Make<LicenseMap>(std::move(ids), true);
     return products ? products.CopyTo(value) : E_OUTOFMEMORY;
 }
 void RecordStubPurchase(HSTRING product) {

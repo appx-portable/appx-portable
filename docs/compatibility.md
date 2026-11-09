@@ -16,6 +16,7 @@
 | Angry Birds Star Wars                | `9WZDNCRFJ51W` | 1.5.0.0     | x86      |                          |                                 | ✅ Playable    |                                                             |
 | Asphalt 7: Heat                      | `9WZDNCRFJ264` | 1.0.2.2     | x86, x64 |                          | ✓                               | ✅ Playable    |                                                             |
 | ilomilo plus                         | `9WZDNCRFHW7P` | 1.1.43.0    | x86      |                          |                                 | ✅ Playable    |                                                             |
+| Jetpack Joyride                      | `9WZDNCRFJCDS` | 1.0.3.68    | x86      |                          |                                 | ✅ Playable    |                                                             |
 | iStunt 2                             | `9WZDNCRFHX47` | 1.0.1.4     | x86      | ✓                        |                                 | ✅ Playable    |                                                             |
 | Monster Island                       | `9WZDNCRFHX5V` | 1.0.2.3     | x86      | ✓                        |                                 | ✅ Playable    |                                                             |
 | Where's My Mickey? XL                | `9WZDNCRFJCV7` | 1.1.0.30    | x86      |                          |                                 | 🩹 Needs patch | [AMPS startup EXE patch](../patch/wheresmymickey/README.md) |

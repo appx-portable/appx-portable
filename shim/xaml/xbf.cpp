@@ -106,11 +106,12 @@ struct Metadata {
         return value;
     }
 };
-Metadata ReadMetadata(const std::vector<BYTE>& bytes, size_t end) {
+// XBF 1.0 (Windows 8.1) shares 2.0's header and metadata tables.
+Metadata ReadMetadata(const std::vector<BYTE>& bytes, size_t end, UINT32& major) {
     Reader header{bytes, 12, end};
-    if (header.Get<UINT32>() != 2) throw E_NOTIMPL;
+    major = header.Get<UINT32>();
     const auto minor = header.Get<UINT32>();
-    if (minor > 1) throw E_NOTIMPL;
+    if ((major != 1 || minor != 0) && (major != 2 || minor > 1)) throw E_NOTIMPL;
     UINT64 offsets[6];
     for (auto& offset : offsets) offset = header.Get<UINT64>();
     header.Skip(64); // Compiler hash; not an integrity signature.
@@ -144,12 +145,110 @@ Metadata ReadMetadata(const std::vector<BYTE>& bytes, size_t end) {
     }
     return metadata;
 }
-void Parse(const std::vector<BYTE>& bytes, std::vector<XbfConnection>& connections) {
+// XBF 1.0 nodes: a flat stream of object and property scopes. Names and
+// connection IDs are ordinary properties; values are inline or table strings.
+std::vector<XbfConnection> ParseV1(const std::vector<BYTE>& bytes, size_t start, const Metadata& metadata) {
+    Reader reader{bytes, start, bytes.size()};
+    std::vector<XbfConnection> objects;
+    std::vector<size_t> scopes; // Open objects; properties belong to the innermost.
+    std::vector<std::wstring> properties;
+    auto object = [&]() -> XbfConnection& {
+        if (scopes.empty()) throw Invalid;
+        return objects[scopes.back()];
+    };
+    while (reader.pos < reader.end) {
+        const auto op = reader.Get<BYTE>();
+        switch (op) {
+        case 0x01: { // Start object: type, flags.
+            const auto type = reader.Get<UINT32>();
+            reader.Get<UINT32>();
+            if (type >= metadata.types.size()) throw Invalid;
+            objects.push_back({0, metadata.types[type], {}, objects.empty(), false});
+            scopes.push_back(objects.size() - 1);
+            break;
+        }
+        case 0x02: // End object.
+            if (scopes.empty()) throw Invalid;
+            scopes.pop_back();
+            break;
+        case 0x03: { // Start property: property, flags.
+            const auto property = reader.Get<UINT32>();
+            reader.Get<UINT32>();
+            if (property >= metadata.properties.size()) throw Invalid;
+            object();
+            properties.push_back(metadata.properties[property]);
+            break;
+        }
+        case 0x04: // End property.
+            if (properties.empty()) throw Invalid;
+            properties.pop_back();
+            break;
+        case 0x05:   // Value from the string table: string, flags.
+        case 0x06: { // Inline value: kind, then its payload.
+            Constant value{5};
+            if (op == 0x05) {
+                value.text = metadata.String(reader.Get<UINT32>());
+                reader.Get<UINT32>();
+            } else {
+                value.kind = reader.Get<BYTE>();
+                switch (value.kind) {
+                case 1: // Booleans.
+                case 2:
+                    break;
+                case 3:
+                case 8: // Float.
+                    reader.Skip(4);
+                    break;
+                case 4:
+                    value.number = reader.Get<INT32>();
+                    break;
+                case 5:
+                    value.text = reader.String();
+                    break;
+                case 7: // Thickness.
+                    reader.Skip(16);
+                    break;
+                default:
+                    throw E_NOTIMPL;
+                }
+            }
+            if (properties.empty()) throw Invalid;
+            const auto& property = properties.back();
+            if (property == L"ConnectionId") {
+                if (value.kind != 4 || value.number <= 0 || object().id) throw Invalid;
+                object().id = static_cast<UINT32>(value.number);
+            } else if (property == L"Name") {
+                if (value.kind != 5) throw Invalid;
+                object().name = std::move(value.text);
+            } else if (property == L"Visibility") {
+                if (value.kind != 5 || (value.text != L"Collapsed" && value.text != L"Visible")) throw E_NOTIMPL;
+                object().collapsed = value.text == L"Collapsed";
+            }
+            break;
+        }
+        case 0x07: // Namespace declaration: namespace, flags, prefix.
+            if (reader.Get<UINT32>() >= metadata.namespaces) throw Invalid;
+            reader.Get<UINT32>();
+            reader.String();
+            break;
+        case 0x0a: // Line and column.
+            reader.Skip(4);
+            break;
+        default:
+            throw E_NOTIMPL;
+        }
+    }
+    if (!scopes.empty() || !properties.empty() || objects.empty()) throw Invalid;
+    return objects;
+}
+std::vector<XbfConnection> Parse(const std::vector<BYTE>& bytes) {
     Reader header{bytes, 0, bytes.size()};
     if (header.Get<UINT32>() != 0x00464258) throw Invalid;
     const auto metadataSize = header.Get<UINT32>(), nodesSize = header.Get<UINT32>();
     if (metadataSize > bytes.size() - 12 || nodesSize != bytes.size() - 12 - metadataSize) throw Invalid;
-    const auto metadata = ReadMetadata(bytes, 12 + metadataSize);
+    UINT32 major = 0;
+    const auto metadata = ReadMetadata(bytes, 12 + metadataSize, major);
+    if (major == 1) return ParseV1(bytes, 12 + metadataSize, metadata);
     Reader table{bytes, 12 + metadataSize, bytes.size()};
     // Deferred node streams require an object writer, beyond this binding
     // reader. Reject them instead of guessing their object ownership.
@@ -272,17 +371,24 @@ void Parse(const std::vector<BYTE>& bytes, std::vector<XbfConnection>& connectio
         }
     }
     if (!scopes.empty() || objects.empty()) throw Invalid;
+    return objects;
+}
+// Connected objects need a known type; named-only ones may be unknown, and
+// callers skip types they do not stand in for.
+std::vector<XbfConnection> Select(std::vector<XbfConnection> objects, bool named) {
+    std::vector<XbfConnection> selected;
     std::set<UINT32> ids;
     for (auto& entry : objects) {
-        if (!entry.id) continue;
-        if (entry.type.empty()) throw E_NOTIMPL;
-        if (!ids.insert(entry.id).second) throw Invalid;
-        connections.push_back(std::move(entry));
+        if (entry.id) {
+            if (entry.type.empty()) throw E_NOTIMPL;
+            if (!ids.insert(entry.id).second) throw Invalid;
+        }
+        if (entry.id || (named && !entry.name.empty())) selected.push_back(std::move(entry));
     }
+    return selected;
 }
-}
-HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connections) {
-    connections.clear();
+HRESULT Read(IStream* stream, std::vector<XbfConnection>& result, bool named) {
+    result.clear();
     if (!stream) return E_POINTER;
     STATSTG stat{};
     auto hr = stream->Stat(&stat, STATFLAG_NONAME);
@@ -294,9 +400,7 @@ HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connecti
         hr = stream->Read(bytes.data(), static_cast<ULONG>(bytes.size()), &read);
         if (FAILED(hr)) return hr;
         if (read != bytes.size()) return Invalid;
-        std::vector<XbfConnection> parsed;
-        Parse(bytes, parsed);
-        connections = std::move(parsed);
+        result = Select(Parse(bytes), named);
         return S_OK;
     } catch (HRESULT failure) {
         return failure;
@@ -304,4 +408,9 @@ HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connecti
         return E_OUTOFMEMORY;
     }
 }
+}
+HRESULT ReadXbfConnections(IStream* stream, std::vector<XbfConnection>& connections) {
+    return Read(stream, connections, false);
+}
+HRESULT ReadXbfObjects(IStream* stream, std::vector<XbfConnection>& objects) { return Read(stream, objects, true); }
 }
