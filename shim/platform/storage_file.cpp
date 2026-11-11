@@ -3,6 +3,7 @@
 #include "generated/storage.h"
 #include "storage.h"
 #include "file_stream.h"
+#include "com/async_action.h"
 #include "com/completed_operation.h"
 #include "com/failed_operation.h"
 #include "log.h"
@@ -88,6 +89,23 @@ public:
         *operation = nullptr;
         if (mode != FileAccessMode_Read && mode != FileAccessMode_ReadWrite) return E_INVALIDARG;
         return Open<IRandomAccessStream*, IRandomAccessStream>(operation, mode == FileAccessMode_ReadWrite);
+    }
+    // Package data never reaches a recycle bin, so both options delete the file.
+    // A failure completes the action with its error, as on Windows.
+    HRESULT STDMETHODCALLTYPE
+    DeleteAsyncOverloadDefaultOptions(ABI::Windows::Foundation::IAsyncAction** operation) override {
+        return DeleteAsync(StorageDeleteOption_Default, operation);
+    }
+    HRESULT STDMETHODCALLTYPE DeleteAsync(StorageDeleteOption,
+                                          ABI::Windows::Foundation::IAsyncAction** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        auto action = Make<AsyncAction>(true);
+        if (!action) return E_OUTOFMEMORY;
+        const HRESULT error = DeleteFileW(path_.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+        Log("TRACE", "StorageFile %ls DeleteAsync hr=%08lx", path_.c_str(), error);
+        action->Finish(error);
+        return action.CopyTo(operation);
     }
 
 private:
