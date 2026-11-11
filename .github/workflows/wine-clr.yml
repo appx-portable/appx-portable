@@ -9,6 +9,7 @@ on:
             - 'tests/macos/**'
             - 'scripts/*wine-clr*'
             - 'tests/wine_clr/**'
+            - 'tests/python/test_wine_clr_package.py'
             - '.github/workflows/wine-clr.yml'
     workflow_dispatch:
     workflow_call:
@@ -39,6 +40,8 @@ jobs:
                   arch -x86_64 /usr/bin/true || softwareupdate --install-rosetta --agree-to-license
             - name: Build patched engine component
               run: bash scripts/build-wine-clr.sh build/wine-clr
+            - name: Test runtime packaging
+              run: python3 -m unittest discover -s tests/python -p test_wine_clr_package.py -v
             - name: Package pinned Wine runtime
               run: python3 scripts/package-wine-clr.py --build build/wine-clr
             - name: Verify CLR on Rosetta

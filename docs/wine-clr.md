@@ -26,6 +26,36 @@ It does not establish the internal cause in Apple's translator or support for
 other Wine versions, Intel Macs, Linux, or other CPU emulators. The complete
 return path adds work to each WoW64 call; performance has not been measured.
 
+## Keeping DEP enabled for Vulkan staging memory
+
+The pinned Wine Mono 11.3.0 GAC `Accessibility.dll` lacks
+`IMAGE_DLLCHARACTERISTICS_NX_COMPAT`. Wine disables process DEP when loading
+that module, adding executable native protections even to logically read/write
+Vulkan host-import allocations. On macOS/Rosetta this caused repeated first-access
+stalls of about one second in the x86 XAML rendering path. A DEP-disabled native
+x86 Vulkan fixture reproduced the problem; enabling NX_COMPAT in that assembly
+removed the repeated stalls in the measured WPF/game scenario.
+
+`scripts/package-wine-clr.py` corrects only that pinned assembly before signing
+the bundle. It accepts the known original or already corrected SHA-256, sets only
+the NX_COMPAT bit, and verifies the complete output hash before writing. Unexpected
+or missing input fails packaging. The `mono_nx_compat` entry in `wine-clr.json`
+records its path relative to the app, original SHA-256, and corrected SHA-256:
+
+```text
+original:  a595ba6fc5672f8869546d3adb5595fbb69c67152f77f7d65e653b18d1bbd0af
+corrected: d26007d197e8f64f62f9011d1eb0a2d5b82ac7d1f13cb65ef271c8bf8e2adc89
+```
+
+The sources archive includes the packaging script needed to reproduce this
+header correction. No game DLL or launcher renderer choice is changed.
+`tests/wine_clr/dep.cs` loads the bundled Accessibility assembly through the
+native loader and requires x86 process DEP to remain enabled. Both compiler
+variants of the packaged CLR matrix run that regression; the Python packaging
+suite checks exact bytes, rejected input, signing order, and archive provenance.
+The experiment removed the one-second stalls; occasional 60–71 ms composition
+or frame-pacing outliers remain a separate measurement target.
+
 ## Reproducing the patch
 
 Use the same Wine 11.18 source archive pinned by `scripts/build-wined3d.sh`:
@@ -80,12 +110,13 @@ additionally checks the Windows-to-Cocoa path in the packaged runtime.
 The user selected a patched runtime built in CI. `.github/workflows/wine-clr.yml`
 builds the CPU module from pinned source, replaces it in the checksum-pinned
 Gcenx Wine 11.18 bundle, ad-hoc signs and verifies the modified app, and runs the
-six baseline CLR probes plus the minimal worker fixture on the `macos-15` Apple Silicon runner. The release workflow
+eight CLR checks, including the worker and Accessibility DEP fixtures, with both
+Mono and Roslyn compilation on the `macos-15` Apple Silicon runner. The release workflow
 requires that job before publishing these two additional assets:
 
 - `appx-portable-wine-clr-macos.tar.xz`: runtime and provenance manifest.
 - `appx-portable-wine-clr-sources.tar.xz`: Wine source archive, patch, build script,
-  and provenance manifest.
+  packaging script, and provenance manifest.
 
 Local reproduction:
 
@@ -147,3 +178,23 @@ every entry-only build deterministically. The original failure logs are retained
 under `local/bejeweled-investigation/retf-loaded-clr-smoke.log`. Both directions
 remain in the narrowly targeted workaround because both wrong-mode failures
 were observed, and the complete patch passes the acceptance gates.
+
+## Local NX_COMPAT fix validation, 2026-11-11
+
+The new DEP regression failed on the original runtime with
+`Accessibility.dll disabled process DEP`. The corrected, signed runtime passed
+all eight CLR checks under both Mono and Roslyn compilation, and all 60 Python
+tests passed. Both generated archives were checked against their manifests;
+`codesign --verify --deep --strict` passed, and the isolated prefix's loaded CPU
+module matched the package manifest.
+
+A Vulkan game run with this rebuilt runtime recorded zero Presents over one
+second. The sampled main-hub entrance submitted 38 frames over 1031 ms, averaging
+35.9 XAML frames/s. Two Present outliers were 57 ms (pacing) and 73 ms
+(composition/capture). These are local measurements, not a guarantee of sustained
+display FPS or hosted CI results. The temporary game shim diagnostics were
+restored afterward.
+
+Receipts: `build/mono-nxcompat-package/verification.json` and
+`build/mono-nxcompat-game/analysis.json`. The rebuilt runtime artifact is
+`build/mono-nxcompat-package/appx-portable-wine-clr-macos.tar.xz`.
