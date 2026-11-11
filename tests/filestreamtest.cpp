@@ -176,6 +176,29 @@ int main() {
     CHECK(WaitComplete(read.Get()) && SUCCEEDED(read->GetResults(&result)) && SUCCEEDED(result->get_Length(&length)) &&
           length == ARRAYSIZE(saved));
     CHECK(SUCCEEDED(result.As(&bytes)) && SUCCEEDED(bytes->Buffer(&data)) && memcmp(data, saved, sizeof(saved)) == 0);
-    puts("filestreamtest: writable saves, completion, cursors, cloning, truncation and read-only access passed");
+    // A new game deletes the previous save through IStorageItem before writing.
+    const auto doomed = std::filesystem::path(temp) / (L"appx-delete-" + std::to_wstring(GetCurrentProcessId()));
+    struct DoomedCleanup {
+        std::filesystem::path path;
+        ~DoomedCleanup() { DeleteFileW(path.c_str()); }
+    } doomedCleanup{doomed};
+    FileHandle created(
+        CreateFileW(doomed.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    CHECK(created.IsValid());
+    created.Close();
+    ComPtr<IStorageFile> doomedFile;
+    CHECK(SUCCEEDED(factory->GetFileFromPathAsync(HStringReference(doomed.c_str()).Get(), &lookup)));
+    CHECK(WaitComplete(lookup.Get()) && SUCCEEDED(lookup->GetResults(&doomedFile)));
+    ComPtr<IStorageItem> item;
+    CHECK(SUCCEEDED(doomedFile.As(&item)));
+    ComPtr<IAsyncAction> deleting;
+    CHECK(SUCCEEDED(item->DeleteAsyncOverloadDefaultOptions(&deleting)) && deleting);
+    CHECK(WaitComplete(deleting.Get()) && SUCCEEDED(deleting->GetResults()));
+    CHECK(GetFileAttributesW(doomed.c_str()) == INVALID_FILE_ATTRIBUTES);
+    // A missing file fails through the action, as on Windows, not the call.
+    CHECK(SUCCEEDED(item->DeleteAsync(StorageDeleteOption_PermanentDelete, &deleting)) && deleting);
+    CHECK(!WaitComplete(deleting.Get()) && deleting->GetResults() == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+    puts("filestreamtest: writable saves, completion, cursors, cloning, truncation, read-only access and deletion "
+         "passed");
     return 0;
 }
