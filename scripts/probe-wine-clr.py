@@ -61,7 +61,8 @@ def main():
         command = [dotnet, str(csc)]
     builds = [("hello", "hello-x86", "x86"), ("hello", "hello-x64", "x64"),
               ("smoke", "clr-smoke", "x86"), ("io", "clr-io-x86", "x86"),
-              ("io", "clr-io-x64", "x64"), ("worker", "clr-worker", "x86")]
+              ("io", "clr-io-x64", "x64"), ("worker", "clr-worker", "x86"),
+              ("dep", "clr-dep", "x86")]
     for source, name, architecture in builds:
         if args.skip_compile:
             continue
@@ -80,7 +81,8 @@ def main():
              ("clr-io-x86", [], "io probe reached disk"),
              ("clr-io-x86", ["native"], "BCrypt result 0"),
              ("clr-io-x64", [], "io probe reached disk"),
-             ("clr-worker", [], "x86 CLR smoke PASS")]
+             ("clr-worker", [], "x86 CLR smoke PASS"),
+             ("clr-dep", [], "x86 Accessibility DEP PASS")]
     rows = []
     for name, extra, marker in cases:
         label = name + ("-native" if extra else "")

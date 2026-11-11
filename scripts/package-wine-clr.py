@@ -17,6 +17,39 @@ WINE_DEVEL = (
     "aa0ea4c82e636ae7bca2076387cb0a5affa26509ad13f119ecd0d62bd7ba6f82",
 )
 
+# Wine disables process DEP when it loads a module without NX_COMPAT. The
+# bundled Mono assembly then makes WoW64 Vulkan host-memory imports executable,
+# causing one-second first-access stalls under Rosetta. Correct only this pinned
+# assembly, preserving every other byte and recording both identities.
+MONO_ACCESSIBILITY = (
+    "Contents/Resources/wine/share/wine/mono/wine-mono-11.3.0/lib/mono/gac/"
+    "Accessibility/4.0.0.0__b03f5f7f11d50a3a/Accessibility.dll",
+    "a595ba6fc5672f8869546d3adb5595fbb69c67152f77f7d65e653b18d1bbd0af",
+    "d26007d197e8f64f62f9011d1eb0a2d5b82ac7d1f13cb65ef271c8bf8e2adc89",
+)
+
+
+def patch_mono_nx_compat(app):
+    """Set NX_COMPAT in the pinned Mono assembly, accepting an already fixed copy."""
+    relative, original_sha256, corrected_sha256 = MONO_ACCESSIBILITY
+    target = app / relative
+    if not target.is_file():
+        raise SystemExit("base archive has no expected Mono Accessibility.dll")
+    original = target.read_bytes()
+    if hashlib.sha256(original).hexdigest() not in (original_sha256, corrected_sha256):
+        raise SystemExit("Mono Accessibility.dll has an unexpected SHA-256")
+    # Both accepted hashes pin complete PE files, including this header layout.
+    data = bytearray(original)
+    pe = struct.unpack_from("<I", data, 0x3c)[0]
+    offset = pe + 24 + 70  # OptionalHeader.DllCharacteristics in PE32 and PE32+.
+    flags = struct.unpack_from("<H", data, offset)[0]
+    struct.pack_into("<H", data, offset, flags | 0x100)  # IMAGE_DLLCHARACTERISTICS_NX_COMPAT
+    if hashlib.sha256(data).hexdigest() != corrected_sha256:
+        raise SystemExit("corrected Mono Accessibility.dll has an unexpected SHA-256")
+    if data != original:
+        target.write_bytes(data)
+    return dict(path=relative, original_sha256=original_sha256, sha256=corrected_sha256)
+
 
 def download_verified(url, sha256):
     """Download url, refusing data whose SHA-256 is not the pinned one."""
@@ -88,12 +121,14 @@ def main():
     menu = build / "appxmenu.so"
     menu_target = app / "Contents/Resources/wine/lib/wine/x86_64-unix/appxmenu.so"
     shutil.copyfile(menu, menu_target)
+    mono_nx_compat = patch_mono_nx_compat(app)
     # Replacing a sealed resource invalidates the upstream app signature.
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-",
                     "--preserve-metadata=entitlements,requirements,flags,runtime", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
     manifest = dict(schema=1, wine_version="11.18", cpu_sha256=hashlib.sha256(data).hexdigest(),
                     menu_sha256=hashlib.sha256(menu_target.read_bytes()).hexdigest(),
+                    mono_nx_compat=mono_nx_compat,
                     base_url=url, base_sha256=expected,
                     patch_sha256=hashlib.sha256((build / "wow64cpu.patch").read_bytes()).hexdigest(),
                     source_sha256=hashlib.sha256((build / "wine-11.18.tar.xz").read_bytes()).hexdigest())
@@ -104,6 +139,7 @@ def main():
         output.add(app, arcname=app.name)
         output.add(stage / "wine-clr.json", arcname="wine-clr.json")
     with tarfile.open(build / "appx-portable-wine-clr-sources.tar.xz", "w:xz", preset=1) as output:
+        output.add(Path(__file__).resolve(), arcname="scripts/package-wine-clr.py")
         for name in ("wine-11.18.tar.xz", "wow64cpu.patch", "build-wine-clr.sh"):
             output.add(build / name, arcname=name)
         for name, path in (("game_menu.m", "wine/game_menu.m"),
