@@ -74,6 +74,27 @@ struct LayeredSource {
         if (window) DestroyWindow(window);
     }
 };
+// A child's rectangle in its host's client coordinates.
+static RECT ChildRect(HWND host, HWND child) {
+    RECT rect{};
+    GetWindowRect(child, &rect);
+    MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&rect), 2);
+    return rect;
+}
+// Wine's Mac driver keeps drawing a hidden child's GPU view, so a hidden
+// surface must also leave the client area.
+static bool OutsideClient(HWND host, HWND child) {
+    RECT client{}, overlap{};
+    GetClientRect(host, &client);
+    const RECT rect = ChildRect(host, child);
+    return !IntersectRect(&overlap, &client, &rect);
+}
+static bool CoversClient(HWND host, HWND child) {
+    RECT client{};
+    GetClientRect(host, &client);
+    const RECT rect = ChildRect(host, child);
+    return EqualRect(&rect, &client) != FALSE;
+}
 static COLORREF HostPixel(HWND host, bool right, bool bottom) {
     HWND fallback = FindWindowExW(host, nullptr, L"AppxPortableXamlFrame", nullptr);
     if (fallback && IsWindowVisible(fallback)) host = fallback;
@@ -322,8 +343,9 @@ static bool Run(IDXGISwapChain1* swap, ID3D11Device* device, ID3D11DeviceContext
          ok;
     HWND paintWindow = FindWindowExW(host, nullptr, L"AppxPortableXamlFrame", nullptr);
     HWND gameSurface = FindWindowExW(host, nullptr, L"AppxPortableSurface", nullptr);
-    ok = Expect(gameSurface && !IsWindowVisible(gameSurface),
-                "the XAML-only view hides retained GPU surfaces after game presents stop") && ok;
+    ok = Expect(gameSurface && !IsWindowVisible(gameSurface) && OutsideClient(host, gameSurface),
+                "the XAML-only view hides retained GPU surfaces and moves them out of the client area") &&
+         ok;
     if (!paintWindow) paintWindow = host;
     HDC dc = GetDC(paintWindow);
     RECT client{};
@@ -355,13 +377,18 @@ static bool Run(IDXGISwapChain1* swap, ID3D11Device* device, ID3D11DeviceContext
     if (!Check(swap->GetParent(IID_PPV_ARGS(&gpuFactory)), "swap-chain factory") ||
         !Check(swap->GetDesc1(&replacementDesc), "swap-chain description") ||
         !Check(gpuFactory->CreateSwapChainForComposition(device, &replacementDesc, nullptr, &replacement),
-               "replacement while XAML is visible")) return false;
+               "replacement while XAML is visible"))
+        return false;
     HWND replacementSurface = FindWindowExW(host, nullptr, L"AppxPortableSurface", nullptr);
-    ok = Expect(replacementSurface && replacementSurface != gameSurface && !IsWindowVisible(replacementSurface),
-                "creating a retained swap chain cannot cover the XAML-only view before Present") && ok;
+    ok = Expect(replacementSurface && replacementSurface != gameSurface && !IsWindowVisible(replacementSurface) &&
+                    OutsideClient(host, replacementSurface),
+                "creating a retained swap chain cannot cover the XAML-only view before Present") &&
+         ok;
     ok = Check(replacement->Present(0, 0), "resume game present") && ok;
-    ok = Expect(IsWindowVisible(replacementSurface) && !IsWindowVisible(paintWindow),
-                "resuming game presentation restores its surface and hides the XAML-only view") && ok;
+    ok = Expect(IsWindowVisible(replacementSurface) && CoversClient(host, replacementSurface) &&
+                    CoversClient(host, gameSurface) && !IsWindowVisible(paintWindow),
+                "resuming game presentation restores its surfaces over the client area and hides the XAML-only view") &&
+         ok;
     ok = Check(clock->remove_Rendering(token), "stop composition clock") && ok;
     return Check(submit(nullptr, 0, 0, 0), "withdraw layer") && ok;
 }

@@ -56,11 +56,22 @@ static void ApplyHostCursor() {
 static HWND xamlFallback;
 static std::atomic<bool> xamlFallbackShown{false};
 static constexpr wchar_t SurfaceClass[] = L"AppxPortableSurface";
+// Wine's Mac driver keeps drawing a hidden child's Vulkan (Metal) view over its
+// siblings, so a hidden surface also leaves the client area. Shown again, it
+// covers the client area.
+static constexpr int HiddenSurfaceX = 16000;
 static void ShowGameSurfaces(bool visible) {
+    RECT client{};
+    GetClientRect(window, &client);
     for (HWND child = GetWindow(window, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
         wchar_t name[64]{};
-        if (GetClassNameW(child, name, ARRAYSIZE(name)) && wcscmp(name, SurfaceClass) == 0)
-            ShowWindow(child, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
+        if (!GetClassNameW(child, name, ARRAYSIZE(name)) || wcscmp(name, SurfaceClass) != 0) continue;
+        if (visible)
+            SetWindowPos(child, nullptr, 0, 0, client.right, client.bottom,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        else
+            SetWindowPos(child, nullptr, HiddenSurfaceX, 0, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
     }
 }
 static constexpr wchar_t XamlFallbackClass[] = L"AppxPortableXamlFrame";
@@ -157,9 +168,10 @@ static HWND CreateSurfaceOnHostThread() {
     GetClientRect(window, &client);
     // Presentation children must also be skipped by native WindowFromPoint;
     // HTTRANSPARENT alone does not remove them from that hit test.
-    const DWORD style = WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED | (xamlFallbackShown.load() ? 0 : WS_VISIBLE);
-    HWND surface = CreateWindowExW(0, SurfaceClass, nullptr, style, 0,
-                                   0, client.right, client.bottom, window, nullptr, GetModuleHandleW(nullptr), nullptr);
+    const bool hidden = xamlFallbackShown.load();
+    const DWORD style = WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED | (hidden ? 0 : WS_VISIBLE);
+    HWND surface = CreateWindowExW(0, SurfaceClass, nullptr, style, hidden ? HiddenSurfaceX : 0, 0, client.right,
+                                   client.bottom, window, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (surface) SetWindowPos(surface, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     return surface;
 }
