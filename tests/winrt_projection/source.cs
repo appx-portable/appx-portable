@@ -619,7 +619,9 @@ namespace Fixture
                 "<TransitionCollection><EntranceThemeTransition IsStaggeringEnabled='False'/><EntranceThemeTransition/><ContentThemeTransition/><AddDeleteThemeTransition/><ReorderThemeTransition/>" +
                 "</TransitionCollection></Setter.Value></Setter></Style></Page.Resources><Grid Style='{StaticResource enter}'/>", page =>
             {
-                Check(ShimLogOccurrences("UNIMPL managed Windows.UI.Xaml.Media.Animation.EntranceThemeTransition") == 1, "unsupported transition is logged once");
+                Check(ShimLogOccurrences("UNIMPL managed Windows.UI.Xaml.Media.Animation.AddDeleteThemeTransition") == 1 &&
+                      ShimLogOccurrences("UNIMPL managed Windows.UI.Xaml.Media.Animation.EntranceThemeTransition") == 0,
+                      "an unsupported transition is logged once; entrance plays");
                 var property = typeof(Panel).GetProperty("ChildrenTransitions");
                 var collection = property.GetValue(page.Content, null);
                 var count = collection.GetType().GetProperty("Count");
@@ -628,6 +630,92 @@ namespace Fixture
                 var thread = new System.Threading.Thread(() => { try { count.GetValue(collection, null); } catch (System.Reflection.TargetInvocationException error) { wrong = error.InnerException; } });
                 thread.Start(); thread.Join();
                 Check(wrong != null && Marshal.GetHRForException(wrong) == unchecked((int)0x8001010e), "transition collection thread affinity");
+            });
+            test("theme-transitions", "<Grid><Grid x:Name='grid' Width='300' Height='200'><Grid.ChildrenTransitions><TransitionCollection><EntranceThemeTransition/></TransitionCollection></Grid.ChildrenTransitions>" +
+                "<Border x:Name='first' Width='50' Height='50'/><Border x:Name='second' Width='50' Height='50'/>" +
+                "<Border x:Name='own' Width='50' Height='50'><Border.RenderTransform><TranslateTransform X='7'/></Border.RenderTransform></Border></Grid>" +
+                "<Popup x:Name='popup'><Popup.ChildTransitions><TransitionCollection><PaneThemeTransition Edge='Right'/></TransitionCollection></Popup.ChildTransitions>" +
+                "<Border x:Name='pane' Width='120' Height='80'/></Popup>" +
+                "<ContentControl x:Name='host'><ContentControl.ContentTransitions><TransitionCollection><ContentThemeTransition/></TransitionCollection></ContentControl.ContentTransitions></ContentControl></Grid>", page =>
+            {
+                // Windows' aero.msstyles storyboards: Entrance 32 (667 ms, 35 ms stagger),
+                // Pane 15/17 (550 ms) and Content 24 (500 ms), all cubic-bezier(0.1, 0.9, 0.2, 1).
+                Func<System.Windows.UIElement, double> offset = element =>
+                {
+                    var translate = element.RenderTransform as System.Windows.Media.TranslateTransform;
+                    return translate == null ? 0 : translate.X;
+                };
+                Func<System.Windows.UIElement, double> fade = element =>
+                {
+                    var mask = element.OpacityMask as System.Windows.Media.SolidColorBrush;
+                    return mask == null ? 1 : mask.Opacity;
+                };
+                Func<System.Windows.UIElement, bool> settled = element =>
+                    element.OpacityMask == null && ReferenceEquals(element.RenderTransform, System.Windows.Media.Transform.Identity);
+                var a = (System.Windows.UIElement)PeerOf(page.FindName("first"));
+                var b = (System.Windows.UIElement)PeerOf(page.FindName("second"));
+                var own = (System.Windows.UIElement)PeerOf(page.FindName("own"));
+                var ownTransform = own.RenderTransform;
+                var p = (System.Windows.FrameworkElement)PeerOf(page.FindName("pane"));
+                var popup = (Windows.UI.Xaml.Controls.Primitives.Popup)page.FindName("popup");
+                var host = (System.Windows.Controls.ContentControl)PeerOf(page.FindName("host"));
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                using (var shown = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters("theme-transitions")
+                       { WindowStyle = unchecked((int)0x90000000), PositionX = -32000, PositionY = -32000, Width = 400, Height = 300 }))
+                {
+                    System.Windows.Interop.HwndSource layersSource = null;
+                    try
+                    {
+                        shown.RootVisual = (System.Windows.Media.Visual)PeerOf(page);
+                        PumpUntil(() => a.OpacityMask != null, "loading a panel child starts its entrance");
+                        Check(offset(a) > 0 && offset(a) <= 40 && fade(a) < 1, "entrance moves in from FromHorizontalOffset and fades in");
+                        Check(fade(b) <= fade(a) && offset(b) >= offset(a), "a later sibling is staggered behind the first");
+                        Check(ReferenceEquals(own.RenderTransform, ownTransform) && own.OpacityMask != null, "an element with its own RenderTransform keeps it and only fades");
+                        PumpUntil(() => settled(a) && settled(b) && own.OpacityMask == null, "entrances complete and restore the elements");
+                        Check(watch.ElapsedMilliseconds >= 600, "entrance lasts about Windows' 667 ms");
+
+                        int closed = 0;
+                        var token = popup.add_Closed((sender, args) => ++closed);
+                        popup.IsOpen = true;
+                        var overlay = (System.Windows.Controls.Panel)System.Windows.Media.VisualTreeHelper.GetParent(p);
+                        var layers = (System.Windows.Media.Visual)System.Windows.Media.VisualTreeHelper.GetParent(overlay);
+                        if (System.Windows.PresentationSource.FromVisual(layers) == null)
+                            layersSource = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters("theme-transitions-layers")
+                                { WindowStyle = unchecked((int)0x90000000), PositionX = -32000, PositionY = -32000, Width = 400, Height = 300 }) { RootVisual = layers };
+                        PumpUntil(() => offset(p) > 0, "opening a pane popup slides its child in from the right edge");
+                        Check(offset(p) <= 120 && p.OpacityMask == null, "a pane slides by its width without fading");
+                        PumpUntil(() => settled(p), "the pane comes to rest");
+                        popup.IsOpen = false;
+                        Check(closed == 1 && ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(p), overlay) && !p.IsHitTestVisible,
+                              "closing raises Closed and keeps the pane, untouchable, while it slides out");
+                        PumpUntil(() => offset(p) > 0, "the closing pane slides toward its edge");
+                        PumpUntil(() => System.Windows.Media.VisualTreeHelper.GetParent(p) == null, "the pane leaves the overlay after sliding out");
+                        Check(p.IsHitTestVisible && settled(p), "a removed pane is restored for reopening");
+                        popup.IsOpen = true;
+                        PumpUntil(() => offset(p) > 0, "reopening slides the pane in again");
+                        PumpUntil(() => settled(p), "the reopened pane comes to rest");
+                        popup.IsOpen = false;
+                        popup.IsOpen = true;
+                        Check(ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(p), overlay) && p.IsHitTestVisible,
+                              "reopening while sliding out keeps the pane and its input");
+                        var still = System.Diagnostics.Stopwatch.StartNew();
+                        PumpUntil(() => still.ElapsedMilliseconds >= 800, "a cancelled slide-out settles");
+                        Check(ReferenceEquals(System.Windows.Media.VisualTreeHelper.GetParent(p), overlay) && settled(p), "a cancelled slide-out never removes the pane");
+                        popup.IsOpen = false;
+                        popup.remove_Closed(token);
+
+                        var content = new System.Windows.Controls.Border { Width = 50, Height = 50 };
+                        host.Content = content;
+                        PumpUntil(() => offset(content) > 0, "new content enters from the content transition's offset");
+                        Check(offset(content) <= 40, "content enters from HorizontalOffset 40");
+                        PumpUntil(() => settled(content), "the content transition completes");
+                    }
+                    finally
+                    {
+                        shown.RootVisual = null;
+                        if (layersSource != null) { layersSource.RootVisual = null; layersSource.Dispose(); }
+                    }
+                }
             });
             test("reposition", "<Grid><Grid.Resources><Storyboard x:Key='move'><RepositionThemeAnimation FromHorizontalOffset='-3' TargetName='target'/></Storyboard>" +
                 "</Grid.Resources><TextBlock x:Name='target'/></Grid>", page => Check(ShimLogContains("UNIMPL managed Windows.UI.Xaml.Media.Animation.RepositionThemeAnimation"), "unsupported theme animation is logged"));
@@ -719,7 +807,7 @@ namespace Fixture
                 transition.Edge = Windows.UI.Xaml.Controls.Primitives.EdgeTransitionLocation.Left;
                 Check(((Windows.UI.Xaml.Media.Animation.PaneThemeTransition)popup.ChildTransitions[0]).Edge == Windows.UI.Xaml.Controls.Primitives.EdgeTransitionLocation.Left,
                       "settings pane transition code-side edge stays in the popup collection");
-                Check(ShimLogContains("Windows.UI.Xaml.Media.Animation.PaneThemeTransition"), "unsupported pane animation is logged explicitly");
+                Check(!ShimLogContains("Windows.UI.Xaml.Media.Animation.PaneThemeTransition"), "pane transitions play, so none is logged as unsupported");
             });
             test("settings-commands", "<Grid/>", page =>
             {

@@ -289,6 +289,8 @@
   </Class>
   <Class Name="Windows.UI.Xaml.Media.Animation.ContentThemeTransition" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.ContentThemeTransitionPeer">
     <Constructor />
+    <Property Name="HorizontalOffset" Wpf="AppxPortable.WinRT.Xaml.ContentThemeTransitionPeer.HorizontalOffsetProperty" />
+    <Property Name="VerticalOffset" Wpf="AppxPortable.WinRT.Xaml.ContentThemeTransitionPeer.VerticalOffsetProperty" />
   </Class>
   <Class Name="Windows.UI.Xaml.Media.Animation.AddDeleteThemeTransition" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.AddDeleteThemeTransitionPeer">
     <Constructor />

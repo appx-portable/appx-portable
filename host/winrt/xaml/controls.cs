@@ -150,8 +150,9 @@ namespace AppxPortable.WinRT.Xaml
         public static void SetCenterY(DependencyObject d, double value) { d.SetValue(CenterYProperty, value); }
     }
 
-    // Explicitly approved exception: these decorative transitions load but do not
-    // animate. Each unsupported effect is logged once for the process.
+    // Explicitly approved exception: these decorative effects load but do not
+    // animate (Entrance, Content and Pane play; see transitions.cs). Each
+    // unsupported effect is logged once for the process.
     internal static class ThemeEffects
     {
         private static readonly HashSet<string> reported = new HashSet<string>();
@@ -160,21 +161,31 @@ namespace AppxPortable.WinRT.Xaml
             lock (reported) if (reported.Add(name)) Errors.Unimplemented("Windows.UI.Xaml.Media.Animation." + name);
         }
     }
-    public class ThemeTransitionPeer : DependencyObject
-    {
-        public ThemeTransitionPeer() { ThemeEffects.Report(GetType().Name.Replace("Peer", "")); }
-    }
+    public class ThemeTransitionPeer : DependencyObject { }
     public sealed class EntranceThemeTransitionPeer : ThemeTransitionPeer
     {
+        public EntranceThemeTransitionPeer() { IsStaggeringEnabled = true; }
         public bool IsStaggeringEnabled { get; set; }
         public static readonly DependencyProperty FromHorizontalOffsetProperty = DependencyProperty.Register("FromHorizontalOffset", typeof(double), typeof(EntranceThemeTransitionPeer), new PropertyMetadata(40.0));
         public static readonly DependencyProperty FromVerticalOffsetProperty = DependencyProperty.Register("FromVerticalOffset", typeof(double), typeof(EntranceThemeTransitionPeer), new PropertyMetadata(0.0));
         public double FromHorizontalOffset { get { return (double)GetValue(FromHorizontalOffsetProperty); } set { SetValue(FromHorizontalOffsetProperty, value); } }
         public double FromVerticalOffset { get { return (double)GetValue(FromVerticalOffsetProperty); } set { SetValue(FromVerticalOffsetProperty, value); } }
     }
-    public sealed class ContentThemeTransitionPeer : ThemeTransitionPeer { }
-    public sealed class AddDeleteThemeTransitionPeer : ThemeTransitionPeer { }
-    public sealed class ReorderThemeTransitionPeer : ThemeTransitionPeer { }
+    public sealed class ContentThemeTransitionPeer : ThemeTransitionPeer
+    {
+        public static readonly DependencyProperty HorizontalOffsetProperty = DependencyProperty.Register("HorizontalOffset", typeof(double), typeof(ContentThemeTransitionPeer), new PropertyMetadata(40.0));
+        public static readonly DependencyProperty VerticalOffsetProperty = DependencyProperty.Register("VerticalOffset", typeof(double), typeof(ContentThemeTransitionPeer), new PropertyMetadata(0.0));
+        public double HorizontalOffset { get { return (double)GetValue(HorizontalOffsetProperty); } set { SetValue(HorizontalOffsetProperty, value); } }
+        public double VerticalOffset { get { return (double)GetValue(VerticalOffsetProperty); } set { SetValue(VerticalOffsetProperty, value); } }
+    }
+    public sealed class AddDeleteThemeTransitionPeer : ThemeTransitionPeer
+    {
+        public AddDeleteThemeTransitionPeer() { ThemeEffects.Report("AddDeleteThemeTransition"); }
+    }
+    public sealed class ReorderThemeTransitionPeer : ThemeTransitionPeer
+    {
+        public ReorderThemeTransitionPeer() { ThemeEffects.Report("ReorderThemeTransition"); }
+    }
     public sealed class PaneThemeTransitionPeer : ThemeTransitionPeer
     {
         public static readonly DependencyProperty EdgeProperty = DependencyProperty.Register("Edge",
@@ -213,7 +224,8 @@ namespace AppxPortable.WinRT.Xaml
         public static readonly DependencyProperty ChildTransitionsProperty = Transition("ChildTransitions");
         private static DependencyProperty Transition(string name)
         {
-            var property = DependencyProperty.RegisterAttached(name, typeof(TransitionCollectionPeer), typeof(CompatibilityProperties));
+            var property = DependencyProperty.RegisterAttached(name, typeof(TransitionCollectionPeer), typeof(CompatibilityProperties),
+                new PropertyMetadata(null, (d, e) => ThemeTransitions.Attach(d, e.Property)));
             property.AddOwner(typeof(UIElement));
             return property;
         }
