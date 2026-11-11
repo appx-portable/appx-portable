@@ -19,6 +19,9 @@ D3D9 uses integer pixel centers; offset its Vulkan viewport by half a pixel
 to match that convention (including WPF layered-window rendering). MoltenVK
 also needs static primitive topology for correct triangle-fan draws; using a dynamic
 fan on a triangle-list pipeline loses triangles (for example, parts of WPF text).
+Partial clears use framebuffers sized to their attachments, not the dirty
+viewport. Offset clear rectangles then fit, and pixels outside the dirty area
+survive on tile-based renderers; WPF panes no longer leave strips behind.
 
 The SM4 and GLSL changes are taken from ctr2-uwp-shim. Built by
 scripts/build-wined3d.sh; see docs/building.md.
@@ -290,3 +293,46 @@ scripts/build-wined3d.sh; see docs/building.md.
 +     * triangle-list pipeline. Use the actual topology in the pipeline key. */
 +    vk_info->dynamic_state2 = device_info.dynamic_state2_features.extendedDynamicState2
 +            && !adapter_vk->moltenvk;
+
+--- a/dlls/wined3d/texture_vk.c
++++ b/dlls/wined3d/texture_vk.c
+@@ -1178,6 +1178,7 @@
+     VkRenderPass vk_render_pass;
+     bool depth_stencil = false;
+     unsigned int layer_count;
++    unsigned int fb_width = UINT_MAX, fb_height = UINT_MAX;
+     VkClearColorValue *c;
+     VkResult vr;
+     RECT r;
+@@ -1231,6 +1232,8 @@
+         immediate_fb.render_targets[immediate_rt_count++] = view;
+         rtv_vk = wined3d_rendertarget_view_vk(view);
+         views[attachment_count] = wined3d_rendertarget_view_vk_get_image_view(rtv_vk, context_vk);
++        fb_width = min(fb_width, view->width);
++        fb_height = min(fb_height, view->height);
+         wined3d_rendertarget_view_vk_barrier(rtv_vk, context_vk, WINED3D_BIND_RENDER_TARGET);
+
+         c = &clear_values[attachment_count].color;
+@@ -1268,6 +1271,8 @@
+             immediate_fb.depth_stencil = view;
+             rtv_vk = wined3d_rendertarget_view_vk(view);
+             views[attachment_count] = wined3d_rendertarget_view_vk_get_image_view(rtv_vk, context_vk);
++            fb_width = min(fb_width, view->width);
++            fb_height = min(fb_height, view->height);
+             wined3d_rendertarget_view_vk_barrier(rtv_vk, context_vk, WINED3D_BIND_DEPTH_STENCIL);
+
+             clear_values[attachment_count].depthStencil.depth = depth;
+@@ -1320,8 +1325,11 @@
+     fb_desc.renderPass = vk_render_pass;
+     fb_desc.attachmentCount = attachment_count;
+     fb_desc.pAttachments = views;
+-    fb_desc.width = draw_rect->right - draw_rect->left;
+-    fb_desc.height = draw_rect->bottom - draw_rect->top;
++    /* Clear rectangles are in attachment coordinates, including viewport
++     * offsets. A framebuffer sized to the dirty viewport can exclude those
++     * rectangles, or discard pixels outside it on tile-based renderers. */
++    fb_desc.width = fb_width;
++    fb_desc.height = fb_height;
+     fb_desc.layers = layer_count;
+     if ((vr = VK_CALL(vkCreateFramebuffer(device_vk->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
+     {
