@@ -416,6 +416,15 @@ namespace Fixture
                 Check(frame.Content is PlainPage && PlainPage.Made == 2 && frame.BackStackDepth == 1, "GoForward recreates an uncached page");
                 frame.Navigate(typeof(PlainPage));
                 Check(!frame.CanGoForward && frame.BackStackDepth == 2, "Navigate clears the forward stack");
+                // The game returns to its hub with Navigate(typeof(MainPage)) from MainPage itself;
+                // native callbacks and MainPage.Current hold the first instance.
+                CachedPage.Made = 0;
+                var hub = new Frame();
+                hub.Navigate(typeof(CachedPage));
+                var first = hub.Content;
+                hub.Navigate(typeof(CachedPage));
+                Check(ReferenceEquals(hub.Content, first) && CachedPage.Made == 1 && hub.BackStackDepth == 1,
+                      "Navigate to the current Required page type reuses its instance");
                 try { new Frame().GoBack(); throw new Exception("GoBack without history accepted"); }
                 catch (COMException error) { Check(error.ErrorCode == unchecked((int)0x80004005), "GoBack without history fails with E_FAIL"); }
             });

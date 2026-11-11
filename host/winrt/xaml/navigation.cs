@@ -102,11 +102,18 @@ namespace Windows.UI.Xaml.Controls
             if (old != null)
             {
                 old.NavigatedFrom(args);
+                object kept;
                 if (old.NavigationCacheMode != NavigationCacheMode.Disabled) cache[old.GetType()] = old;
-                else cache.Remove(old.GetType());
+                else if (cache.TryGetValue(old.GetType(), out kept) && ReferenceEquals(kept, old)) cache.Remove(old.GetType());
             }
             var page = created as Page;
-            if (page != null) page.NavigatedTo(this, args);
+            if (page != null)
+            {
+                // Cached from its first navigation, as UWP does: navigating to the current
+                // page's type (Bejeweled returns to its hub this way) reuses the instance.
+                if (page.NavigationCacheMode != NavigationCacheMode.Disabled) cache[type] = page;
+                page.NavigatedTo(this, args);
+            }
             return true;
         }
 
