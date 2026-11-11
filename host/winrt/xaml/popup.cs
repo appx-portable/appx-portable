@@ -100,9 +100,18 @@ namespace AppxPortable.WinRT.Xaml
             var next = e.NewValue as System.Windows.DependencyObject;
             if (previous != null && ReferenceEquals(ParentOf(previous), this)) parents.Remove(previous);
             if (next != null) parents.Add(next, this);
+            var added = e.NewValue as System.Windows.UIElement;
+            if (added != null) ThemeTransitions.HookPopupChild(added);
+            var old = e.OldValue as System.Windows.UIElement;
+            if (old != null)
+            {
+                // A child still sliding out of a closed popup leaves at once.
+                ThemeTransitions.Stop(old);
+                var holder = System.Windows.Media.VisualTreeHelper.GetParent(old) as System.Windows.Controls.Panel;
+                if (holder != null && ReferenceEquals(holder, Host.Overlay)) holder.Children.Remove(old);
+            }
             if (!IsOpen) return;
             var overlay = Host.Overlay;
-            if (e.OldValue != null) overlay.Children.Remove((System.Windows.UIElement)e.OldValue);
             if (e.NewValue != null) { overlay.Children.Add((System.Windows.UIElement)e.NewValue); Place(); }
         }
 
@@ -114,11 +123,20 @@ namespace AppxPortable.WinRT.Xaml
             {
                 open.Add(this);
                 if (child != null && !overlay.Children.Contains(child)) { overlay.Children.Add(child); Place(); }
+                else if (child != null)
+                {
+                    // Reopened while its pane slid out: it stays, and enters again.
+                    ThemeTransitions.Stop(child);
+                    var element = child as System.Windows.FrameworkElement;
+                    if (element != null) ThemeTransitions.LoadPopupChild(element);
+                }
             }
             else
             {
                 open.Remove(this);
-                if (child != null) overlay.Children.Remove(child);
+                // A pane transition slides the child out before it leaves the overlay.
+                if (child != null && !ThemeTransitions.Unload(this, child, () => { if (!IsOpen) Host.Overlay.Children.Remove(child); }))
+                    overlay.Children.Remove(child);
             }
             UpdateDismissal();
             var raised = value ? Opened : Closed;
