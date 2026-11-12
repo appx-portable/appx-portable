@@ -4,6 +4,7 @@
 #include "options.h"
 #include "version.h"
 #include <winstring.h>
+#include <timeapi.h>
 #include <new>
 
 namespace appx {
@@ -70,6 +71,12 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
         appx::Log("INFO", "==== appxportable attached version=%s commit=%s pid=%lu exe=%ls ====", APPX_PORTABLE_VERSION,
                   APPX_PORTABLE_COMMIT, GetCurrentProcessId(), path);
         appx::InstallActivationHook();
+        // Windows 8 kept one timer resolution for the whole system, usually
+        // raised to 1 ms by some other program; since Windows 10 2004 each
+        // process gets the 15.6 ms default unless it asks. Games sleep out
+        // the rest of a frame (Asphalt 7 waits on an event with a timeout),
+        // and a 15.6 ms wake-up misses the next vsync and halves the rate.
+        timeBeginPeriod(1);
     }
     return TRUE;
 }
