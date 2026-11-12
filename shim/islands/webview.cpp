@@ -14,6 +14,7 @@
 #include <wrl/event.h>
 #include <memory>
 #include <functional>
+#include <map>
 #include <cmath>
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
@@ -97,56 +98,45 @@ public:
         return S_OK;
     }
 };
+ABI::Windows::Web::WebErrorStatus WebStatus(COREWEBVIEW2_WEB_ERROR_STATUS status) {
+    using namespace ABI::Windows::Web;
+    switch (status) {
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
+        return WebErrorStatus_CertificateCommonNameIsIncorrect;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
+        return WebErrorStatus_CertificateExpired;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
+        return WebErrorStatus_CertificateRevoked;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
+        return WebErrorStatus_CertificateIsInvalid;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
+        return WebErrorStatus_ServerUnreachable;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
+        return WebErrorStatus_Timeout;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
+        return WebErrorStatus_ConnectionAborted;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
+        return WebErrorStatus_ConnectionReset;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
+        return WebErrorStatus_Disconnected;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
+        return WebErrorStatus_CannotConnect;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
+        return WebErrorStatus_HostNameNotResolved;
+    case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
+        return WebErrorStatus_OperationCanceled;
+    default:
+        return WebErrorStatus_Unknown;
+    }
+}
 class FailureArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewNavigationFailedEventArgs> {
     InspectableClass(L"Windows.UI.Xaml.Controls.WebViewNavigationFailedEventArgs", BaseTrust);
     ComPtr<Foundation::IUriRuntimeClass> uri_;
     ABI::Windows::Web::WebErrorStatus status_;
 
 public:
-    FailureArgs(Foundation::IUriRuntimeClass* uri, COREWEBVIEW2_WEB_ERROR_STATUS status) : uri_(uri) {
-        using namespace ABI::Windows::Web;
-        switch (status) {
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
-            status_ = WebErrorStatus_CertificateCommonNameIsIncorrect;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
-            status_ = WebErrorStatus_CertificateExpired;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
-            status_ = WebErrorStatus_CertificateRevoked;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
-            status_ = WebErrorStatus_CertificateIsInvalid;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
-            status_ = WebErrorStatus_ServerUnreachable;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
-            status_ = WebErrorStatus_Timeout;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
-            status_ = WebErrorStatus_ConnectionAborted;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
-            status_ = WebErrorStatus_ConnectionReset;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
-            status_ = WebErrorStatus_Disconnected;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
-            status_ = WebErrorStatus_CannotConnect;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
-            status_ = WebErrorStatus_HostNameNotResolved;
-            break;
-        case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
-            status_ = WebErrorStatus_OperationCanceled;
-            break;
-        default:
-            status_ = WebErrorStatus_Unknown;
-            break;
-        }
-    }
+    FailureArgs(Foundation::IUriRuntimeClass* uri, COREWEBVIEW2_WEB_ERROR_STATUS status)
+        : uri_(uri), status_(WebStatus(status)) {}
     HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
     HRESULT STDMETHODCALLTYPE get_WebErrorStatus(ABI::Windows::Web::WebErrorStatus* value) override {
         if (!value) return E_POINTER;
@@ -154,6 +144,81 @@ public:
         return S_OK;
     }
 };
+// ---- Windows 8.1 (IWebView2) event arguments ------------------------------------
+// Their Uri is null for NavigateToString content, as on Windows.
+HRESULT EventUri(const std::wstring& address, Foundation::IUriRuntimeClass** value) {
+    *value = nullptr;
+    if (address.empty() || address.starts_with(L"data:") || address.starts_with(L"about:blank")) return S_OK;
+    return Uri(address.c_str(), value);
+}
+class StartingArgs final
+    : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewNavigationStartingEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Controls.WebViewNavigationStartingEventArgs", BaseTrust);
+    ComPtr<Foundation::IUriRuntimeClass> uri_;
+
+public:
+    boolean cancel = false;
+    explicit StartingArgs(Foundation::IUriRuntimeClass* uri) : uri_(uri) {}
+    HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
+    HRESULT STDMETHODCALLTYPE get_Cancel(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = cancel;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_Cancel(boolean value) override {
+        cancel = value;
+        return S_OK;
+    }
+};
+class ContentLoadingArgs final
+    : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewContentLoadingEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Controls.WebViewContentLoadingEventArgs", BaseTrust);
+    ComPtr<Foundation::IUriRuntimeClass> uri_;
+
+public:
+    explicit ContentLoadingArgs(Foundation::IUriRuntimeClass* uri) : uri_(uri) {}
+    HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
+};
+class DomLoadedArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewDOMContentLoadedEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Controls.WebViewDOMContentLoadedEventArgs", BaseTrust);
+    ComPtr<Foundation::IUriRuntimeClass> uri_;
+
+public:
+    explicit DomLoadedArgs(Foundation::IUriRuntimeClass* uri) : uri_(uri) {}
+    HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
+};
+class CompletedArgs final
+    : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewNavigationCompletedEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Controls.WebViewNavigationCompletedEventArgs", BaseTrust);
+    ComPtr<Foundation::IUriRuntimeClass> uri_;
+    boolean success_;
+    ABI::Windows::Web::WebErrorStatus status_;
+
+public:
+    CompletedArgs(Foundation::IUriRuntimeClass* uri, bool success, COREWEBVIEW2_WEB_ERROR_STATUS status)
+        : uri_(uri), success_(success),
+          status_(success ? ABI::Windows::Web::WebErrorStatus_Unknown : WebStatus(status)) {}
+    HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
+    HRESULT STDMETHODCALLTYPE get_IsSuccess(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = success_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_WebErrorStatus(ABI::Windows::Web::WebErrorStatus* value) override {
+        if (!value) return E_POINTER;
+        *value = status_;
+        return S_OK;
+    }
+};
+// Typed handlers for WebView events, sender first.
+template <class Args> using WebViewHandler = Foundation::ITypedEventHandler<Controls::WebView*, Args*>;
+using StartingHandler = WebViewHandler<Controls::WebViewNavigationStartingEventArgs>;
+using ContentLoadingHandler = WebViewHandler<Controls::WebViewContentLoadingEventArgs>;
+using DomLoadedHandler = WebViewHandler<Controls::WebViewDOMContentLoadedEventArgs>;
+using CompletedHandler = WebViewHandler<Controls::WebViewNavigationCompletedEventArgs>;
+using ScriptDetectedHandler = WebViewHandler<Controls::WebViewLongRunningScriptDetectedEventArgs>;
+using UnviewableHandler = WebViewHandler<Controls::WebViewUnviewableContentIdentifiedEventArgs>;
+using WarningHandler = Foundation::ITypedEventHandler<Controls::WebView*, IInspectable*>;
 // JSON quoting prevents string arguments from becoming code, including NULs.
 std::wstring Quote(const std::wstring& text) {
     std::wstring result = L"\"";
@@ -196,7 +261,7 @@ public:
     }
 };
 
-class WebView final : public Controls::IWebView, public IIslandWebView {
+class WebView final : public Controls::IWebView, public Controls::IWebView2, public IIslandWebView {
     std::atomic<ULONG> refs_{1};
     // Only retain the nondelegating inner: ordinary interfaces retain this
     // outer and would form a reference cycle if stored as members.
@@ -217,8 +282,20 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
     EventSource<Controls::INotifyEventHandler> notify_;
     EventSource<Xaml::Navigation::ILoadCompletedEventHandler> loaded_;
     EventSource<Controls::IWebViewNavigationFailedEventHandler> failed_;
+    // Windows 8.1 events. Frame and content-warning events are accepted but
+    // never raised: WebView2 reports no equivalents the games depend on.
+    EventSource<StartingHandler> navigationStarting_, frameStarting_;
+    EventSource<ContentLoadingHandler> contentLoading_, frameContentLoading_;
+    EventSource<DomLoadedHandler> domLoaded_, frameDomLoaded_;
+    EventSource<CompletedHandler> completed_, frameCompleted_;
+    EventSource<ScriptDetectedHandler> scriptDetected_;
+    EventSource<WarningHandler> unsafeWarning_;
+    EventSource<UnviewableHandler> unviewable_;
+    // A navigation's address by WebView2 id, from its start: once it is
+    // cancelled or fails, the browser's Source still names the previous page.
+    std::map<UINT64, std::wstring> navigations_;
     EventRegistrationToken loadedToken_{}, unloadedToken_{}, layoutToken_{};
-    EventRegistrationToken messageToken_{}, navigationToken_{};
+    EventRegistrationToken messageToken_{}, navigationToken_{}, startingToken_{}, contentToken_{}, domToken_{};
     bool attached_ = false, starting_ = false, ready_ = false, pendingHtml_ = false, pending_ = false;
     HRESULT browserError_ = S_OK;
     std::wstring navigation_;
@@ -405,6 +482,14 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
         }
         controller_->put_IsVisible(visible);
     }
+    std::wstring NavigationAddress(UINT64 id) {
+        if (auto found = navigations_.find(id); found != navigations_.end()) return found->second;
+        LPWSTR address = nullptr;
+        std::wstring text;
+        if (browser_ && SUCCEEDED(browser_->get_Source(&address)) && address) text = address;
+        CoTaskMemFree(address);
+        return text;
+    }
     HRESULT NavigatePending() {
         if (!ready_ || !pending_) return S_OK;
         pending_ = false;
@@ -448,9 +533,8 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
                     ComPtr<Foundation::IUriRuntimeClass> uri;
                     if (source) Uri(source, &uri);
                     auto event = Make<NotifyArgs>(std::wstring(text), uri.Get());
-                    alive->owner->Dispatch([event](WebView* self) {
-                        self->notify_.InvokeAll(static_cast<IInspectable*>(self), event.Get());
-                    });
+                    alive->owner->Dispatch(
+                        [event](WebView* self) { self->notify_.InvokeAll(self->Identity(), event.Get()); });
                 }
                 CoTaskMemFree(text);
                 CoTaskMemFree(source);
@@ -458,6 +542,68 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
             });
         hr = browser_->add_WebMessageReceived(message.Get(), &messageToken_);
         if (FAILED(hr)) return hr;
+        // NavigationStarting runs inside WebView2's callback, not on a later
+        // dispatcher turn, so a handler's Cancel can still stop the navigation.
+        auto starting = Callback<ICoreWebView2NavigationStartingEventHandler>(
+            [weak](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                auto alive = weak.lock();
+                if (!alive || !alive->owner) return S_OK;
+                auto* self = alive->owner;
+                ComPtr<Controls::IWebView> keep(self);
+                UINT64 id = 0;
+                LPWSTR address = nullptr;
+                args->get_NavigationId(&id);
+                args->get_Uri(&address);
+                const std::wstring text = address ? address : L"";
+                CoTaskMemFree(address);
+                self->navigations_[id] = text;
+                ComPtr<Foundation::IUriRuntimeClass> uri;
+                EventUri(text, &uri);
+                auto event = Make<StartingArgs>(uri.Get());
+                self->navigationStarting_.InvokeAll(static_cast<Controls::IWebView*>(self), event.Get());
+                if (event->cancel) {
+                    Log("TRACE", "WebView navigation cancelled by the game");
+                    args->put_Cancel(TRUE);
+                }
+                return S_OK;
+            });
+        hr = browser_->add_NavigationStarting(starting.Get(), &startingToken_);
+        if (FAILED(hr)) return hr;
+        auto content = Callback<ICoreWebView2ContentLoadingEventHandler>(
+            [weak](ICoreWebView2*, ICoreWebView2ContentLoadingEventArgs* args) -> HRESULT {
+                auto alive = weak.lock();
+                if (!alive || !alive->owner) return S_OK;
+                UINT64 id = 0;
+                args->get_NavigationId(&id);
+                ComPtr<Foundation::IUriRuntimeClass> uri;
+                EventUri(alive->owner->NavigationAddress(id), &uri);
+                auto event = Make<ContentLoadingArgs>(uri.Get());
+                alive->owner->Dispatch([event](WebView* self) {
+                    self->contentLoading_.InvokeAll(static_cast<Controls::IWebView*>(self), event.Get());
+                });
+                return S_OK;
+            });
+        hr = browser_->add_ContentLoading(content.Get(), &contentToken_);
+        if (FAILED(hr)) return hr;
+        ComPtr<ICoreWebView2_2> dom;
+        if (SUCCEEDED(browser_.As(&dom))) {
+            auto loaded = Callback<ICoreWebView2DOMContentLoadedEventHandler>(
+                [weak](ICoreWebView2*, ICoreWebView2DOMContentLoadedEventArgs* args) -> HRESULT {
+                    auto alive = weak.lock();
+                    if (!alive || !alive->owner) return S_OK;
+                    UINT64 id = 0;
+                    args->get_NavigationId(&id);
+                    ComPtr<Foundation::IUriRuntimeClass> uri;
+                    EventUri(alive->owner->NavigationAddress(id), &uri);
+                    auto event = Make<DomLoadedArgs>(uri.Get());
+                    alive->owner->Dispatch([event](WebView* self) {
+                        self->domLoaded_.InvokeAll(static_cast<Controls::IWebView*>(self), event.Get());
+                    });
+                    return S_OK;
+                });
+            hr = dom->add_DOMContentLoaded(loaded.Get(), &domToken_);
+            if (FAILED(hr)) return hr;
+        }
         auto completed = Callback<ICoreWebView2NavigationCompletedEventHandler>(
             [weak](ICoreWebView2* browser, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
                 auto alive = weak.lock();
@@ -465,21 +611,31 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
                 BOOL success = FALSE;
                 args->get_IsSuccess(&success);
                 Log(success ? "TRACE" : "FAIL", "WebView2 navigation completed success=%d", success);
+                COREWEBVIEW2_WEB_ERROR_STATUS status{};
+                if (!success) args->get_WebErrorStatus(&status);
+                UINT64 id = 0;
+                args->get_NavigationId(&id);
+                ComPtr<Foundation::IUriRuntimeClass> target;
+                EventUri(alive->owner->NavigationAddress(id), &target);
+                alive->owner->navigations_.erase(id);
                 LPWSTR address = nullptr;
                 ComPtr<Foundation::IUriRuntimeClass> uri;
                 if (SUCCEEDED(browser->get_Source(&address)) && address) Uri(address, &uri);
                 CoTaskMemFree(address);
+                // Windows raises NavigationCompleted before LoadCompleted or
+                // NavigationFailed.
+                auto navigation = Make<CompletedArgs>(target.Get(), success != FALSE, status);
                 if (success) {
                     auto event = Make<LoadArgs>(uri.Get());
-                    alive->owner->Dispatch([event](WebView* self) {
-                        self->loaded_.InvokeAll(static_cast<IInspectable*>(self), event.Get());
+                    alive->owner->Dispatch([navigation, event](WebView* self) {
+                        self->completed_.InvokeAll(static_cast<Controls::IWebView*>(self), navigation.Get());
+                        self->loaded_.InvokeAll(self->Identity(), event.Get());
                     });
                 } else {
-                    COREWEBVIEW2_WEB_ERROR_STATUS status{};
-                    args->get_WebErrorStatus(&status);
                     auto event = Make<FailureArgs>(uri.Get(), status);
-                    alive->owner->Dispatch([event](WebView* self) {
-                        self->failed_.InvokeAll(static_cast<IInspectable*>(self), event.Get());
+                    alive->owner->Dispatch([navigation, event](WebView* self) {
+                        self->completed_.InvokeAll(static_cast<Controls::IWebView*>(self), navigation.Get());
+                        self->failed_.InvokeAll(self->Identity(), event.Get());
                     });
                 }
                 return S_OK;
@@ -556,6 +712,8 @@ class WebView final : public Controls::IWebView, public IIslandWebView {
     }
 
 public:
+    // The object's identity: IWebView and IWebView2 both derive IInspectable.
+    IInspectable* Identity() { return static_cast<Controls::IWebView*>(this); }
     ~WebView() {
         lifetime_->owner = nullptr;
         ComPtr<Xaml::IFrameworkElement> element;
@@ -567,6 +725,10 @@ public:
         if (browser_) {
             browser_->remove_WebMessageReceived(messageToken_);
             browser_->remove_NavigationCompleted(navigationToken_);
+            browser_->remove_NavigationStarting(startingToken_);
+            browser_->remove_ContentLoading(contentToken_);
+            ComPtr<ICoreWebView2_2> dom;
+            if (SUCCEEDED(browser_.As(&dom))) dom->remove_DOMContentLoaded(domToken_);
         }
         if (controller_) controller_->Close();
         if (window_) DestroyWindow(window_);
@@ -576,7 +738,7 @@ public:
         auto hr =
             OsGetActivationFactory(HStringReference(L"Windows.UI.Xaml.Controls.Grid").Get(), IID_PPV_ARGS(&factory));
         ComPtr<Controls::IGrid> grid;
-        if (SUCCEEDED(hr)) hr = factory->CreateInstance(this, &inner_, &grid);
+        if (SUCCEEDED(hr)) hr = factory->CreateInstance(Identity(), &inner_, &grid);
         if (FAILED(hr)) return hr;
         ComPtr<Xaml::IFrameworkElement> element;
         hr = Inner(element);
@@ -621,6 +783,11 @@ public:
             AddRef();
             return S_OK;
         }
+        if (iid == __uuidof(Controls::IWebView2)) {
+            *value = static_cast<Controls::IWebView2*>(this);
+            AddRef();
+            return S_OK;
+        }
         if (iid == __uuidof(IIslandWebView)) {
             *value = static_cast<IIslandWebView*>(this);
             AddRef();
@@ -654,10 +821,11 @@ public:
     HRESULT STDMETHODCALLTYPE GetIids(ULONG* count, IID** ids) override {
         if (!count || !ids) return E_POINTER;
         *count = 0;
-        *ids = static_cast<IID*>(CoTaskMemAlloc(sizeof(IID)));
+        *ids = static_cast<IID*>(CoTaskMemAlloc(2 * sizeof(IID)));
         if (!*ids) return E_OUTOFMEMORY;
-        **ids = __uuidof(Controls::IWebView);
-        *count = 1;
+        (*ids)[0] = __uuidof(Controls::IWebView);
+        (*ids)[1] = __uuidof(Controls::IWebView2);
+        *count = 2;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetRuntimeClassName(HSTRING* value) override {
@@ -775,6 +943,153 @@ public:
         }
         return SUCCEEDED(result->status) ? ScriptResult(result->json.c_str(), value) : result->status;
     }
+    // ---- IWebView2 (Windows 8.1) ----
+    HRESULT STDMETHODCALLTYPE get_CanGoBack(boolean* value) override {
+        if (!value) return E_POINTER;
+        BOOL can = FALSE;
+        if (browser_) browser_->get_CanGoBack(&can);
+        *value = can != FALSE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_CanGoForward(boolean* value) override {
+        if (!value) return E_POINTER;
+        BOOL can = FALSE;
+        if (browser_) browser_->get_CanGoForward(&can);
+        *value = can != FALSE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_DocumentTitle(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        LPWSTR title = nullptr;
+        std::wstring text;
+        if (browser_ && SUCCEEDED(browser_->get_DocumentTitle(&title)) && title) text = title;
+        CoTaskMemFree(title);
+        return String(text, value);
+    }
+    HRESULT STDMETHODCALLTYPE add_NavigationStarting(StartingHandler* handler, EventRegistrationToken* token) override {
+        return navigationStarting_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_NavigationStarting(EventRegistrationToken token) override {
+        return navigationStarting_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_ContentLoading(ContentLoadingHandler* handler,
+                                                 EventRegistrationToken* token) override {
+        return contentLoading_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_ContentLoading(EventRegistrationToken token) override {
+        return contentLoading_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_DOMContentLoaded(DomLoadedHandler* handler, EventRegistrationToken* token) override {
+        return domLoaded_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_DOMContentLoaded(EventRegistrationToken token) override {
+        return domLoaded_.Remove(token);
+    }
+    // Before the browser exists, navigation commands have no history to act on.
+    HRESULT STDMETHODCALLTYPE GoForward() override { return browser_ ? browser_->GoForward() : S_OK; }
+    HRESULT STDMETHODCALLTYPE GoBack() override { return browser_ ? browser_->GoBack() : S_OK; }
+    HRESULT STDMETHODCALLTYPE Refresh() override { return browser_ ? browser_->Reload() : S_OK; }
+    HRESULT STDMETHODCALLTYPE Stop() override {
+        pending_ = false; // a navigation queued until the browser is ready
+        return browser_ ? browser_->Stop() : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE CapturePreviewToStreamAsync(ABI::Windows::Storage::Streams::IRandomAccessStream*,
+                                                          Foundation::IAsyncAction** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE InvokeScriptAsync(HSTRING, __FIIterable_1_HSTRING*,
+                                                __FIAsyncOperation_1_HSTRING** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE CaptureSelectedContentToDataPackageAsync(
+        __FIAsyncOperation_1_Windows__CApplicationModel__CDataTransfer__CDataPackage** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE NavigateToLocalStreamUri(Foundation::IUriRuntimeClass*,
+                                                       ABI::Windows::Web::IUriToStreamResolver*) override {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE BuildLocalStreamUri(HSTRING, HSTRING, Foundation::IUriRuntimeClass** result) override {
+        if (!result) return E_POINTER;
+        *result = nullptr;
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE get_DefaultBackgroundColor(ABI::Windows::UI::Color* value) override {
+        return GetBackgroundColor(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_DefaultBackgroundColor(ABI::Windows::UI::Color value) override {
+        return SetBackgroundColor(value);
+    }
+    HRESULT STDMETHODCALLTYPE add_NavigationCompleted(CompletedHandler* handler,
+                                                      EventRegistrationToken* token) override {
+        return completed_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_NavigationCompleted(EventRegistrationToken token) override {
+        return completed_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_FrameNavigationStarting(StartingHandler* handler,
+                                                          EventRegistrationToken* token) override {
+        return frameStarting_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_FrameNavigationStarting(EventRegistrationToken token) override {
+        return frameStarting_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_FrameContentLoading(ContentLoadingHandler* handler,
+                                                      EventRegistrationToken* token) override {
+        return frameContentLoading_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_FrameContentLoading(EventRegistrationToken token) override {
+        return frameContentLoading_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_FrameDOMContentLoaded(DomLoadedHandler* handler,
+                                                        EventRegistrationToken* token) override {
+        return frameDomLoaded_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_FrameDOMContentLoaded(EventRegistrationToken token) override {
+        return frameDomLoaded_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_FrameNavigationCompleted(CompletedHandler* handler,
+                                                           EventRegistrationToken* token) override {
+        return frameCompleted_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_FrameNavigationCompleted(EventRegistrationToken token) override {
+        return frameCompleted_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_LongRunningScriptDetected(ScriptDetectedHandler* handler,
+                                                            EventRegistrationToken* token) override {
+        return scriptDetected_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_LongRunningScriptDetected(EventRegistrationToken token) override {
+        return scriptDetected_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_UnsafeContentWarningDisplaying(WarningHandler* handler,
+                                                                 EventRegistrationToken* token) override {
+        return unsafeWarning_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_UnsafeContentWarningDisplaying(EventRegistrationToken token) override {
+        return unsafeWarning_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE add_UnviewableContentIdentified(UnviewableHandler* handler,
+                                                              EventRegistrationToken* token) override {
+        return unviewable_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_UnviewableContentIdentified(EventRegistrationToken token) override {
+        return unviewable_.Remove(token);
+    }
+    HRESULT STDMETHODCALLTYPE NavigateWithHttpRequestMessage(ABI::Windows::Web::Http::IHttpRequestMessage*) override {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE Focus(Xaml::FocusState, boolean* result) override {
+        if (!result) return E_POINTER;
+        *result = controller_ && SUCCEEDED(controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+        return S_OK;
+    }
 };
 
 class WebViewFactory final : public Factory<Controls::IWebViewFactory4> {
@@ -801,7 +1116,7 @@ public:
         if (!web) return E_OUTOFMEMORY;
         auto hr = web->Initialize();
         if (SUCCEEDED(hr))
-            *value = web;
+            *value = web->Identity();
         else
             web->Release();
         Log(SUCCEEDED(hr) ? "TRACE" : "FAIL", "WebView2 stand-in activation hr=%08lx", hr);

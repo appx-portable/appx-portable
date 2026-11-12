@@ -8,6 +8,17 @@ activations and native games keep the system factory.
 Implemented: default activation and the execution-mode constructor,
 `NavigateToString`, `Navigate`/`Source`, synchronous `InvokeScript`, `ScriptNotify`
 (including `Value` and `CallingUri`), `LoadCompleted`, and `NavigationFailed`.
+From Windows 8.1's `IWebView2`: `NavigationStarting` (its `Cancel` stops the
+navigation), `ContentLoading`, `DOMContentLoaded`, `NavigationCompleted`,
+`DocumentTitle`, `CanGoBack`/`CanGoForward`, `GoBack`/`GoForward`, `Refresh`,
+`Stop`, `DefaultBackgroundColor` and `Focus`. Their event URIs are null for
+`NavigateToString` content, as on Windows. `NavigationStarting` runs inside
+WebView2's callback so a cancellation takes effect; the other events dispatch
+through XAML like the Windows 8 ones. Sonic Dash 3.6.4.0 registers these on its
+Facebook page at startup. The frame, long-running-script and content-warning
+events accept handlers but never fire. `InvokeScriptAsync`, the capture methods,
+`NavigateToLocalStreamUri`, `BuildLocalStreamUri` and
+`NavigateWithHttpRequestMessage` return `E_NOTIMPL`.
 Static interfaces are forwarded to Windows. Package URLs in navigation and HTML
 (`ms-appx-web:///` and `ms-appx:///`) map to a WebView2 virtual host serving the
 package folder. Returned local event URIs use `ms-appx-web:///`.
@@ -29,6 +40,8 @@ not patch instructions or depend on OS-specific instruction addresses. Systems
 using a different resource-loading path need additional support. The older
 `PortableWebView` alias remains supported for previously patched installations;
 the [legacy patch tool](../patch/peu/README.md) can restore their original files.
+The same adapter renames a built-in `SwapChainBackgroundPanel`; see
+[managed games and XAML Islands](islands.md).
 
 Each controller has a dedicated native host beside the XAML island. Its position
 and z-order are updated together so XAML cannot paint over browser content or

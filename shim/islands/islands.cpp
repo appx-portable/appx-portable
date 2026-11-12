@@ -51,18 +51,22 @@ static HRESULT GetReal(const wchar_t* name, REFIID iid, void** out) {
     return OsGetActivationFactory(Wrappers::HStringReference(name).Get(), iid, out);
 }
 // ---- island state --------------------------------------------------------------
+// XAML objects outlive the process's static destructors: when Application.Start
+// fails and Main returns, XAML has already freed them, and releasing them while
+// the DLL unloads calls into freed memory. Hold them in pointers never deleted.
+template <class T> static ComPtr<T>& Retained() { return *new ComPtr<T>; }
 static HWND islandWindow;
-static ComPtr<Hosting::IWindowsXamlManager> xamlManager;
-static ComPtr<Hosting::IDesktopWindowXamlSource> xamlSource;
-static ComPtr<IDesktopWindowXamlSourceNative2> xamlNative;
-static ComPtr<IInspectable> appInstance;
+static auto& xamlManager = Retained<Hosting::IWindowsXamlManager>();
+static auto& xamlSource = Retained<Hosting::IDesktopWindowXamlSource>();
+static auto& xamlNative = Retained<IDesktopWindowXamlSourceNative2>();
+static auto& appInstance = Retained<IInspectable>();
 // The system Application itself: its managed outer may still be constructing.
-static ComPtr<IApplication> systemApplication;
+static auto& systemApplication = Retained<IApplication>();
 HRESULT ConnectIslandScrolling(IInspectable* root);
 HRESULT ConnectIslandPanels(IInspectable* root);
 HRESULT MakeIslandGridFactory(IActivationFactory** value);
-static ComPtr<IUIElement> pendingContent;
-static ComPtr<ABI::Windows::UI::Core::ICoreDispatcher> islandDispatcher;
+static auto& pendingContent = Retained<IUIElement>();
+static auto& islandDispatcher = Retained<ABI::Windows::UI::Core::ICoreDispatcher>();
 using RequestedThemeCall = HRESULT(STDMETHODCALLTYPE*)(IApplication*, ApplicationTheme);
 using RequestedThemeGetCall = HRESULT(STDMETHODCALLTYPE*)(IApplication*, ApplicationTheme*);
 static RequestedThemeCall realRequestedTheme;
@@ -299,7 +303,7 @@ public:
         return S_OK;
     }
 };
-static ComPtr<IslandWindow> currentWindow;
+static auto& currentWindow = Retained<IslandWindow>();
 void IslandHostMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (currentWindow) currentWindow->OnMessage(message, wparam, lparam);
 }
@@ -447,8 +451,8 @@ static HRESULT InitializePopups() {
 // token 1x1 window for placement even when the control has an island XamlRoot.
 using SettingsFlyoutHideCall = HRESULT(STDMETHODCALLTYPE*)(Controls::ISettingsFlyout*);
 static SettingsFlyoutHideCall originalSettingsFlyoutHide;
-static ComPtr<Controls::Primitives::IPopup> settingsPopup;
-static ComPtr<Controls::ISettingsFlyout> settingsFlyout;
+static auto& settingsPopup = Retained<Controls::Primitives::IPopup>();
+static auto& settingsFlyout = Retained<Controls::ISettingsFlyout>();
 static EventRegistrationToken settingsBackToken;
 // The popup sizes the flyout to the island. Keep the flyout's own Width and
 // Height (local values or UnsetValue) to clamp against and restore on closing.

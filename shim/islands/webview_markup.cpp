@@ -1,5 +1,8 @@
-// XBF v1's runtime adapter names a custom type instead of built-in WebView. Grid
-// metadata supplies inherited XAML properties; activation supplies our outer.
+// XBF v1's runtime adapter names custom types instead of built-in WebView and
+// SwapChainBackgroundPanel. A system base type's metadata supplies inherited XAML
+// properties (Grid for WebView, SwapChainPanel for the panel); activation
+// supplies our object.
+#include "islands.h"
 #include "webview.h"
 #include "xbf_loader.h"
 #include "log.h"
@@ -14,12 +17,17 @@ namespace appx {
 namespace {
 constexpr wchar_t PortableWebView[] = L"Windows.UI.Xaml.Controls.PortableWebView";
 constexpr wchar_t RuntimeWebView[] = L"Windows.UI.Xaml.Controls.AppxWeb";
+constexpr wchar_t RuntimePanel[] = L"Windows.UI.Xaml.Controls.PortableSwapChainBGPanel";
+constexpr wchar_t WebViewBase[] = L"Windows.UI.Xaml.Controls.Grid";
+constexpr wchar_t PanelBase[] = L"Windows.UI.Xaml.Controls.SwapChainPanel";
+using Activate = HRESULT (*)(IInspectable**);
 HRESULT BackgroundMember(Markup::IXamlMember** value, const wchar_t* type);
-class WebViewType final : public RuntimeClass<RuntimeClassFlags<WinRt>, Markup::IXamlType> {
-    InspectableClass(L"AppxPortable.WebViewType", BaseTrust);
+class StandInType final : public RuntimeClass<RuntimeClassFlags<WinRt>, Markup::IXamlType> {
+    InspectableClass(L"AppxPortable.StandInType", BaseTrust);
     bool base_;
     const wchar_t* systemName_;
     const wchar_t* customName_;
+    Activate activate_;
     static HRESULT Boolean(boolean* value, bool state = false) {
         if (!value) return E_POINTER;
         *value = state;
@@ -32,12 +40,13 @@ class WebViewType final : public RuntimeClass<RuntimeClassFlags<WinRt>, Markup::
     }
 
 public:
-    explicit WebViewType(bool base = false, const wchar_t* name = L"Windows.UI.Xaml.Controls.Grid",
-                         const wchar_t* custom = PortableWebView)
-        : base_(base), systemName_(name), customName_(custom) {}
+    // A custom type names its system base; a base type describes only that name.
+    explicit StandInType(bool base = false, const wchar_t* name = WebViewBase, const wchar_t* custom = PortableWebView,
+                         Activate activate = CreateIslandWebView)
+        : base_(base), systemName_(name), customName_(custom), activate_(activate) {}
     HRESULT STDMETHODCALLTYPE get_BaseType(Markup::IXamlType** value) override {
         if (base_) return Empty(value);
-        return Make<WebViewType>(true).CopyTo(value);
+        return Make<StandInType>(true, systemName_).CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE get_ContentProperty(Markup::IXamlMember** value) override { return Empty(value); }
     HRESULT STDMETHODCALLTYPE get_FullName(HSTRING* value) override {
@@ -60,14 +69,15 @@ public:
     HRESULT STDMETHODCALLTYPE ActivateInstance(IInspectable** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        return base_ ? E_NOTIMPL : CreateIslandWebView(value);
+        return base_ ? E_NOTIMPL : activate_(value);
     }
     HRESULT STDMETHODCALLTYPE CreateFromString(HSTRING, IInspectable** value) override {
         Empty(value);
         return E_NOTIMPL;
     }
     HRESULT STDMETHODCALLTYPE GetMember(HSTRING name, Markup::IXamlMember** value) override {
-        if (!base_ && wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"DefaultBackgroundColor") == 0)
+        if (!base_ && activate_ == CreateIslandWebView &&
+            wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"DefaultBackgroundColor") == 0)
             return BackgroundMember(value, customName_);
         return Empty(value);
     }
@@ -112,10 +122,10 @@ public:
         return HStringReference(L"DefaultBackgroundColor").CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE get_TargetType(Markup::IXamlType** value) override {
-        return Make<WebViewType>(false, L"Windows.UI.Xaml.Controls.Grid", type_).CopyTo(value);
+        return Make<StandInType>(false, WebViewBase, type_).CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE get_Type(Markup::IXamlType** value) override {
-        return Make<WebViewType>(true, L"Windows.UI.Color").CopyTo(value);
+        return Make<StandInType>(true, L"Windows.UI.Color").CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE GetValue(IInspectable* instance, IInspectable** value) override {
         if (!value) return E_POINTER;
@@ -143,10 +153,13 @@ public:
 HRESULT BackgroundMember(Markup::IXamlMember** value, const wchar_t* type) {
     return Make<BackgroundProperty>(type).CopyTo(value);
 }
-const wchar_t* WebViewName(HSTRING name) {
+// The stand-in type the application's metadata should describe for a name.
+ComPtr<Markup::IXamlType> StandIn(HSTRING name) {
     const auto* text = WindowsGetStringRawBuffer(name, nullptr);
-    if (wcscmp(text, PortableWebView) == 0) return PortableWebView;
-    if (wcscmp(text, RuntimeWebView) == 0) return RuntimeWebView;
+    if (wcscmp(text, PortableWebView) == 0) return Make<StandInType>(false, WebViewBase, PortableWebView);
+    if (wcscmp(text, RuntimeWebView) == 0) return Make<StandInType>(false, WebViewBase, RuntimeWebView);
+    if (wcscmp(text, RuntimePanel) == 0)
+        return Make<StandInType>(false, PanelBase, RuntimePanel, CreateIslandBackgroundPanel);
     return nullptr;
 }
 using TypeCall = HRESULT(STDMETHODCALLTYPE*)(Markup::IXamlMetadataProvider*, Interop::TypeName, Markup::IXamlType**);
@@ -158,14 +171,12 @@ NameCall realName;
 Markup::IXamlMetadataProvider* applicationProvider;
 HRESULT STDMETHODCALLTYPE Type(Markup::IXamlMetadataProvider* self, Interop::TypeName name, Markup::IXamlType** value) {
     if (self == applicationProvider)
-        if (auto custom = WebViewName(name.Name))
-            return Make<WebViewType>(false, L"Windows.UI.Xaml.Controls.Grid", custom).CopyTo(value);
+        if (auto type = StandIn(name.Name)) return type.CopyTo(value);
     return realType(self, name, value);
 }
 HRESULT STDMETHODCALLTYPE Name(Markup::IXamlMetadataProvider* self, HSTRING name, Markup::IXamlType** value) {
     if (self == applicationProvider)
-        if (auto custom = WebViewName(name))
-            return Make<WebViewType>(false, L"Windows.UI.Xaml.Controls.Grid", custom).CopyTo(value);
+        if (auto type = StandIn(name)) return type.CopyTo(value);
     return realName(self, name, value);
 }
 }
