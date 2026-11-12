@@ -210,6 +210,10 @@ class IslandWindow final : public RuntimeClass<RuntimeClassFlags<WinRt>, IWindow
     EventSource<IWindowClosedEventHandler> closed_;
     EventSource<IWindowSizeChangedEventHandler> sizeChanged_;
     EventSource<IWindowVisibilityChangedEventHandler> visibilityChanged_;
+    // An activated Windows 8 app window starts visible, and XAML raises
+    // VisibilityChanged only when that changes. Asphalt 7: Heat's handler uses
+    // an engine object that does not exist yet when the window first shows.
+    bool visible_ = true;
 
 public:
     void OnMessage(UINT message, WPARAM wparam, LPARAM) {
@@ -223,8 +227,9 @@ public:
             get_Bounds(&bounds);
             auto args = Make<WindowSizeArgs>(ABI::Windows::Foundation::Size{bounds.Width, bounds.Height});
             if (args) sizeChanged_.InvokeAll(this, args.Get());
-        } else if (message == WM_SHOWWINDOW) {
-            auto args = Make<VisibilityArgs>(wparam != 0);
+        } else if (message == WM_SHOWWINDOW && (wparam != 0) != visible_) {
+            visible_ = wparam != 0;
+            auto args = Make<VisibilityArgs>(visible_);
             if (args) visibilityChanged_.InvokeAll(this, args.Get());
         }
     }
@@ -236,7 +241,7 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_Visible(boolean* v) override {
-        *v = true;
+        *v = visible_;
         return S_OK;
     }
     ComPtr<IUIElement> content_;
