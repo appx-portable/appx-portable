@@ -75,6 +75,7 @@ Options Parse() {
     options.frameRate = FrameRate(ini);
     options.stubIapProducts = ProductSetting(ini, L"APPX_PORTABLE_STUB_IAP_PRODUCTS", L"StubIapProducts");
     options.stubXboxProducts = ProductSetting(ini, L"APPX_PORTABLE_STUB_XBOX_PRODUCTS", L"StubXboxProducts");
+    options.portableXaml = _wcsicmp(ProductSetting(ini, L"APPX_PORTABLE_XAML", L"Xaml").c_str(), L"portable") == 0;
     bool program = true;
     ForEachWord(GetCommandLineW(), [&](const std::wstring& word) {
         if (program) {

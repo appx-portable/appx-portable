@@ -658,6 +658,11 @@ static HRESULT RunIsland(IApplicationInitializationCallback* callback) {
     }
     return hr;
 }
+// Logs the island setup step that failed; the game only sees the HRESULT.
+static HRESULT IslandStep(const char* step, HRESULT hr) {
+    if (FAILED(hr)) appx::Log("FAIL", "island view: %s hr=0x%08lX", step, hr);
+    return hr;
+}
 static HRESULT RunIslandView(IApplicationInitializationCallback* callback) {
     return RunHost([&]() -> HRESULT {
         HRESULT hr = callback->Invoke(nullptr);
@@ -679,21 +684,21 @@ static HRESULT RunIslandView(IApplicationInitializationCallback* callback) {
         if (SUCCEEDED(hr)) hr = source.As(&xamlNative);
         if (SUCCEEDED(hr)) hr = xamlNative->AttachToWindow(HostWindow());
         if (SUCCEEDED(hr)) hr = xamlNative->get_WindowHandle(&islandWindow);
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) return IslandStep("DesktopWindowXamlSource", hr);
         hr = PatchCoreWindowBounds();
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) return IslandStep("CoreWindow bounds", hr);
         RECT r{};
         GetClientRect(HostWindow(), &r);
         SetWindowPos(islandWindow, HWND_TOP, 0, 0, r.right, r.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         if (pendingContent) {
             hr = xamlSource->put_Content(pendingContent.Get());
             pendingContent.Reset();
-            if (FAILED(hr)) return hr;
+            if (FAILED(hr)) return IslandStep("content", hr);
         }
         hr = InitializePopups();
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) return IslandStep("popups", hr);
         hr = InitializeSettingsFlyouts();
-        if (FAILED(hr)) return hr;
+        if (FAILED(hr)) return IslandStep("settings flyouts", hr);
         ActivateHostWindow();
         DismissSplashScreen();
         return S_OK;

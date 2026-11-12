@@ -1,4 +1,5 @@
 #include "registry.h"
+#include "entry/managed_components.h"
 #include "islands/islands.h"
 #include "log.h"
 #include "package/package.h"
@@ -29,8 +30,9 @@ static HRESULT PackageFactory(HSTRING name, IActivationFactory** factory) {
     const wchar_t* text = WindowsGetStringRawBuffer(name, nullptr);
     for (const auto& entry : CurrentPackage().classes) {
         if (entry.id != text) continue;
-        // Only modules shipped in the package: a system host such as
-        // CLRHost.dll (C# components) needs the package context to work.
+        // C# components: Windows' CLRHost.dll needs the package context.
+        if (IsClrHostModule(entry.module)) return ManagedComponentFactory(name, factory);
+        // Otherwise only modules shipped in the package.
         if (GetFileAttributesW(entry.module.c_str()) == INVALID_FILE_ATTRIBUTES) {
             Log("TRACE", "in-package class %ls: %ls is not in the game folder", text, entry.module.c_str());
             return REGDB_E_CLASSNOTREG;
@@ -75,7 +77,9 @@ static bool FromGame(void* returnAddress) noexcept {
     bool game = module == self;
     wchar_t path[MAX_PATH]{}, exe[MAX_PATH]{};
     if (!game && GetModuleFileNameW(module, path, MAX_PATH) && GetModuleFileNameW(nullptr, exe, MAX_PATH)) {
-        if (ManagedMode() && _wcsicmp(std::filesystem::path(path).filename().c_str(), L"clr.dll") == 0) game = true;
+        if ((ManagedMode() || ManagedComponentsHosted()) &&
+            _wcsicmp(std::filesystem::path(path).filename().c_str(), L"clr.dll") == 0)
+            game = true;
         const size_t prefix = wcsrchr(exe, L'\\') - exe;
         game = game || (_wcsnicmp(path, exe, prefix) == 0 && path[prefix] == L'\\');
     }
@@ -312,25 +316,6 @@ static const wchar_t* LauncherArguments() noexcept {
         if (*text == L'"') quoted = !quoted;
     while (*text == L' ' || *text == L'\t') ++text;
     return text;
-}
-// Compiled XAML, as installappx.py detects it: .xbf files, loose or named in
-// resources.pri. Such a game starts real XAML; the others run a CoreWindow.
-static bool PackageHasXaml(const std::filesystem::path& directory) {
-    std::error_code error;
-    std::filesystem::recursive_directory_iterator files(
-        directory, std::filesystem::directory_options::skip_permission_denied, error),
-        end;
-    for (; !error && files != end; files.increment(error))
-        if (_wcsicmp(files->path().extension().c_str(), L".xbf") == 0) return true;
-    HANDLE file = CreateFileW((directory / L"resources.pri").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    std::string data(GetFileSize(file, nullptr), '\0');
-    DWORD read = 0;
-    const bool loaded = !data.empty() && ReadFile(file, data.data(), static_cast<DWORD>(data.size()), &read, nullptr);
-    CloseHandle(file);
-    data.resize(loaded ? read : 0);
-    return data.find(".xbf") != std::string::npos || data.find(std::string(".\0x\0b\0f\0", 8)) != std::string::npos;
 }
 // A native C++/CX game such as a Unity IL2CPP player may import no proxy DLL,
 // so nothing loads the shim before its Application::Start or CoreApplication::Run,

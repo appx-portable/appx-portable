@@ -82,6 +82,29 @@ int wmain(int argc, wchar_t** argv) {
     CHECK(count(adapted, L"DXSwapChainBackgroundPanel") == 1);
     std::vector<BYTE> again;
     CHECK(appx::RemapXbfStandIns(adapted.data(), adapted.size(), again) == S_FALSE && again.empty());
+    // Windows 8.0 source XAML (Angry Birds Space 1.6.1.0's page shape): the tags
+    // change in place; names, attribute text and prefixed types do not.
+    auto source = [](std::string_view text) { return std::vector<BYTE>(text.begin(), text.end()); };
+    const auto page = source("\xEF\xBB\xBF<Page x:Class=\"Game.MainPage\">\r\n"
+                             "  <SwapChainBackgroundPanel x:Name=\"DXSwapChainBackgroundPanel\">\r\n"
+                             "    <SwapChainBackgroundPanel.Resources/>\r\n"
+                             "    <WebView Source=\"ms-appx-web:///WebView.html\"/>\r\n"
+                             "    <local:WebView/><WebViewBrush/>\r\n"
+                             "  </SwapChainBackgroundPanel>\r\n</Page>");
+    CHECK(appx::RemapSourceXamlStandIns(page.data(), page.size(), adapted) == S_OK);
+    const std::string_view text(reinterpret_cast<const char*>(adapted.data()), adapted.size());
+    CHECK(adapted.size() == page.size());
+    CHECK(text.find("<PortableSwapChainBGPanel x:Name=\"DXSwapChainBackgroundPanel\">") != text.npos);
+    CHECK(text.find("<PortableSwapChainBGPanel.Resources/>") != text.npos);
+    CHECK(text.find("</PortableSwapChainBGPanel>") != text.npos);
+    CHECK(text.find("<AppxWeb Source=\"ms-appx-web:///WebView.html\"/>") != text.npos);
+    CHECK(text.find("<local:WebView/><WebViewBrush/>") != text.npos);
+    CHECK(appx::RemapSourceXamlStandIns(adapted.data(), adapted.size(), again) == S_FALSE && again.empty());
+    const auto plain = source("<Page><Grid x:Name=\"SwapChainBackgroundPanel\"/></Page>");
+    CHECK(appx::RemapSourceXamlStandIns(plain.data(), plain.size(), adapted) == S_FALSE && adapted.empty());
+    const auto cut = source("<SwapChainBackgroundPanel");
+    CHECK(appx::RemapSourceXamlStandIns(cut.data(), cut.size(), adapted) == S_FALSE && adapted.empty());
+    CHECK(appx::RemapSourceXamlStandIns(nullptr, 0, adapted) == E_POINTER);
     printf("xbfwebviewtest: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

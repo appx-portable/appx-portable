@@ -198,3 +198,24 @@ const std::wstring& PackageDisplayName() noexcept {
     return name;
 }
 }
+namespace appx {
+bool PackageHasXaml(const std::filesystem::path& directory) {
+    std::error_code error;
+    std::filesystem::recursive_directory_iterator files(
+        directory, std::filesystem::directory_options::skip_permission_denied, error),
+        end;
+    for (; !error && files != end; files.increment(error)) {
+        const auto extension = files->path().extension();
+        if (_wcsicmp(extension.c_str(), L".xbf") == 0 || _wcsicmp(extension.c_str(), L".xaml") == 0) return true;
+    }
+    HANDLE file = CreateFileW((directory / L"resources.pri").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    std::string data(GetFileSize(file, nullptr), '\0');
+    DWORD read = 0;
+    const bool loaded = !data.empty() && ReadFile(file, data.data(), static_cast<DWORD>(data.size()), &read, nullptr);
+    CloseHandle(file);
+    data.resize(loaded ? read : 0);
+    return data.find(".xbf") != std::string::npos || data.find(std::string(".\0x\0b\0f\0", 8)) != std::string::npos;
+}
+}

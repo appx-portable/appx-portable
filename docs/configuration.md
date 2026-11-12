@@ -36,3 +36,14 @@ FrameRate=60
 Most Store games advance one fixed step per frame and expect 60. Without the cap, they run too fast on a faster display, and under Wine on macOS, which does not wait for the display. Set `FrameRate=0` to remove the cap for a game that keeps its speed at any frame rate, or another number for a different cap. The `APPX_PORTABLE_FRAME_RATE` environment variable overrides the file. Restart the game after a change.
 
 `appx-portable.ini` also holds the Store overrides; see [trial override](trial-mode.md) and [offline in-app purchases](stub-iap.md).
+
+## XAML
+
+A native game with XAML pages runs on Windows' own XAML in an island when its executable's manifest allows XAML Islands; `pyappxportable` writes `<game>.exe.manifest` for such games. To keep a game on the portable XAML backend instead, set:
+
+```ini
+[options]
+Xaml=portable
+```
+
+The `APPX_PORTABLE_XAML` environment variable overrides the file. A game installed before this default has no manifest and stays on the portable backend until its runtime is updated with `--update-runtime`. See [managed games and XAML Islands](islands.md#native-xaml-games).
