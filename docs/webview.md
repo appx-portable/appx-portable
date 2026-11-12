@@ -40,6 +40,8 @@ not patch instructions or depend on OS-specific instruction addresses. Systems
 using a different resource-loading path need additional support. The older
 `PortableWebView` alias remains supported for previously patched installations;
 the [legacy patch tool](../patch/peu/README.md) can restore their original files.
+The same adapter renames a built-in `SwapChainBackgroundPanel`; see
+[managed games and XAML Islands](islands.md).
 
 Each controller has a dedicated native host beside the XAML island. Its position
 and z-order are updated together so XAML cannot paint over browser content or

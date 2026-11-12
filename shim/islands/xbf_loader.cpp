@@ -63,9 +63,9 @@ LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T co
             return original;
         }
         std::vector<BYTE> adapted;
-        const auto hr = RemapXbfWebViews(static_cast<const BYTE*>(original), static_cast<size_t>(size), adapted);
+        const auto hr = RemapXbfStandIns(static_cast<const BYTE*>(original), static_cast<size_t>(size), adapted);
         if (hr != S_OK) {
-            if (FAILED(hr)) Log("FAIL", "XBF WebView adaptation failed hr=%08lx", hr);
+            if (FAILED(hr)) Log("FAIL", "XBF stand-in adaptation failed hr=%08lx", hr);
             SetLastError(error);
             return original;
         }
@@ -74,7 +74,7 @@ LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T co
         void* view = shadow ? realMap(shadow, FILE_MAP_WRITE, 0, 0, adapted.size()) : nullptr;
         if (shadow) CloseHandle(shadow);
         if (!view) {
-            Log("FAIL", "XBF WebView memory view failed error=%lu", GetLastError());
+            Log("FAIL", "XBF stand-in memory view failed error=%lu", GetLastError());
             SetLastError(error);
             return original;
         }
@@ -86,11 +86,11 @@ LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T co
             return original;
         }
         UnmapViewOfFile(original);
-        Log("TRACE", "XBF WebView metadata adapted in memory (%zu bytes)", adapted.size());
+        Log("TRACE", "XBF stand-in metadata adapted in memory (%zu bytes)", adapted.size());
         SetLastError(error);
         return view;
     } catch (...) {
-        Log("FAIL", "XBF WebView memory adaptation allocation failed");
+        Log("FAIL", "XBF stand-in memory adaptation allocation failed");
         SetLastError(error);
         return original;
     }

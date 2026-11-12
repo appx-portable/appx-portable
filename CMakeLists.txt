@@ -395,6 +395,15 @@ if(NOT CMAKE_CROSSCOMPILING)
         "-DFIXTURE=${CMAKE_BINARY_DIR}/managed-webview-markup-contract"
         -P "${CMAKE_SOURCE_DIR}/tests/managed_xaml_startup.cmake")
       set_tests_properties(managed_webview_markup_contract PROPERTIES TIMEOUT 60 LABELS managed-clr)
+      add_test(NAME managed_panel_xbf COMMAND "${CMAKE_COMMAND}"
+        "-DCSC=${APPX_CSC}" "-DDEFINE=/define:PANEL"
+        "-DMETADATA=${APPX_WINDOWS_METADATA}" "-DFACADES=${APPX_FRAMEWORK_FACADES}"
+        "-DSOURCE=${CMAKE_SOURCE_DIR}/tests/managed_panel_xbf.cs"
+        "-DXBF_BUILDER=$<TARGET_FILE:xbfwebviewtest>" "-DXBF_OPTION=--write-panel-fixture" "-DXBF_FILE=PanelFixture.xbf"
+        "-DSHIM=$<TARGET_FILE:appxportable>" "-DHOST=${CMAKE_BINARY_DIR}/appx-host.exe" "-DARCH=${APPX_HOST_ARCH}"
+        "-DFIXTURE=${CMAKE_BINARY_DIR}/managed-panel-xbf"
+        -P "${CMAKE_SOURCE_DIR}/tests/managed_xaml_startup.cmake")
+      set_tests_properties(managed_panel_xbf PROPERTIES TIMEOUT 60 LABELS managed-clr)
     endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND APPX_TEST_WEBVIEW2)
       add_test(NAME managed_webview_xbf COMMAND "${CMAKE_COMMAND}"

@@ -1,8 +1,9 @@
 #include "xbf_webview.h"
 #include <array>
 #include <cstring>
+#include <cwchar>
+#include <map>
 #include <new>
-#include <set>
 #include <string>
 namespace appx {
 namespace {
@@ -31,7 +32,22 @@ struct StringEntry {
     std::wstring value;
     size_t offset;
 };
-std::vector<size_t> Plan(const BYTE* bytes, size_t size) {
+// Built-in Windows.UI.Xaml.Controls types that islands cannot host, and the
+// same-length names the application's metadata provider answers instead.
+struct StandIn {
+    const wchar_t* name;
+    const wchar_t* alias;
+};
+constexpr StandIn standIns[] = {
+    {L"WebView", L"AppxWeb"},
+    // Must be the window's root visual, which an island's content never is.
+    {L"SwapChainBackgroundPanel", L"PortableSwapChainBGPanel"},
+};
+struct Replacement {
+    size_t offset;
+    const wchar_t* alias;
+};
+std::vector<Replacement> Plan(const BYTE* bytes, size_t size) {
     Input header{bytes, 0, size};
     if (header.Get<UINT32>() != 0x00464258) return {};
     const auto metadataSize = header.Get<UINT32>(), nodeSize = header.Get<UINT32>();
@@ -75,13 +91,18 @@ std::vector<size_t> Plan(const BYTE* bytes, size_t size) {
         }
         if (table.pos != table.end) throw Invalid;
     }
-    std::set<UINT32> targets;
+    std::map<UINT32, const wchar_t*> targets;
     for (const auto& type : tables[3]) {
-        if (type[0] || name(type[2]) != L"WebView") continue;
+        if (type[0]) continue;
+        const StandIn* standIn = nullptr;
+        for (const auto& candidate : standIns)
+            if (name(type[2]) == candidate.name) standIn = &candidate;
+        if (!standIn) continue;
         if (type[1] >= tables[2].size()) throw Invalid;
         const auto& space = tables[2][type[1]];
         if (space[0] >= tables[1].size()) throw Invalid;
-        if (tables[1][space[0]][0] == 1 && name(space[1]) == L"Windows.UI.Xaml.Controls") targets.insert(type[2]);
+        if (tables[1][space[0]][0] == 1 && name(space[1]) == L"Windows.UI.Xaml.Controls")
+            targets[type[2]] = standIn->alias;
     }
     if (targets.empty()) return {};
     // A shared metadata string may also be a literal, a property, or the name
@@ -161,24 +182,30 @@ std::vector<size_t> Plan(const BYTE* bytes, size_t size) {
             throw E_NOTIMPL;
         }
     }
-    std::vector<size_t> result;
-    for (auto id : targets) result.push_back(names[id].offset);
+    std::vector<Replacement> result;
+    for (const auto& [id, alias] : targets) result.push_back({names[id].offset, alias});
     return result;
 }
+constexpr bool SameLengths() {
+    for (const auto& standIn : standIns)
+        if (std::char_traits<wchar_t>::length(standIn.name) != std::char_traits<wchar_t>::length(standIn.alias))
+            return false;
+    return true;
 }
-HRESULT RemapXbfWebViews(const BYTE* bytes, size_t size, std::vector<BYTE>& adapted) {
+// Same UTF-16 length as each built-in name, so every stream size, table
+// offset, node position, connection ID and source location remains unchanged.
+static_assert(SameLengths());
+}
+HRESULT RemapXbfStandIns(const BYTE* bytes, size_t size, std::vector<BYTE>& adapted) {
     adapted.clear();
     if (!bytes) return E_POINTER;
     if (size < 20) return S_FALSE;
     try {
-        const auto offsets = Plan(bytes, size);
-        if (offsets.empty()) return S_FALSE;
+        const auto replacements = Plan(bytes, size);
+        if (replacements.empty()) return S_FALSE;
         adapted.assign(bytes, bytes + size);
-        // Same UTF-16 length as WebView, so every stream size, table offset,
-        // node position, connection ID and source location remains unchanged.
-        constexpr wchar_t alias[] = L"AppxWeb";
-        static_assert(sizeof(alias) == sizeof(L"WebView"));
-        for (auto offset : offsets) memcpy(adapted.data() + offset, alias, sizeof(alias) - sizeof(wchar_t));
+        for (const auto& [offset, alias] : replacements)
+            memcpy(adapted.data() + offset, alias, wcslen(alias) * sizeof(wchar_t));
         return S_OK;
     } catch (HRESULT failure) {
         adapted.clear();

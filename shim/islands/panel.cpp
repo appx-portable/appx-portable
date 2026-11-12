@@ -320,6 +320,12 @@ public:
 };
 
 HRESULT MakeIslandPanelFactory(IActivationFactory** out) { return Make<PanelFactory>().CopyTo(out); }
+HRESULT CreateIslandBackgroundPanel(IInspectable** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    ComPtr<C::ISwapChainBackgroundPanel> panel;
+    return PanelShim::Create(nullptr, value, &panel);
+}
 
 // Windows 8.1 games can use SwapChainPanel directly (including Unity). Keep
 // its real composition/identity and bridge its routed input just as for the
