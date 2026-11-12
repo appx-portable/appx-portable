@@ -455,6 +455,14 @@ if(NOT CMAKE_CROSSCOMPILING)
       "-DFIXTURE=${CMAKE_BINARY_DIR}/managed-scroll"
       -P "${CMAKE_SOURCE_DIR}/tests/managed_xaml_startup.cmake")
     set_tests_properties(managed_scroll PROPERTIES TIMEOUT 60 LABELS managed-clr)
+    add_test(NAME managed_start_failure COMMAND "${CMAKE_COMMAND}"
+      "-DCSC=${APPX_CSC}" "-DDEFINE=/define:START_FAILURE" "-DEXPECT_EXIT=1"
+      "-DMETADATA=${APPX_WINDOWS_METADATA}" "-DFACADES=${APPX_FRAMEWORK_FACADES}"
+      "-DSOURCE=${CMAKE_SOURCE_DIR}/tests/managed_start_failure.cs"
+      "-DSHIM=$<TARGET_FILE:appxportable>" "-DHOST=${CMAKE_BINARY_DIR}/appx-host.exe" "-DARCH=${APPX_HOST_ARCH}"
+      "-DFIXTURE=${CMAKE_BINARY_DIR}/managed-start-failure"
+      -P "${CMAKE_SOURCE_DIR}/tests/managed_xaml_startup.cmake")
+    set_tests_properties(managed_start_failure PROPERTIES TIMEOUT 60 LABELS managed-clr)
     foreach(mode CONSTRUCTOR_CONTROLS LAUNCH_CONTROLS LIGHT_THEME ROOT_LIGHT_THEME XAML_LIGHT_THEME APPLICATION_EXIT)
       add_test(NAME managed_xaml_startup_${mode} COMMAND "${CMAKE_COMMAND}"
         "-DCSC=${APPX_CSC}" "-DDEFINE=/define:${mode}"

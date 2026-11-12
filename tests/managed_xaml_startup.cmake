@@ -29,7 +29,11 @@ file(WRITE "${FIXTURE}/AppxManifest.xml"
   "<Package><Identity Name=\"ManagedXamlStartupTest\" Publisher=\"CN=Test\" Version=\"1.0.0.0\" ProcessorArchitecture=\"${ARCH}\"/><Applications><Application Id=\"Test\" Executable=\"game.exe\"/></Applications></Package>")
 execute_process(COMMAND "${FIXTURE}/appx-host.exe" --trace
   WORKING_DIRECTORY "${FIXTURE}" RESULT_VARIABLE result TIMEOUT 45)
-if(NOT "${result}" STREQUAL "0" OR NOT EXISTS "${FIXTURE}/startup-passed.txt")
+# A fixture that fails on purpose names the exit code the host must report.
+if(NOT DEFINED EXPECT_EXIT)
+  set(EXPECT_EXIT 0)
+endif()
+if(NOT "${result}" STREQUAL "${EXPECT_EXIT}" OR NOT EXISTS "${FIXTURE}/startup-passed.txt")
   set(log "(no managed.log)")
   if(EXISTS "${FIXTURE}/managed.log")
     file(READ "${FIXTURE}/managed.log" log)
