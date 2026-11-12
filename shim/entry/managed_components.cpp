@@ -8,7 +8,6 @@
 #include "entry/managed_components.h"
 #include "log.h"
 #include "package/package.h"
-#include <metahost.h>
 #include <wrl/client.h>
 #include <atomic>
 #include <cwchar>
@@ -16,15 +15,47 @@
 using Microsoft::WRL::ComPtr;
 namespace appx {
 namespace {
-// From metahost.h/mscoree.h; defined here so nothing links mscoree.lib.
+// The CLR hosting API from metahost.h and mscoree.h, which come with the .NET
+// Framework SDK rather than the Windows SDK, so the xwin cross build lacks
+// them. Only the methods called here are named; the slots before them keep
+// each vtable in order. Defined here too so nothing links mscoree.lib.
 constexpr CLSID clsidMetaHost{0x9280188d, 0x0e8e, 0x4867, {0xb3, 0x0c, 0x7f, 0xa8, 0x38, 0x84, 0xe8, 0xde}};
 constexpr CLSID clsidRuntimeHost{0x90f1a06e, 0x7712, 0x4762, {0x86, 0xb5, 0x7a, 0x5e, 0xba, 0x6b, 0xdb, 0x02}};
+using CreateInstanceCall = HRESULT(WINAPI*)(REFCLSID clsid, REFIID riid, void** out);
+MIDL_INTERFACE("d332db9e-b9b3-4125-8207-a14884f53216") ICLRMetaHost : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetRuntime(LPCWSTR version, REFIID riid, void** runtime) = 0;
+};
+MIDL_INTERFACE("bd39d1d2-ba2f-486a-89b0-b4b0cb466891") ICLRRuntimeInfo : IUnknown {
+    // GetVersionString, GetRuntimeDirectory, IsLoaded, LoadErrorString,
+    // LoadLibrary, GetProcAddress.
+    virtual HRESULT STDMETHODCALLTYPE Unused1() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused2() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused3() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused4() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused5() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused6() = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetInterface(REFCLSID clsid, REFIID riid, void** out) = 0;
+};
+MIDL_INTERFACE("90f1a06c-7712-4762-86b5-7a5eba6bdb02") ICLRRuntimeHost : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE Start() = 0;
+    // Stop, SetHostControl, GetCLRControl, UnloadAppDomain, ExecuteInAppDomain,
+    // GetCurrentAppDomainId, ExecuteApplication.
+    virtual HRESULT STDMETHODCALLTYPE Unused1() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused2() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused3() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused4() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused5() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused6() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unused7() = 0;
+    virtual HRESULT STDMETHODCALLTYPE ExecuteInDefaultAppDomain(LPCWSTR assembly, LPCWSTR type, LPCWSTR method,
+                                                                LPCWSTR argument, DWORD* result) = 0;
+};
 std::atomic<bool> hosted{false};
 
 HRESULT StartClr(ComPtr<ICLRRuntimeHost>& result) {
     HMODULE mscoree = LoadLibraryExW(L"mscoree.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!mscoree) return HRESULT_FROM_WIN32(GetLastError());
-    auto create = reinterpret_cast<decltype(&CLRCreateInstance)>(GetProcAddress(mscoree, "CLRCreateInstance"));
+    auto create = reinterpret_cast<CreateInstanceCall>(GetProcAddress(mscoree, "CLRCreateInstance"));
     if (!create) return HRESULT_FROM_WIN32(GetLastError());
     ComPtr<ICLRMetaHost> meta;
     HRESULT hr = create(clsidMetaHost, IID_PPV_ARGS(&meta));
