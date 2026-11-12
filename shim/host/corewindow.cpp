@@ -68,7 +68,9 @@ public:
                                                                            : CoreWindowActivationState_CodeActivated);
             if (args) eventActivated_.InvokeAll(this, args.Get());
         }
-        if (message == WM_SIZE) {
+        // A Store app window keeps its size while it is not shown; minimizing
+        // reports 0x0, which Unity's 8.1 player waits on forever.
+        if (message == WM_SIZE && wparam != SIZE_MINIMIZED) {
             auto args = Make<WindowSizeArgs>(
                 ABI::Windows::Foundation::Size{static_cast<float>(LOWORD(lparam)), static_cast<float>(HIWORD(lparam))});
             if (args) eventSizeChanged_.InvokeAll(this, args.Get());
