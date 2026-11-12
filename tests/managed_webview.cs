@@ -123,7 +123,29 @@ sealed class WebViewApp : Application, IXamlMetadataProvider {
             "marker.style.cssText='position:fixed;left:10px;top:10px;width:30px;height:30px;background:#ff0000;z-index:100';" +
             "document.body.appendChild(marker);window.external.notify('ready');};");
 #endif
-        File.WriteAllText("webview-local.html", "<!doctype html><h1>Package resource</h1><script>window.external.notify('package');</script>");
+        File.WriteAllText("webview-local.html", "<!doctype html><title>Package page</title><h1>Package resource</h1><script>window.external.notify('package');</script>");
+        // Windows 8.1 events, as games such as Sonic Dash register them.
+        const string local = "ms-appx-web:///webview-local.html", blocked = "ms-appx-web:///blocked.html";
+        bool starting = false, contentLoading = false, domLoaded = false, completed = false, cancelled = false;
+        web.NavigationStarting += (s, e) => {
+            if (s != web) throw new Exception("NavigationStarting sender");
+            if (e.Uri == null) return;
+            if (e.Uri.AbsoluteUri == local) starting = true;
+            if (e.Uri.AbsoluteUri == blocked) e.Cancel = cancelled = true;
+        };
+        web.ContentLoading += (s, e) => { if (e.Uri != null && e.Uri.AbsoluteUri == local) contentLoading = true; };
+        web.DOMContentLoaded += (s, e) => { if (e.Uri != null && e.Uri.AbsoluteUri == local) domLoaded = true; };
+        web.NavigationCompleted += (s, e) => {
+            if (e.Uri != null && e.Uri.AbsoluteUri == local && e.IsSuccess) completed = true;
+            if (!cancelled || e.Uri == null || e.Uri.AbsoluteUri != blocked) return;
+            if (e.IsSuccess) throw new Exception("Cancelled navigation succeeded");
+            bool back = web.CanGoBack;
+            web.Stop();
+            timeout.Stop();
+            File.WriteAllText("startup-passed.txt", "CLR projection, HTML, package resources, notify, synchronous script, " +
+                              "LoadCompleted, Windows 8.1 navigation events, cancellation");
+            Window.Current.Close();
+        };
         web.ScriptNotify += (s, e) => {
             if (s != web) throw new Exception("ScriptNotify sender");
             if (e.Value == "package") {
@@ -223,10 +245,12 @@ sealed class WebViewApp : Application, IXamlMetadataProvider {
 #pragma warning disable 618
         web.LoadCompleted += (s, e) => {
             if (!package) return;
-            if (e.Uri.AbsoluteUri != "ms-appx-web:///webview-local.html") throw new Exception("LoadCompleted URI");
-            timeout.Stop();
-            File.WriteAllText("startup-passed.txt", "CLR projection, HTML, package resources, notify, synchronous script, LoadCompleted");
-            Window.Current.Close();
+            if (e.Uri.AbsoluteUri != local) return;
+            if (!starting || !contentLoading || !domLoaded || !completed)
+                throw new Exception("Windows 8.1 navigation events: starting=" + starting + " content=" + contentLoading +
+                                    " dom=" + domLoaded + " completed=" + completed);
+            if (web.DocumentTitle != "Package page") throw new Exception("DocumentTitle: " + web.DocumentTitle);
+            web.Navigate(new Uri(blocked));
         };
 #pragma warning restore 618
         // HTML can be supplied before the element enters the tree.
