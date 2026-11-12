@@ -179,8 +179,7 @@ public:
     explicit ContentLoadingArgs(Foundation::IUriRuntimeClass* uri) : uri_(uri) {}
     HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
 };
-class DomLoadedArgs final
-    : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewDOMContentLoadedEventArgs> {
+class DomLoadedArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, Controls::IWebViewDOMContentLoadedEventArgs> {
     InspectableClass(L"Windows.UI.Xaml.Controls.WebViewDOMContentLoadedEventArgs", BaseTrust);
     ComPtr<Foundation::IUriRuntimeClass> uri_;
 
@@ -197,7 +196,8 @@ class CompletedArgs final
 
 public:
     CompletedArgs(Foundation::IUriRuntimeClass* uri, bool success, COREWEBVIEW2_WEB_ERROR_STATUS status)
-        : uri_(uri), success_(success), status_(success ? ABI::Windows::Web::WebErrorStatus_Unknown : WebStatus(status)) {}
+        : uri_(uri), success_(success),
+          status_(success ? ABI::Windows::Web::WebErrorStatus_Unknown : WebStatus(status)) {}
     HRESULT STDMETHODCALLTYPE get_Uri(Foundation::IUriRuntimeClass** value) override { return uri_.CopyTo(value); }
     HRESULT STDMETHODCALLTYPE get_IsSuccess(boolean* value) override {
         if (!value) return E_POINTER;
@@ -211,8 +211,7 @@ public:
     }
 };
 // Typed handlers for WebView events, sender first.
-template <class Args>
-using WebViewHandler = Foundation::ITypedEventHandler<Controls::WebView*, Args*>;
+template <class Args> using WebViewHandler = Foundation::ITypedEventHandler<Controls::WebView*, Args*>;
 using StartingHandler = WebViewHandler<Controls::WebViewNavigationStartingEventArgs>;
 using ContentLoadingHandler = WebViewHandler<Controls::WebViewContentLoadingEventArgs>;
 using DomLoadedHandler = WebViewHandler<Controls::WebViewDOMContentLoadedEventArgs>;
@@ -534,9 +533,8 @@ class WebView final : public Controls::IWebView, public Controls::IWebView2, pub
                     ComPtr<Foundation::IUriRuntimeClass> uri;
                     if (source) Uri(source, &uri);
                     auto event = Make<NotifyArgs>(std::wstring(text), uri.Get());
-                    alive->owner->Dispatch([event](WebView* self) {
-                        self->notify_.InvokeAll(self->Identity(), event.Get());
-                    });
+                    alive->owner->Dispatch(
+                        [event](WebView* self) { self->notify_.InvokeAll(self->Identity(), event.Get()); });
                 }
                 CoTaskMemFree(text);
                 CoTaskMemFree(source);
@@ -974,7 +972,8 @@ public:
     HRESULT STDMETHODCALLTYPE remove_NavigationStarting(EventRegistrationToken token) override {
         return navigationStarting_.Remove(token);
     }
-    HRESULT STDMETHODCALLTYPE add_ContentLoading(ContentLoadingHandler* handler, EventRegistrationToken* token) override {
+    HRESULT STDMETHODCALLTYPE add_ContentLoading(ContentLoadingHandler* handler,
+                                                 EventRegistrationToken* token) override {
         return contentLoading_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_ContentLoading(EventRegistrationToken token) override {
@@ -1027,7 +1026,8 @@ public:
     HRESULT STDMETHODCALLTYPE put_DefaultBackgroundColor(ABI::Windows::UI::Color value) override {
         return SetBackgroundColor(value);
     }
-    HRESULT STDMETHODCALLTYPE add_NavigationCompleted(CompletedHandler* handler, EventRegistrationToken* token) override {
+    HRESULT STDMETHODCALLTYPE add_NavigationCompleted(CompletedHandler* handler,
+                                                      EventRegistrationToken* token) override {
         return completed_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_NavigationCompleted(EventRegistrationToken token) override {
