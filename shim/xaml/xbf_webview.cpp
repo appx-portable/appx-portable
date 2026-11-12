@@ -215,4 +215,32 @@ HRESULT RemapXbfStandIns(const BYTE* bytes, size_t size, std::vector<BYTE>& adap
         return E_OUTOFMEMORY;
     }
 }
+HRESULT RemapSourceXamlStandIns(const BYTE* bytes, size_t size, std::vector<BYTE>& adapted) {
+    adapted.clear();
+    if (!bytes) return E_POINTER;
+    try {
+        bool changed = false;
+        for (const auto& standIn : standIns) {
+            const size_t length = wcslen(standIn.name);
+            for (size_t i = 0; i + 1 + length < size; ++i) {
+                if (bytes[i] != '<') continue;
+                const size_t start = i + 1 + (bytes[i + 1] == '/' ? 1 : 0);
+                if (start + length >= size) continue;
+                bool match = true;
+                for (size_t k = 0; k < length && match; ++k) match = bytes[start + k] == standIn.name[k];
+                // Only the whole, unprefixed name: <Name>, <Name ...>, </Name>, <Name.Property>.
+                const BYTE next = bytes[start + length];
+                if (!match || !next || !strchr(" \t\r\n>/.", next)) continue;
+                if (!changed) adapted.assign(bytes, bytes + size);
+                changed = true;
+                for (size_t k = 0; k < length; ++k) adapted[start + k] = static_cast<BYTE>(standIn.alias[k]);
+            }
+        }
+        if (!changed) adapted.clear();
+        return changed ? S_OK : S_FALSE;
+    } catch (const std::bad_alloc&) {
+        adapted.clear();
+        return E_OUTOFMEMORY;
+    }
+}
 }

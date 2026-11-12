@@ -23,22 +23,29 @@ std::wstring PackageNtDirectory() {
     while (!path.empty() && path.back() == L'\\') path.pop_back();
     return path;
 }
-bool PackageView(const void* view, size_t size) {
+// The size of the package file with this extension that the view maps, or 0.
+size_t PackageViewSize(const void* view, const wchar_t* extension) {
     static const auto directory = PackageNtDirectory();
-    if (directory.empty()) return false;
+    if (directory.empty()) return 0;
     std::wstring path(32768, L'\0');
     const auto length =
         GetMappedFileNameW(GetCurrentProcess(), const_cast<void*>(view), path.data(), static_cast<DWORD>(path.size()));
-    if (!length || length >= path.size()) return false;
+    if (!length || length >= path.size()) return 0;
     path.resize(length);
     if (path.size() <= directory.size() || _wcsnicmp(path.c_str(), directory.c_str(), directory.size()) != 0 ||
         path[directory.size()] != L'\\')
-        return false;
-    if (path.size() < 4 || _wcsicmp(path.c_str() + path.size() - 4, L".xbf") != 0) return false;
+        return 0;
+    const size_t suffix = wcslen(extension);
+    if (path.size() < suffix || _wcsicmp(path.c_str() + path.size() - suffix, extension) != 0) return 0;
     WIN32_FILE_ATTRIBUTE_DATA attributes{};
     const auto absolute = L"\\\\?\\GLOBALROOT" + path;
-    if (!GetFileAttributesExW(absolute.c_str(), GetFileExInfoStandard, &attributes)) return false;
-    return attributes.nFileSizeHigh == 0 && attributes.nFileSizeLow == size;
+    if (!GetFileAttributesExW(absolute.c_str(), GetFileExInfoStandard, &attributes)) return 0;
+    return attributes.nFileSizeHigh ? 0 : attributes.nFileSizeLow;
+}
+// Windows 8.0 packages ship source XAML; Windows parses it from the mapped file.
+bool SourceXamlView(const void* view, const MEMORY_BASIC_INFORMATION& region, SIZE_T count, size_t& size) {
+    size = PackageViewSize(view, L".xaml");
+    return size && size <= region.RegionSize && size <= 64 * 1024 * 1024 && (!count || count == size);
 }
 LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T count) noexcept {
     void* original = realMap(mapping, access, high, low, count);
@@ -57,15 +64,19 @@ LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T co
         }
         memcpy(header, original, sizeof(header));
         const UINT64 size = 12ull + header[1] + header[2];
-        if (header[0] != 0x00464258 || size > region.RegionSize || size > 64 * 1024 * 1024 ||
-            (count && size != count) || !PackageView(original, static_cast<size_t>(size))) {
+        const bool xbf = header[0] == 0x00464258 && size <= region.RegionSize && size <= 64 * 1024 * 1024 &&
+                         (!count || size == count) && PackageViewSize(original, L".xbf") == size;
+        size_t sourceSize = 0;
+        if (!xbf && !SourceXamlView(original, region, count, sourceSize)) {
             SetLastError(error);
             return original;
         }
         std::vector<BYTE> adapted;
-        const auto hr = RemapXbfStandIns(static_cast<const BYTE*>(original), static_cast<size_t>(size), adapted);
+        const auto* bytes = static_cast<const BYTE*>(original);
+        const auto hr = xbf ? RemapXbfStandIns(bytes, static_cast<size_t>(size), adapted)
+                            : RemapSourceXamlStandIns(bytes, sourceSize, adapted);
         if (hr != S_OK) {
-            if (FAILED(hr)) Log("FAIL", "XBF stand-in adaptation failed hr=%08lx", hr);
+            if (FAILED(hr)) Log("FAIL", "%s stand-in adaptation failed hr=%08lx", xbf ? "XBF" : "XAML", hr);
             SetLastError(error);
             return original;
         }
@@ -86,7 +97,7 @@ LPVOID WINAPI Map(HANDLE mapping, DWORD access, DWORD high, DWORD low, SIZE_T co
             return original;
         }
         UnmapViewOfFile(original);
-        Log("TRACE", "XBF stand-in metadata adapted in memory (%zu bytes)", adapted.size());
+        Log("TRACE", "%s stand-in metadata adapted in memory (%zu bytes)", xbf ? "XBF" : "XAML", adapted.size());
         SetLastError(error);
         return view;
     } catch (...) {
