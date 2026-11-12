@@ -48,7 +48,7 @@ MIDL_INTERFACE("90f1a06c-7712-4762-86b5-7a5eba6bdb02") ICLRRuntimeHost : IUnknow
     virtual HRESULT STDMETHODCALLTYPE Unused6() = 0;
     virtual HRESULT STDMETHODCALLTYPE Unused7() = 0;
     virtual HRESULT STDMETHODCALLTYPE ExecuteInDefaultAppDomain(LPCWSTR assembly, LPCWSTR type, LPCWSTR method,
-                                                                LPCWSTR argument, DWORD* result) = 0;
+                                                                LPCWSTR argument, LPDWORD result) = 0;
 };
 std::atomic<bool> hosted{false};
 
