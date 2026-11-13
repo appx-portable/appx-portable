@@ -46,6 +46,14 @@ class ComponentTest
         engine.remove_Changed(token);
         try { engine.Fail(); throw new Exception("native error lost"); }
         catch (ArgumentException) { }
+        // Non-blittable structs are declared with their metadata fields; members passing them by value are named stubs.
+        var form = new Form { Word = "đá 💎", Primary = true, Rank = -3 };
+        Require(form.Word == "đá 💎" && form.Primary && form.Rank == -3, "struct string, boolean and scalar fields");
+        try { engine.GetForm("word"); throw new Exception("struct-returning stub returned"); }
+        catch (NotImplementedException ex) { Require(ex.Message.Contains("Example.Component.Engine.GetForm"), "struct method stub names itself"); }
+        // Stubs keep the accessor a game's IL calls, not the C# property.
+        try { form = engine.get_LastForm(); throw new Exception("struct-typed property stub returned"); }
+        catch (NotImplementedException ex) { Require(ex.Message.Contains("Example.Component.Engine.get_LastForm"), "struct property stub names itself"); }
         Console.WriteLine("PASS: generic component ABI");
         return 0;
     }
