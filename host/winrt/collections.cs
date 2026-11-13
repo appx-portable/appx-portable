@@ -5,6 +5,36 @@ using System.Runtime.InteropServices;
 
 namespace AppxPortable.WinRT
 {
+    // A native IVector<String> or IVectorView<String> argument to a managed callee,
+    // copied when the call arrives: later changes on either side are not shared.
+    internal static class NativeStrings
+    {
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int GetAtCall(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int SizeCall(IntPtr self, out uint value);
+
+        // GetAt is slot 6 and get_Size slot 7 in both interfaces.
+        internal static IList<string> Copy(IntPtr vector)
+        {
+            if (vector == IntPtr.Zero) return null;
+            using (NativeObject value = NativeObject.Borrow(vector))
+            using (var access = new NativeObject.Access(value))
+            {
+                uint count;
+                Errors.Check(access.Method<SizeCall>(7)(access.Self, out count));
+                var items = new List<string>(checked((int)count));
+                var getAt = access.Method<GetAtCall>(6);
+                for (uint index = 0; index < count; ++index)
+                {
+                    IntPtr text;
+                    items.Add(NativeString.TakeResult(getAt(access.Self, index, out text), text));
+                }
+                return items;
+            }
+        }
+    }
+
     // Closed native object-vector IIDs and SDK slots are emitted from WinMD.
     internal sealed class ObjectVectorAbi
     {

@@ -218,6 +218,26 @@ namespace AppxPortable.WinRT
             return native == null ? null : ManagedObject.ComposedArgument(value, iid) ?? native.QueryInterface(iid);
         }
 
+        // A package-component interface argument: a native object as Argument passes
+        // it, or a managed implementation exposed through the component's generated
+        // interfaces. Native references keep the managed object alive.
+        internal static NativeObject Implemented(object value, Guid iid, NativeInterface[] contracts)
+        {
+            bool native = value == null || value is INativeWrapper;
+#if APPX_PORTABLE_INTEROP
+            native = native || value is Interop.INativeObject;
+#endif
+            if (native) return Argument(value, iid);
+            if (Array.FindIndex(contracts, c => c.Iid == iid) < 0)
+                throw new NotSupportedException("Managed " + value.GetType().FullName + " cannot be passed to native code as " + iid);
+            ManagedObject managed = ManagedObject.For(value, contracts);
+            using (NativeObject identity = Borrow(managed.Pointer))
+            {
+                GC.KeepAlive(managed);
+                return identity.QueryInterface(iid);
+            }
+        }
+
 #if APPX_PORTABLE_INTEROP
         internal static NativeObject FromLease(SafeHandle borrowed)
         {
@@ -437,6 +457,15 @@ namespace AppxPortable.WinRT
         private GCHandle pin;
         internal uint Length { get; private set; }
         internal IntPtr Pointer { get; private set; }
+        // A native caller's input byte array, copied: the managed callee may keep it.
+        internal static byte[] Copy(uint length, IntPtr data)
+        {
+            var value = new byte[length];
+            if (length == 0) return value;
+            if (data == IntPtr.Zero) throw new ArgumentNullException("data");
+            Marshal.Copy(data, value, 0, checked((int)length));
+            return value;
+        }
         internal PinnedBytes(byte[] value)
         {
             Length = value == null ? 0 : checked((uint)value.Length);

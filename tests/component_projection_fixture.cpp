@@ -155,6 +155,127 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Create(HSTRING name, IGauge** value) override { return Make<Gauge>(name).CopyTo(value); }
 };
+// IVector<HSTRING>, as a C++/CX Platform::Collections::Vector<String^> passes it.
+MIDL_INTERFACE("98b9acc1-4b56-532e-ac73-03d5291cca90") IStringVector : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE GetAt(UINT32, HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Size(UINT32*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetView(IInspectable**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE IndexOf(HSTRING, UINT32*, BOOLEAN*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetAt(UINT32, HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE InsertAt(UINT32, HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE RemoveAt(UINT32) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Append(HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE RemoveAtEnd() = 0;
+    virtual HRESULT STDMETHODCALLTYPE Clear() = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetMany(UINT32, UINT32, HSTRING*, UINT32*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReplaceAll(UINT32, HSTRING*) = 0;
+};
+class StringVector final : public RuntimeClass<RuntimeClassFlags<WinRt>, IStringVector> {
+    InspectableClass(L"Windows.Foundation.Collections.IVector`1<String>", BaseTrust);
+    std::vector<HString> items_;
+
+public:
+    StringVector(std::initializer_list<const wchar_t*> items) {
+        for (auto item : items) {
+            items_.emplace_back();
+            items_.back().Set(item);
+        }
+    }
+    HRESULT STDMETHODCALLTYPE GetAt(UINT32 index, HSTRING* value) override {
+        if (index >= items_.size()) return E_BOUNDS;
+        return items_[index].CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE get_Size(UINT32* value) override {
+        *value = static_cast<UINT32>(items_.size());
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetView(IInspectable**) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE IndexOf(HSTRING, UINT32*, BOOLEAN*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetAt(UINT32, HSTRING) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE InsertAt(UINT32, HSTRING) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE RemoveAt(UINT32) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Append(HSTRING) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE RemoveAtEnd() override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Clear() override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetMany(UINT32, UINT32, HSTRING*, UINT32*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE ReplaceAll(UINT32, HSTRING*) override { return E_NOTIMPL; }
+};
+// Implemented in managed code by the consumer, like EngineWrapper.IArticleRenderer.
+MIDL_INTERFACE("6a1d3f52-7c0e-4b8a-9f21-5e4d3c2b1a09") IRenderer : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE Begin(BYTE, INT32, HSTRING) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Words(IStringVector*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Unsupported(IChanged*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Scale(UINT32, DOUBLE, DOUBLE*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Result(HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Sum(UINT32, const BYTE*, UINT32*) = 0;
+};
+MIDL_INTERFACE("0f3b8d27-4e61-4c9a-b5d2-7a8e9c1f2d36") IPrinter : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE Render(IRenderer*, HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Keep(IRenderer*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE RenderKept(HSTRING*) = 0;
+};
+// Windows.Foundation.IClosable, declared here like the other independent contracts.
+MIDL_INTERFACE("30d5a829-7fa4-4026-83bb-d75bae4ea99e") IPrinterClosable : IInspectable {
+    virtual HRESULT STDMETHODCALLTYPE Close() = 0;
+};
+class Printer final : public RuntimeClass<RuntimeClassFlags<WinRt>, IPrinter, IPrinterClosable> {
+    InspectableClass(L"Example.Component.Printer", BaseTrust);
+    ComPtr<IRenderer> kept_;
+    bool closed_ = false;
+
+public:
+    HRESULT STDMETHODCALLTYPE Close() override {
+        closed_ = true;
+        kept_.Reset();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Render(IRenderer* value, HSTRING* result) override {
+        *result = nullptr;
+        // Validate the independently declared IID rather than accepting a layout cast.
+        ComPtr<IRenderer> renderer;
+        if (!value) return E_POINTER;
+        auto hr = value->QueryInterface(IID_PPV_ARGS(&renderer));
+        if (FAILED(hr)) return hr;
+        static const wchar_t label[] = L"đá\0\xD83D\xDC8E";
+        HString text;
+        hr = text.Set(label, ARRAYSIZE(label) - 1);
+        if (SUCCEEDED(hr)) hr = renderer->Begin(1, -42, text.Get());
+        if (SUCCEEDED(hr)) hr = renderer->Words(Make<StringVector>(std::initializer_list<const wchar_t*>{L"alpha", L"βeta"}).Get());
+        if (FAILED(hr)) return hr;
+        // An argument the projection cannot convert answers E_NOTIMPL without shifting later slots.
+        if (renderer->Unsupported(nullptr) != E_NOTIMPL) return E_UNEXPECTED;
+        DOUBLE scaled = 0;
+        if (renderer->Scale(0, 1.5, &scaled) != E_INVALIDARG) return E_UNEXPECTED;
+        hr = renderer->Scale(3, 1.5, &scaled);
+        if (FAILED(hr)) return hr;
+        if (scaled != 4.5) return E_UNEXPECTED;
+        static const BYTE bytes[] = {1, 2, 250};
+        UINT32 sum = 0;
+        hr = renderer->Sum(ARRAYSIZE(bytes), bytes, &sum);
+        if (FAILED(hr)) return hr;
+        if (sum != 253) return E_UNEXPECTED;
+        return renderer->Result(result);
+    }
+    HRESULT STDMETHODCALLTYPE Keep(IRenderer* value) override {
+        kept_.Reset();
+        return value ? value->QueryInterface(IID_PPV_ARGS(&kept_)) : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE RenderKept(HSTRING* result) override {
+        *result = nullptr;
+        if (closed_) return RO_E_CLOSED;
+        if (!kept_) return E_ILLEGAL_METHOD_CALL;
+        HString text;
+        auto hr = text.Set(L"kept");
+        if (SUCCEEDED(hr)) hr = kept_->Begin(0, 7, text.Get());
+        return FAILED(hr) ? hr : kept_->Result(result);
+    }
+};
+class PrinterFactory final : public ActivationFactory<Implements<IActivationFactory>> {
+public:
+    HRESULT STDMETHODCALLTYPE ActivateInstance(IInspectable** value) noexcept override {
+        return Make<Printer>().CopyTo(value);
+    }
+};
 // call goes through a dependency the component, not the game, loaded.
 extern "C" HRESULT __cdecl ReportComponentFailure();
 class EngineFactory final : public ActivationFactory<Implements<IActivationFactory>> {
@@ -170,6 +291,8 @@ extern "C" HRESULT WINAPI DllGetActivationFactory(HSTRING name, IActivationFacto
         return Make<NodeFactory>().CopyTo(factory);
     if (wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"Example.Component.Gauge") == 0)
         return Make<GaugeFactory>().CopyTo(factory);
+    if (wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"Example.Component.Printer") == 0)
+        return Make<PrinterFactory>().CopyTo(factory);
     if (wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"Example.Component.Engine") != 0)
         return CLASS_E_CLASSNOTAVAILABLE;
     return Make<EngineFactory>().CopyTo(factory);

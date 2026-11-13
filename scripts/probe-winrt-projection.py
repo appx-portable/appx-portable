@@ -775,7 +775,7 @@ def main():
             host = compile_file("appx-host.exe", [repo / "host/managed.cs", repo / "host/projections.cs"], ["/nowarn:0219", "/r:" + windows(references / "System.Windows.Forms.dll")])
             folder = fixture("component-game", consumer.name, "ComponentProjectionTest", "CN=projection")
             manifest = folder / "AppxManifest.xml"
-            text = manifest.read_text().replace("</Applications>", '</Applications><Extensions><Extension Category="windows.activatableClass.inProcessServer"><InProcessServer><Path>Example.Component.dll</Path><ActivatableClass ActivatableClassId="Example.Component.Engine" ThreadingModel="both"/><ActivatableClass ActivatableClassId="Example.Component.Gauge" ThreadingModel="both"/></InProcessServer></Extension></Extensions>')
+            text = manifest.read_text().replace("</Applications>", '</Applications><Extensions><Extension Category="windows.activatableClass.inProcessServer"><InProcessServer><Path>Example.Component.dll</Path><ActivatableClass ActivatableClassId="Example.Component.Engine" ThreadingModel="both"/><ActivatableClass ActivatableClassId="Example.Component.Gauge" ThreadingModel="both"/><ActivatableClass ActivatableClassId="Example.Component.Printer" ThreadingModel="both"/></InProcessServer></Extension></Extensions>')
             manifest.write_text(text)
             copy_owned_file(output / "component-winrt.exe", folder / consumer.name)
             copy_owned_file(host, folder / host.name)

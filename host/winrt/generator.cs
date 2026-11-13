@@ -109,6 +109,9 @@ internal static partial class WinrtProjectionGenerator
     private static string Argument(TypeReference type, string value)
     {
         if (type.FullName == "Windows.Foundation.Uri") return Wrapper(type) + ".ToNative(" + value + ")";
+        if (lenient && implementable.Contains(type.FullName))
+            return Runtime + "NativeObject.Implemented(" + value + ", " + ArgumentIid(type) +
+                ", global::AppxPortable.WinRT.Projected.ComponentInterfaces.Of(" + value + "))";
         RejectWpf(type, "a native argument");
         return Runtime + "NativeObject.Argument(" + value + ", " + ArgumentIid(type) + ")";
     }
@@ -1485,8 +1488,11 @@ namespace AppxPortable.WinRT.Projected
         output.AppendLine("    public interface " + type.Name);
         output.AppendLine("    {");
         foreach (string name in members) output.AppendLine("        " + Name(Getter(type, name).GetMethod.ReturnType) + " " + name + " { get; " + (Getter(type, name).SetMethod != null ? "set; " : "") + "}");
+        // A package component's interface is declared whole, as consumers implement it,
+        // even where a member's call cannot be projected yet.
         foreach (MethodDefinition method in methods)
-            output.AppendLine("        " + Name(method.ReturnType) + " " + method.Name + "(" + string.Join(", ", method.Parameters.Select(p => Name(p.ParameterType) + " @" + p.Name)) + ");");
+            output.AppendLine("        " + (lenient ? DeclaredSignature(method)
+                : Name(method.ReturnType) + " " + method.Name + "(" + string.Join(", ", method.Parameters.Select(p => Name(p.ParameterType) + " @" + p.Name)) + ")") + ";");
         output.AppendLine("    }");
         output.AppendLine("}");
         output.AppendLine("namespace AppxPortable.WinRT.Projected");
@@ -1502,15 +1508,182 @@ namespace AppxPortable.WinRT.Projected
         output.AppendLine("        {");
         output.AppendLine("            return " + Runtime + "NativeObject.Wrap<global::" + type.FullName + ">(value, " + Guid(type) + ", v =>");
         output.AppendLine("            {");
-        output.AppendLine("                string name = v.RuntimeClassName();");
-        foreach (TypeDefinition implementer in classes.Where(c => c.Interfaces.Any(i => i.InterfaceType.FullName == type.FullName)))
+        var implementers = classes.Where(c => c.Interfaces.Any(i => i.InterfaceType.FullName == type.FullName)).ToList();
+        if (implementers.Count != 0) output.AppendLine("                string name = v.RuntimeClassName();");
+        foreach (TypeDefinition implementer in implementers)
             output.AppendLine("                if (name == \"" + implementer.FullName + "\") return global::" + implementer.FullName + ".Create(v);");
         output.AppendLine("                return new " + wrapper + "(v);");
         output.AppendLine("            });");
         output.AppendLine("        }");
         foreach (string name in members) InterfaceProperty(output, type, name, false);
-        foreach (MethodDefinition method in methods) MethodOverload(output, type, method, false, false);
+        var methodSurfaces = surface.ChildNodes.OfType<XmlElement>().Where(m => m.Name == "Method").ToList();
+        for (int index = 0; index < methods.Count; ++index)
+        {
+            MethodDefinition method = methods[index];
+            if (lenient) Member(output, type, methodSurfaces[index], b => MethodOverload(b, type, method, false, false));
+            else MethodOverload(output, type, method, false, false);
+        }
+        if (lenient) Implementation(output, type, members);
         output.AppendLine("    }");
+    }
+
+    // Managed implementations of a package component's interface, as native code calls
+    // them: one thunk per vtable slot. A member whose arguments or result cannot be
+    // converted answers E_NOTIMPL with its name, keeping the slots after it in place.
+    private static void Implementation(StringBuilder output, TypeDefinition iface, List<string> members)
+    {
+        var body = new StringBuilder();
+        var thunks = new List<string>();
+        try
+        {
+            foreach (MethodDefinition method in iface.Methods) thunks.Add(Thunk(body, iface, method, members, thunks.Count));
+        }
+        catch (Exception error)
+        {
+            if (!(error is NotSupportedException || error is InvalidDataException)) throw;
+            Console.Error.WriteLine("Not implementable in managed code " + iface.FullName + ": " + error.Message);
+            output.AppendLine("        internal static readonly " + Runtime + "NativeInterface Implementation = null;");
+            return;
+        }
+        output.Append(body);
+        output.AppendLine("        internal static readonly " + Runtime + "NativeInterface Implementation = new " + Runtime + "NativeInterface(" +
+            Guid(iface) + ", true" + string.Concat(thunks.Select(t => ", " + t)) + ");");
+    }
+
+    private static string Thunk(StringBuilder output, TypeDefinition iface, MethodDefinition method, List<string> members, int index)
+    {
+        var abi = new List<string>();
+        var names = new List<string>();
+        var arguments = new List<string>();
+        string unsupported = null;
+        foreach (ParameterDefinition parameter in method.Parameters)
+            CallbackParameter(parameter, "a" + Literal(parameter.Index), abi, names, arguments, ref unsupported);
+        string target = "((global::" + iface.FullName + ")target)";
+        string call = null;
+        if (method.IsGetter || method.IsSetter)
+        {
+            string property = method.Name.Substring(4);
+            if (!members.Contains(property)) unsupported = unsupported ?? "undeclared property";
+            else call = target + "." + property + (method.IsGetter ? "" : " = " + arguments[0]);
+        }
+        else if (method.IsAddOn || method.IsRemoveOn) unsupported = unsupported ?? "event accessor";
+        else call = target + "." + method.Name + "(" + string.Join(", ", arguments) + ")";
+        string write = null;
+        if (method.ReturnType.FullName != "System.Void")
+        {
+            // A result is written through its out pointer; a receive array has a length pointer first.
+            if (method.ReturnType is ArrayType) { abi.Add("global::System.IntPtr"); names.Add("resultLength"); }
+            abi.Add("global::System.IntPtr"); names.Add("result");
+            if (unsupported == null && (write = ResultWriter(method.ReturnType, call)) == null) unsupported = "result " + method.ReturnType.FullName;
+        }
+        string member = iface.FullName + "." + method.Name;
+        string thunk = "on" + Literal(index);
+        output.AppendLine("        // " + iface.FullName + "::" + method.Name + ", slot " + Literal(6 + index));
+        output.AppendLine("        " + StdCall);
+        output.AppendLine("        private delegate int Call" + Literal(index) + "(global::System.IntPtr self" +
+            string.Concat(abi.Select((type, n) => ", " + type + " " + names[n])) + ");");
+        output.AppendLine("        private static readonly Call" + Literal(index) + " " + thunk + " = (self" + string.Concat(names.Select(n => ", " + n)) + ") =>");
+        if (unsupported != null)
+        {
+            Console.Error.WriteLine("Unimplemented callback " + member + ": " + unsupported);
+            output.AppendLine("            " + Runtime + "ManagedObject.Call(self, target => { throw " + Runtime + "Errors.Unimplemented(\"" + member + "\"); });");
+        }
+        else if (write == null) output.AppendLine("            " + Runtime + "ManagedObject.Call(self, target => " + call + ");");
+        else output.AppendLine("            result == global::System.IntPtr.Zero ? unchecked((int)0x80004003) : " + Runtime + "ManagedObject.Call(self, target => { " + write + " });");
+        return thunk;
+    }
+
+    // One native argument of a callback: its ABI parameters and the managed value it becomes.
+    // An argument with no conversion keeps its ABI and marks the member unsupported; a
+    // by-value struct of unknown layout makes the whole interface unimplementable.
+    private static void CallbackParameter(ParameterDefinition parameter, string name, List<string> abi, List<string> names, List<string> arguments, ref string unsupported)
+    {
+        TypeReference type = parameter.ParameterType;
+        string full = type.FullName, pointer = "global::System.IntPtr", converted = null, abiType = pointer;
+        if (type.IsByReference || (parameter.IsOut && !(type is ArrayType)))
+        {
+            if ((type.IsByReference ? ((ByReferenceType)type).ElementType : type) is ArrayType) { abi.Add(pointer); names.Add(name + "Length"); }
+        }
+        else if (type is ArrayType)
+        {
+            var array = (ArrayType)type;
+            abi.Add("uint"); names.Add(name + "Length");
+            if (!parameter.IsOut && array.IsVector && array.ElementType.FullName == "System.Byte")
+                converted = Runtime + "PinnedBytes.Copy(" + name + "Length, " + name + ")";
+        }
+        else if (full == "System.Boolean") { abiType = "byte"; converted = name + " != 0"; }
+        else if (full == "System.Char") { abiType = "ushort"; converted = "(char)" + name; }
+        else if (Scalar(type) != null) { abiType = Scalar(type); converted = name; }
+        else if (full == "System.String") converted = Runtime + "NativeString.Read(" + name + ")";
+        else if (full == "System.Object") converted = Unwrap(type, name);
+        else if (full == DateTimeName) { abiType = "long"; converted = "global::System.DateTimeOffset.FromFileTime(" + name + ")"; }
+        else if (full == "Windows.Foundation.TimeSpan") { abiType = "long"; converted = "new global::System.TimeSpan(" + name + ")"; }
+        else if (type is GenericInstanceType)
+        {
+            var generic = (GenericInstanceType)type;
+            string element = generic.ElementType.FullName;
+            if ((element == VectorName || element == "Windows.Foundation.Collections.IVectorView`1") && generic.GenericArguments[0].FullName == "System.String")
+                converted = Runtime + "NativeStrings.Copy(" + name + ")";
+        }
+        else if (Available(full) && Find(full).IsEnum)
+        {
+            string width = Find(full).Fields.Single(f => f.Name == "value__").FieldType.FullName;
+            if (width != "System.Int32" && width != "System.UInt32") throw new NotSupportedException("Unsupported enum ABI: " + full);
+            abiType = width == "System.Int32" ? "int" : "uint";
+            converted = "unchecked((" + Name(type) + ")" + name + ")";
+        }
+        else if (type.IsValueType) throw new NotSupportedException("Unknown callback argument ABI: " + full + " " + parameter.Name);
+        else if (Available(full) && !IsDelegate(Find(full))) converted = Unwrap(type, name);
+        abi.Add(abiType); names.Add(name);
+        if (converted == null) unsupported = unsupported ?? "argument " + parameter.Name + " " + full;
+        arguments.Add(converted);
+    }
+
+    // Writes a callback's managed result through its out pointer, or null for no conversion.
+    private static string ResultWriter(TypeReference type, string call)
+    {
+        const string marshal = "global::System.Runtime.InteropServices.Marshal.";
+        switch (type.FullName)
+        {
+            case "System.Boolean": return marshal + "WriteByte(result, " + call + " ? (byte)1 : (byte)0);";
+            case "System.Byte": return marshal + "WriteByte(result, " + call + ");";
+            case "System.SByte": return marshal + "WriteByte(result, unchecked((byte)" + call + "));";
+            case "System.Int16":
+            case "System.UInt16":
+            case "System.Char": return marshal + "WriteInt16(result, unchecked((short)" + call + "));";
+            case "System.Int32":
+            case "System.UInt32": return marshal + "WriteInt32(result, unchecked((int)" + call + "));";
+            case "System.Int64":
+            case "System.UInt64": return marshal + "WriteInt64(result, unchecked((long)" + call + "));";
+            case "System.Double": return marshal + "WriteInt64(result, global::System.BitConverter.DoubleToInt64Bits(" + call + "));";
+            case "System.Single":
+                return marshal + "WriteInt32(result, global::System.BitConverter.ToInt32(global::System.BitConverter.GetBytes(" + call + "), 0));";
+            case "System.String": return "using (var text = new " + Runtime + "NativeString(" + call + ")) " + marshal + "WriteIntPtr(result, text.Detach());";
+        }
+        if (Available(type.FullName) && Find(type.FullName).IsEnum) return marshal + "WriteInt32(result, unchecked((int)" + call + "));";
+        return null;
+    }
+
+    // Each package component interface's managed implementations, for the objects passed as one.
+    private static void ComponentInterfaces(StringBuilder output)
+    {
+        if (implementable.Count == 0) return;
+        output.AppendLine("namespace AppxPortable.WinRT.Projected");
+        output.AppendLine("{");
+        output.AppendLine("    internal static class ComponentInterfaces");
+        output.AppendLine("    {");
+        output.AppendLine("        internal static " + Runtime + "NativeInterface[] Of(object target)");
+        output.AppendLine("        {");
+        output.AppendLine("            var all = new global::System.Collections.Generic.List<" + Runtime + "NativeInterface>();");
+        foreach (string name in implementable.OrderBy(n => n, StringComparer.Ordinal))
+        {
+            string projected = Projected(Find(name));
+            output.AppendLine("            if (target is global::" + name + " && " + projected + ".Implementation != null) all.Add(" + projected + ".Implementation);");
+        }
+        output.AppendLine("            return all.ToArray();");
+        output.AppendLine("        }");
+        output.AppendLine("    }");
+        output.AppendLine("}");
     }
 
     private static TypeDefinition BaseClass(TypeDefinition type)
@@ -1544,6 +1717,8 @@ namespace AppxPortable.WinRT.Projected
     // exact signature that names itself and throws, as the completed Windows.dll's
     // do, so one unsupported member does not cost the game the whole component.
     private static bool lenient;
+    // Package component interfaces, which managed code may implement and pass to native code.
+    private static readonly HashSet<string> implementable = new HashSet<string>(StringComparer.Ordinal);
 
     private static void Member(StringBuilder output, TypeDefinition type, XmlElement member, Action<StringBuilder> emit, MethodDefinition constructor = null)
     {
@@ -1562,15 +1737,24 @@ namespace AppxPortable.WinRT.Projected
         }
     }
 
+    // A member's signature as consumers compiled against WinMD see it.
+    private static string DeclaredParameters(MethodDefinition method)
+    {
+        return string.Join(", ", method.Parameters.Select(p => (p.ParameterType.IsByReference
+            ? (p.IsOut ? "out " : "ref ") + StubName(((ByReferenceType)p.ParameterType).ElementType) : StubName(p.ParameterType)) + " @" + p.Name));
+    }
+    private static string DeclaredSignature(MethodDefinition method)
+    {
+        return (method.ReturnType.FullName == "System.Void" ? "void" : StubName(method.ReturnType)) + " " + method.Name + "(" + DeclaredParameters(method) + ")";
+    }
+
     private static void Stub(StringBuilder output, TypeDefinition type, MethodDefinition method)
     {
         string signature;
         try
         {
-            string parameters = string.Join(", ", method.Parameters.Select(p => (p.ParameterType.IsByReference
-                ? (p.IsOut ? "out " : "ref ") + StubName(((ByReferenceType)p.ParameterType).ElementType) : StubName(p.ParameterType)) + " @" + p.Name));
-            signature = method.IsConstructor ? type.Name + "(" + parameters + ")"
-                : (method.IsStatic ? "static " : "") + (method.ReturnType.FullName == "System.Void" ? "void" : StubName(method.ReturnType)) + " " + method.Name + "(" + parameters + ")";
+            signature = method.IsConstructor ? type.Name + "(" + DeclaredParameters(method) + ")"
+                : (method.IsStatic ? "static " : "") + DeclaredSignature(method);
         }
         catch (Exception error)
         {
@@ -1625,9 +1809,14 @@ namespace AppxPortable.WinRT.Projected
     }
 
     private const string ClosableName = "Windows.Foundation.IClosable";
+    // Package components are generated without SDK metadata; IClosable's ABI is fixed
+    // (windows.foundation.h): this IID, with Close as its only method, at slot 6.
+    private const string ClosableIid = "30d5a829-7fa4-4026-83bb-d75bae4ea99e";
+    private static bool ClosableFromSdk { get { return !lenient || types.ContainsKey(ClosableName); } }
     private static bool Closable(TypeDefinition type)
     {
         if (!type.Interfaces.Any(i => i.InterfaceType.FullName == ClosableName)) return false;
+        if (!ClosableFromSdk) return true;
         TypeDefinition closable = Find(ClosableName);
         if (!closable.Methods.Select(m => m.Name).SequenceEqual(new[] { "Close" }) || closable.Methods[0].Parameters.Count != 0 ||
             closable.Methods[0].ReturnType.FullName != "System.Void")
@@ -1637,13 +1826,20 @@ namespace AppxPortable.WinRT.Projected
     // The CLR projects IClosable.Close as IDisposable.Dispose.
     private static void Dispose(StringBuilder output)
     {
-        TypeDefinition closable = Find(ClosableName);
-        output.AppendLine("        // " + ClosableName + "::Close, slot " + Literal(Slot(closable, closable.Methods[0])));
+        string iid = "new global::System.Guid(\"" + ClosableIid + "\")";
+        int slot = 6;
+        if (ClosableFromSdk)
+        {
+            TypeDefinition closable = Find(ClosableName);
+            iid = Guid(closable);
+            slot = Slot(closable, closable.Methods[0]);
+        }
+        output.AppendLine("        // " + ClosableName + "::Close, slot " + Literal(slot));
         output.AppendLine("        public void Dispose()");
         output.AppendLine("        {");
         output.AppendLine("            using (var invocation = " + Runtime + "Errors.Begin())");
-        output.AppendLine("            using (var self = native.QueryInterface(" + Guid(closable) + "))");
-        output.AppendLine("                self.Call(" + Literal(Slot(closable, closable.Methods[0])) + ");");
+        output.AppendLine("            using (var self = native.QueryInterface(" + iid + "))");
+        output.AppendLine("                self.Call(" + Literal(slot) + ");");
         output.AppendLine("        }");
     }
     private static string ObjectMapAbi()
@@ -1970,6 +2166,7 @@ namespace AppxPortable.WinRT.Projected
                     throw new NotSupportedException("Unsupported surface kind: " + element.Name);
                 if (!selected.Add(element.GetAttribute("Name"))) throw new InvalidDataException("Duplicate selected type");
                 if (element.Name == "Interface" && element.GetAttribute("Adapter") != "Wpf") interfaces.Add(element.GetAttribute("Name"), element);
+                if (component && element.Name == "Interface" && !element.HasAttribute("Adapter")) implementable.Add(element.GetAttribute("Name"));
                 if (element.GetAttribute("Adapter") == "Wpf") wpfTypes.Add(element.GetAttribute("Name"));
                 else if (element.Name == "Class") {
                     classes.Add(Find(element.GetAttribute("Name")));
@@ -2049,6 +2246,7 @@ namespace AppxPortable.WinRT.Projected
                 output.AppendLine("}");
             }
             ManagedContracts(output);
+            ComponentInterfaces(output);
             WpfRegistry(output);
             if (interop) Provider(output);
             File.WriteAllText(args[2], output.ToString(), new UTF8Encoding(false));
