@@ -5,6 +5,7 @@
 #include <xmllite.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <functional>
 #include <string_view>
 using Microsoft::WRL::ComPtr;
 namespace appx {
@@ -199,7 +200,79 @@ const std::wstring& PackageDisplayName() noexcept {
 }
 }
 namespace appx {
-bool PackageHasXaml(const std::filesystem::path& directory) {
+namespace {
+// The shim and its proxies sit beside the game and name XAML classes themselves.
+bool ShimModule(const std::wstring& name) {
+    for (const wchar_t* own :
+         {L"appxportable.dll", L"DWrite.dll", L"XAudio2_8.dll", L"XAudio2_9.dll", L"d3dcompiler_47.dll"})
+        if (_wcsicmp(name.c_str(), own) == 0) return true;
+    return false;
+}
+// Whether an image names Windows.UI.Xaml.Application, adding the DLLs it
+// imports from the game folder to pending. Mapped as a resource: nothing runs.
+bool NamesXamlApplication(const std::filesystem::path& file, std::vector<std::wstring>& pending) {
+    HMODULE handle = LoadLibraryExW(file.c_str(), nullptr, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+    if (!handle) return false;
+    struct Unload {
+        HMODULE handle;
+        ~Unload() { FreeLibrary(handle); }
+    } unload{handle};
+    const auto* base = reinterpret_cast<const BYTE*>(reinterpret_cast<ULONG_PTR>(handle) & ~ULONG_PTR{3});
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS32*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    const bool pe64 = nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+    const auto* nt64 = reinterpret_cast<const IMAGE_NT_HEADERS64*>(nt);
+    const DWORD imageSize = pe64 ? nt64->OptionalHeader.SizeOfImage : nt->OptionalHeader.SizeOfImage;
+    const IMAGE_DATA_DIRECTORY imports = pe64 ? nt64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
+                                              : nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    for (auto* entry = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + imports.VirtualAddress);
+         imports.VirtualAddress && reinterpret_cast<const BYTE*>(entry + 1) <= base + imageSize && entry->Name;
+         ++entry) {
+        if (entry->Name >= imageSize) break;
+        const auto* name = reinterpret_cast<const char*>(base + entry->Name);
+        const auto length = strnlen(name, imageSize - entry->Name);
+        pending.emplace_back(name, name + length);
+    }
+    constexpr std::wstring_view needle = L"Windows.UI.Xaml.Application";
+    const auto* bytes = reinterpret_cast<const BYTE*>(needle.data());
+    const std::boyer_moore_horspool_searcher search(bytes, bytes + needle.size() * sizeof(wchar_t));
+    const auto* section = IMAGE_FIRST_SECTION(nt);
+    for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
+        const DWORD start = section->VirtualAddress;
+        const DWORD size = (std::min)((std::max)(section->Misc.VirtualSize, section->SizeOfRawData),
+                                      start < imageSize ? imageSize - start : 0);
+        if (std::search(base + start, base + start + size, search) != base + start + size) return true;
+    }
+    return false;
+}
+// XAML built in code, as Asphalt 8's WCPToolkit.dll does, ships no XAML
+// files; the game's code still names the XAML Application class. Unity loads
+// its player without importing it, so its CoreWindow builds stay CoreWindow.
+bool CodeStartsXaml(const std::filesystem::path& executable) {
+    const auto directory = executable.parent_path();
+    std::vector<std::wstring> pending{executable.filename().wstring()}, seen;
+    while (!pending.empty()) {
+        const auto name = std::move(pending.back());
+        pending.pop_back();
+        if (ShimModule(name) || std::any_of(seen.begin(), seen.end(), [&](const std::wstring& known) {
+                return _wcsicmp(known.c_str(), name.c_str()) == 0;
+            }))
+            continue;
+        seen.push_back(name);
+        const auto file = directory / name;
+        if (GetFileAttributesW(file.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        if (NamesXamlApplication(file, pending)) {
+            Log("INFO", "XAML: %ls names Windows.UI.Xaml.Application", name.c_str());
+            return true;
+        }
+    }
+    return false;
+}
+}
+bool PackageHasXaml(const std::filesystem::path& executable) {
+    const auto directory = executable.parent_path();
     std::error_code error;
     std::filesystem::recursive_directory_iterator files(
         directory, std::filesystem::directory_options::skip_permission_denied, error),
@@ -210,12 +283,16 @@ bool PackageHasXaml(const std::filesystem::path& directory) {
     }
     HANDLE file = CreateFileW((directory / L"resources.pri").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    std::string data(GetFileSize(file, nullptr), '\0');
-    DWORD read = 0;
-    const bool loaded = !data.empty() && ReadFile(file, data.data(), static_cast<DWORD>(data.size()), &read, nullptr);
-    CloseHandle(file);
-    data.resize(loaded ? read : 0);
-    return data.find(".xbf") != std::string::npos || data.find(std::string(".\0x\0b\0f\0", 8)) != std::string::npos;
+    if (file != INVALID_HANDLE_VALUE) {
+        std::string data(GetFileSize(file, nullptr), '\0');
+        DWORD read = 0;
+        const bool loaded =
+            !data.empty() && ReadFile(file, data.data(), static_cast<DWORD>(data.size()), &read, nullptr);
+        CloseHandle(file);
+        data.resize(loaded ? read : 0);
+        if (data.find(".xbf") != std::string::npos || data.find(std::string(".\0x\0b\0f\0", 8)) != std::string::npos)
+            return true;
+    }
+    return CodeStartsXaml(executable);
 }
 }

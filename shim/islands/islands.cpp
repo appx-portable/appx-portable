@@ -21,7 +21,9 @@
 #include <thread>
 #include <vector>
 #include <map>
+#include <memory>
 #include <optional>
+#include <utility>
 #pragma comment(lib, "runtimeobject.lib")
 #pragma comment(lib, "user32.lib")
 using namespace Microsoft::WRL;
@@ -204,6 +206,7 @@ static ComPtr<ILaunchActivatedEventArgs> IslandLaunchArgs() {
     return launch;
 }
 // ---- fake Window.Current backed by the island ---------------------------------
+static void WatchFirstContent(IUIElement* content);
 class IslandWindow final : public RuntimeClass<RuntimeClassFlags<WinRt>, IWindow> {
     InspectableClass(L"Windows.UI.Xaml.Window", BaseTrust);
     EventSource<IWindowActivatedEventHandler> activated_;
@@ -260,6 +263,7 @@ public:
             hr = ApplyRootTheme(v);
             if (FAILED(hr)) return hr;
             themeApplied = true;
+            WatchFirstContent(v);
         }
         if (xamlSource)
             hr = xamlSource->put_Content(v);
@@ -309,6 +313,33 @@ public:
     }
 };
 static auto& currentWindow = Retained<IslandWindow>();
+// Windows raises a XAML view's first activation after its content has loaded.
+// Asphalt 8's Activated handler waits for its game thread, which waits for the
+// root's Loaded; raised earlier, neither can go on. Island UI thread only.
+static bool contentWatched = false, contentLoaded = false;
+static auto& afterContentLoaded = *new std::function<void()>;
+static void WatchFirstContent(IUIElement* content) {
+    if (contentWatched || !content) return;
+    ComPtr<IFrameworkElement> element;
+    if (FAILED(content->QueryInterface(IID_PPV_ARGS(&element)))) return;
+    auto token = std::make_shared<EventRegistrationToken>();
+    auto loaded = Callback<IRoutedEventHandler>([token](IInspectable* sender, IRoutedEventArgs*) -> HRESULT {
+        if (contentLoaded) return S_OK;
+        contentLoaded = true;
+        ComPtr<IFrameworkElement> self;
+        if (sender && SUCCEEDED(sender->QueryInterface(IID_PPV_ARGS(&self)))) self->remove_Loaded(*token);
+        appx::Log("TRACE", "STAGE loaded: Window.Current.Content");
+        // After the game's own Loaded handlers.
+        if (afterContentLoaded) PostHostWork(0, std::exchange(afterContentLoaded, nullptr));
+        return S_OK;
+    });
+    if (loaded && SUCCEEDED(element->add_Loaded(loaded.Get(), token.get()))) contentWatched = true;
+}
+bool DeferUntilIslandContentLoaded(std::function<void()> work) {
+    if (!contentWatched || contentLoaded) return false;
+    afterContentLoaded = std::move(work);
+    return true;
+}
 void IslandHostMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (currentWindow) currentWindow->OnMessage(message, wparam, lparam);
 }

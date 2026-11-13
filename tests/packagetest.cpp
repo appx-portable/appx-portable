@@ -93,6 +93,22 @@ int main() {
     info = appx::ReadPackage(root);
     CHECK(info.loaded && info.universal && info.architecture == L"x64");
 
+    // XAML built in code: no XAML files, but the executable or a DLL it
+    // imports from the game folder names Windows.UI.Xaml.Application. This
+    // test names it too (it links the detection), and cmd.exe does not.
+    const auto xaml = root / L"xaml";
+    std::filesystem::create_directories(xaml);
+    wchar_t system[MAX_PATH]{}, self[MAX_PATH]{};
+    GetSystemDirectoryW(system, MAX_PATH);
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    std::filesystem::copy_file(std::filesystem::path(system) / L"cmd.exe", xaml / L"Game.exe");
+    CHECK(!appx::PackageHasXaml(xaml / L"Game.exe"));
+    // cmd.exe imports ntdll.dll; a game DLL of that name is searched too.
+    std::filesystem::copy_file(self, xaml / L"ntdll.dll");
+    CHECK(appx::PackageHasXaml(xaml / L"Game.exe"));
+    std::filesystem::copy_file(self, xaml / L"Toolkit.exe");
+    CHECK(appx::PackageHasXaml(xaml / L"Toolkit.exe"));
+
     std::filesystem::remove_all(root);
     printf("packagetest: %d failure(s)\n", failures);
     return failures ? 1 : 0;

@@ -22,7 +22,7 @@ With this option:
 - Consumable fulfillment completes with `Succeeded`.
 - Store listings succeed. The shim discovers bundled XML catalogs by their `CurrentApp/ListingInformation/Product` structure, regardless of filename or location inside the package, and caches their product IDs for the run. License entries are ignored. Product names use their IDs and prices are placeholders (`0.00`), not Store prices. Packages without a catalog receive an empty listing, unless `StubIapProducts` names their products (see below).
 - Unfulfilled consumables are an empty list: stub purchases are fulfilled when the game reports them, or forgotten when it exits.
-- `NetworkInformation.GetInternetConnectionProfile` returns a synthetic profile reporting `InternetAccess`, allowing games' connectivity preflight checks to reach the purchase stub. It supports the Windows 8.1 profile interface and reports a wired connection, with no WLAN/WWAN details. The shim's HTTP clients remain offline.
+- The connection the game sees is not part of this option. Offline (the default), a game that checks for an internet connection before opening its store shows its own no-connection message. Set [`Network=1`](configuration.md#network) for such a game; purchases still complete locally.
 
 ## Games without a product catalog
 
@@ -109,7 +109,7 @@ save granted content itself.
 
 Base-app licensing is controlled separately by [`--unlock-trial`](trial-mode.md). `CurrentApp` app purchases and its separate receipt retrieval APIs still fail offline. Product entitlements reset when the process exits; the game must save its own granted content. The runtime does not persist entitlements or fabricate signed receipts, download missing content, or restore remote services.
 
-Use `--log` to record the connectivity preflight, listing requests, and successful purchase product IDs in `appx-portable.log`.
+Use `--log` to record listing requests and successful purchase product IDs in `appx-portable.log`.
 
 ## Local game checks
 
@@ -117,9 +117,9 @@ Tested on staged copies of the supplied packages:
 
 | Game                                       | Purchase verified                                                                                                                                                                  |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cut the Rope 2 1.0.0.46                    | Store / Candy Coins / 250 coins; balance increased from 57 to 307 and consumable fulfillment succeeded. Requires the Windows 8.1 connection profile and catalog discovery support. |
+| Cut the Rope 2 1.0.0.46                    | Store / Candy Coins / 250 coins; balance increased from 57 to 307 and consumable fulfillment succeeded. Offline (`Network=0`), Candy Coins / x2000 raised the balance by 2,000. |
 | Where's My Mickey? 1.1.0.30                | Goofy / Shipwrecked and Glass Half Empty / Menace of Venice episodes; show the thank-you dialog. The staged EXE requires the separate AMPS Python patch.                           |
-| Where's My Water? 1.13.1.3                 | Allie's Story; Try/Buy changes to Play.                                                                                                                                            |
+| Where's My Water? 1.13.1.3                 | Allie's Story; Try/Buy changes to Play. Needs `Network=1`: offline, the game says it could not connect and keeps the episode locked. |
 | Fruit Ninja 1.8.1.66                       | Dojo ? Gutsu?s Cart ? Starfruit ? Buy; user verified Item Purchased after the receipt fix. Requires `--unlock-trial --stub-iap`.                                                   |
 | Where's My Perry? manifest version 1.5.1.1 | Chapter unlocks (`LP_TWO`, `LP_THREE`, `LP_FOUR`); queued completion fixes the stuck Processing dialog.                                                                            |
 | Human Anatomy Atlas 2019 2019.1.26.0 (x64) | All animations, advanced animations and 3D dental anatomy; Unity IAP initializes and the game validates each receipt and unlocks. Requires `StubIapProducts` (above).              |

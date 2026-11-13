@@ -37,6 +37,19 @@ Most Store games advance one fixed step per frame and expect 60. Without the cap
 
 `appx-portable.ini` also holds the Store overrides; see [trial override](trial-mode.md) and [offline in-app purchases](stub-iap.md).
 
+## Network
+
+Games run offline by default. `NetworkInformation.GetInternetConnectionProfile` reports no internet connection, and requests made through `Windows.Web.Http` fail at once with a network error. Many Store games still try servers that have since closed. Some wait on them forever when told they are online: Asphalt 8's age screen keeps its button spinning until Gameloft's servers send their settings. Offline, such games take their offline path; Asphalt 8 reaches its menus.
+
+To give a game Windows' own connection status and HTTP classes, set:
+
+```ini
+[options]
+Network=1
+```
+
+`--network` and the `APPX_PORTABLE_NETWORK` environment variable do the same, and a set variable overrides the file. Restart the game after a change. A game's own sockets, Windows' WebView and the desktop .NET runtime's networking for C# components reach the network either way.
+
 ## XAML
 
 A native game with XAML pages runs on Windows' own XAML in an island when its executable's manifest allows XAML Islands; `pyappxportable` writes `<game>.exe.manifest` for such games. To keep a game on the portable XAML backend instead, set:

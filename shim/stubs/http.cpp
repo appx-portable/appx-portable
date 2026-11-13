@@ -1,18 +1,18 @@
-// ConnectionProfile includes the Windows 8 usage ABI.
-#ifdef __clang__
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#else
-#pragma warning(disable : 4996)
-#endif
+// The game's network: offline unless [options] Network=1 in appx-portable.ini
+// (or --network, APPX_PORTABLE_NETWORK=1). Offline, the game is told it has no
+// internet connection and its Windows.Web.Http requests fail at once. Old
+// online games otherwise wait on servers that no longer answer; Asphalt 8
+// keeps its age screen's button spinning until Gameloft's servers send their
+// settings. With Network=1 these classes are Windows' own.
 #include "generated/http_filters.h"
 #include "generated/http.h"
 #include "generated/network.h"
 #include "com/factory.h"
 #include "registry.h"
 #include "options.h"
-#include "com/completed_operation.h"
 #include <wrl/event.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Web.Http.h>
 using namespace Microsoft::WRL;
 using namespace ABI::Windows::Web::Http;
@@ -21,23 +21,25 @@ namespace appx {
 namespace {
 using HttpOperation =
     __FIAsyncOperationWithProgress_2_Windows__CWeb__CHttp__CHttpResponseMessage_Windows__CWeb__CHttp__CHttpProgress;
-winrt::Windows::Foundation::IAsyncOperationWithProgress<winrt::Windows::Web::Http::HttpResponseMessage,
-                                                        winrt::Windows::Web::Http::HttpProgress>
+template <typename Result>
+winrt::Windows::Foundation::IAsyncOperationWithProgress<Result, winrt::Windows::Web::Http::HttpProgress>
 OfflineHttpRequest() {
     // A coroutine captures this exception in the operation rather than throwing
     // while the game starts a request. Its completion handler receives Error.
-    co_return[]()->winrt::Windows::Web::Http::HttpResponseMessage {
-        throw winrt::hresult_error(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE));
-    }
+    co_return[]()->Result { throw winrt::hresult_error(HRESULT_FROM_WIN32(ERROR_NETWORK_UNREACHABLE)); }
     ();
 }
-HRESULT MakeOfflineHttpRequest(HttpOperation** value) {
+// Every request a client makes, for a response, a string, a buffer or a stream.
+template <typename Result, typename Operation> HRESULT MakeOfflineHttpRequest(Operation** value) {
     if (!value) return E_POINTER;
     *value = nullptr;
-    auto operation = OfflineHttpRequest();
-    *value = reinterpret_cast<HttpOperation*>(winrt::detach_abi(operation));
+    auto operation = OfflineHttpRequest<Result>();
+    *value = reinterpret_cast<Operation*>(winrt::detach_abi(operation));
     Log("TRACE", "HttpClient request completed offline");
     return S_OK;
+}
+HRESULT MakeOfflineHttpRequest(HttpOperation** value) {
+    return MakeOfflineHttpRequest<winrt::Windows::Web::Http::HttpResponseMessage>(value);
 }
 }
 class Cache final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIHttpCacheControl, FtmBase> {
@@ -112,6 +114,7 @@ public:
 class Client final
     : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIHttpClient, ABI::Windows::Foundation::IClosable, FtmBase> {
     InspectableClass(L"Windows.Web.Http.HttpClient", BaseTrust);
+    winrt::Windows::Web::Http::HttpRequestMessage headers_{nullptr};
 
 public:
     HRESULT STDMETHODCALLTYPE GetAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri,
@@ -124,6 +127,41 @@ public:
                                                  HttpOperation** value) override {
         return GetAsync(uri, value);
     }
+    HRESULT STDMETHODCALLTYPE DeleteAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri,
+                                          HttpOperation** value) override {
+        return GetAsync(uri, value);
+    }
+    HRESULT STDMETHODCALLTYPE PostAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri, IHttpContent*,
+                                        HttpOperation** value) override {
+        return GetAsync(uri, value);
+    }
+    HRESULT STDMETHODCALLTYPE PutAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri, IHttpContent*,
+                                       HttpOperation** value) override {
+        return GetAsync(uri, value);
+    }
+    HRESULT STDMETHODCALLTYPE GetBufferAsync(
+        ABI::Windows::Foundation::IUriRuntimeClass* uri,
+        __FIAsyncOperationWithProgress_2_Windows__CStorage__CStreams__CIBuffer_Windows__CWeb__CHttp__CHttpProgress**
+            value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return uri ? MakeOfflineHttpRequest<winrt::Windows::Storage::Streams::IBuffer>(value) : E_INVALIDARG;
+    }
+    HRESULT STDMETHODCALLTYPE GetInputStreamAsync(
+        ABI::Windows::Foundation::IUriRuntimeClass* uri,
+        __FIAsyncOperationWithProgress_2_Windows__CStorage__CStreams__CIInputStream_Windows__CWeb__CHttp__CHttpProgress**
+            value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return uri ? MakeOfflineHttpRequest<winrt::Windows::Storage::Streams::IInputStream>(value) : E_INVALIDARG;
+    }
+    HRESULT STDMETHODCALLTYPE
+    GetStringAsync(ABI::Windows::Foundation::IUriRuntimeClass* uri,
+                   __FIAsyncOperationWithProgress_2_HSTRING_Windows__CWeb__CHttp__CHttpProgress** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        return uri ? MakeOfflineHttpRequest<winrt::hstring>(value) : E_INVALIDARG;
+    }
     HRESULT STDMETHODCALLTYPE SendRequestAsync(IHttpRequestMessage* request, HttpOperation** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
@@ -132,6 +170,21 @@ public:
     HRESULT STDMETHODCALLTYPE SendRequestWithOptionAsync(IHttpRequestMessage* request, HttpCompletionOption,
                                                          HttpOperation** value) override {
         return SendRequestAsync(request, value);
+    }
+    // Games add their headers before each request. Windows' own collection,
+    // from a request message nothing sends, keeps them.
+    HRESULT STDMETHODCALLTYPE
+    get_DefaultRequestHeaders(ABI::Windows::Web::Http::Headers::IHttpRequestHeaderCollection** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        try {
+            if (!headers_) headers_ = winrt::Windows::Web::Http::HttpRequestMessage();
+            *value = static_cast<ABI::Windows::Web::Http::Headers::IHttpRequestHeaderCollection*>(
+                winrt::detach_abi(headers_.Headers()));
+            return S_OK;
+        } catch (...) {
+            return winrt::to_hresult();
+        }
     }
     HRESULT STDMETHODCALLTYPE Close() override { return S_OK; }
 };
@@ -157,132 +210,7 @@ public:
         return client ? client.CopyTo(value) : E_OUTOFMEMORY;
     }
 };
-// Allows games' connectivity preflight to reach the local Store stub.
-// HTTP clients remain offline; this profile does not create a connection.
 using namespace ABI::Windows::Networking::Connectivity;
-class StubNetworkAdapter final : public RuntimeClass<RuntimeClassFlags<WinRt>, INetworkAdapter, FtmBase> {
-    InspectableClass(L"Windows.Networking.Connectivity.NetworkAdapter", BaseTrust);
-
-public:
-    HRESULT STDMETHODCALLTYPE get_OutboundMaxBitsPerSecond(UINT64* value) override {
-        if (!value) return E_POINTER;
-        *value = 0;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_InboundMaxBitsPerSecond(UINT64* value) override {
-        return get_OutboundMaxBitsPerSecond(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_IanaInterfaceType(UINT32* value) override {
-        if (!value) return E_POINTER;
-        *value = 6; // Ethernet, matching the stub profile's non-WLAN/non-WWAN state.
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_NetworkItem(INetworkItem** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_NetworkAdapterId(GUID* value) override {
-        if (!value) return E_POINTER;
-        *value = {0xa89995c2, 0x0157, 0x4da4, {0x89, 0x97, 0x32, 0x7c, 0x08, 0xed, 0x89, 0xb7}};
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetConnectedProfileAsync(
-        __FIAsyncOperation_1_Windows__CNetworking__CConnectivity__CConnectionProfile** value) override;
-};
-class StubConnectionProfile final
-    : public RuntimeClass<RuntimeClassFlags<WinRt>, IConnectionProfile, IConnectionProfile2, FtmBase> {
-    InspectableClass(L"Windows.Networking.Connectivity.ConnectionProfile", BaseTrust);
-    ComPtr<StubNetworkAdapter> adapter_ = Make<StubNetworkAdapter>();
-    template <class T> static HRESULT Unavailable(T** value) {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return E_NOTIMPL;
-    }
-
-    template <class T> static HRESULT Absent(T** value) {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return S_OK;
-    }
-
-public:
-    // Model a wired connection: no WLAN/WWAN details or radio signal.
-    HRESULT STDMETHODCALLTYPE get_IsWwanConnectionProfile(boolean* value) override {
-        if (!value) return E_POINTER;
-        *value = false;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_IsWlanConnectionProfile(boolean* value) override {
-        return get_IsWwanConnectionProfile(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_WwanConnectionProfileDetails(IWwanConnectionProfileDetails** value) override {
-        return Absent(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_WlanConnectionProfileDetails(IWlanConnectionProfileDetails** value) override {
-        return Absent(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_ServiceProviderGuid(__FIReference_1_GUID** value) override { return Absent(value); }
-    HRESULT STDMETHODCALLTYPE GetSignalBars(__FIReference_1_byte** value) override { return Absent(value); }
-    HRESULT STDMETHODCALLTYPE GetDomainConnectivityLevel(DomainConnectivityLevel* value) override {
-        if (!value) return E_POINTER;
-        *value = DomainConnectivityLevel_None;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetNetworkUsageAsync(
-        ABI::Windows::Foundation::DateTime, ABI::Windows::Foundation::DateTime, DataUsageGranularity,
-        NetworkUsageStates,
-        __FIAsyncOperation_1___FIVectorView_1_Windows__CNetworking__CConnectivity__CNetworkUsage** value) override {
-        return Unavailable(value);
-    }
-    HRESULT STDMETHODCALLTYPE GetConnectivityIntervalsAsync(
-        ABI::Windows::Foundation::DateTime, ABI::Windows::Foundation::DateTime, NetworkUsageStates,
-        __FIAsyncOperation_1___FIVectorView_1_Windows__CNetworking__CConnectivity__CConnectivityInterval** value)
-        override {
-        return Unavailable(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_ProfileName(HSTRING* value) override {
-        if (!value) return E_POINTER;
-        return WindowsCreateString(L"Offline stub IAP", 16, value);
-    }
-    HRESULT STDMETHODCALLTYPE GetNetworkConnectivityLevel(NetworkConnectivityLevel* value) override {
-        if (!value) return E_POINTER;
-        *value = NetworkConnectivityLevel_InternetAccess;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetNetworkNames(__FIVectorView_1_HSTRING** value) override { return Unavailable(value); }
-    HRESULT STDMETHODCALLTYPE GetConnectionCost(IConnectionCost** value) override { return Unavailable(value); }
-    HRESULT STDMETHODCALLTYPE GetDataPlanStatus(IDataPlanStatus** value) override { return Unavailable(value); }
-    HRESULT STDMETHODCALLTYPE get_NetworkAdapter(INetworkAdapter** value) override {
-        if (!value) return E_POINTER;
-        *value = nullptr;
-        return adapter_ ? adapter_.CopyTo(value) : E_OUTOFMEMORY;
-    }
-    HRESULT STDMETHODCALLTYPE GetLocalUsage(ABI::Windows::Foundation::DateTime, ABI::Windows::Foundation::DateTime,
-                                            IDataUsage** value) override {
-        return Unavailable(value);
-    }
-    HRESULT STDMETHODCALLTYPE GetLocalUsagePerRoamingStates(ABI::Windows::Foundation::DateTime,
-                                                            ABI::Windows::Foundation::DateTime, RoamingStates,
-                                                            IDataUsage** value) override {
-        return Unavailable(value);
-    }
-    HRESULT STDMETHODCALLTYPE get_NetworkSecuritySettings(INetworkSecuritySettings** value) override {
-        return Unavailable(value);
-    }
-};
-HRESULT StubNetworkAdapter::GetConnectedProfileAsync(
-    __FIAsyncOperation_1_Windows__CNetworking__CConnectivity__CConnectionProfile** value) {
-    if (!value) return E_POINTER;
-    *value = nullptr;
-    auto operation = Make<CompletedOperation<ConnectionProfile*, IConnectionProfile*>>(
-        [](IConnectionProfile** profile) -> HRESULT {
-            auto stub = Make<StubConnectionProfile>();
-            return stub ? stub.CopyTo(profile) : E_OUTOFMEMORY;
-        },
-        true);
-    return operation ? operation.CopyTo(value) : E_OUTOFMEMORY;
-}
 class NetworkFactory final : public Factory<ABI::Windows::Networking::Connectivity::DefaultINetworkInformationStatics> {
     EventSource<ABI::Windows::Networking::Connectivity::INetworkStatusChangedEventHandler> changed_;
     // Windows' own class works outside a package. It answers the queries about
@@ -333,14 +261,12 @@ public:
     GetInternetConnectionProfile(ABI::Windows::Networking::Connectivity::IConnectionProfile** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        if (!GetOptions().stubIap) return S_OK;
-        auto profile = Make<StubConnectionProfile>();
         static const bool announced = [] {
-            Log("info", "Network: stub IAP connectivity preflight enabled (HTTP stays offline)");
+            Log("INFO", "network: the game is told it is offline; Network=1 in appx-portable.ini connects it");
             return true;
         }();
         (void)announced;
-        return profile ? profile.CopyTo(value) : E_OUTOFMEMORY;
+        return S_OK;
     }
     HRESULT STDMETHODCALLTYPE
     add_NetworkStatusChanged(ABI::Windows::Networking::Connectivity::INetworkStatusChangedEventHandler* handler,
@@ -351,17 +277,23 @@ public:
         return changed_.Remove(token);
     }
 };
+// With Network=1 the shim declines these classes, and Windows' serve the game.
 HRESULT MakeHttpFactory(bool filter, IActivationFactory** value) {
+    if (GetOptions().network) return CLASS_E_CLASSNOTAVAILABLE;
     auto factory = Make<HttpFactory>(filter);
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
 HRESULT MakeNetworkFactory(IActivationFactory** value) {
+    if (GetOptions().network) return CLASS_E_CLASSNOTAVAILABLE;
     static auto factory = Make<NetworkFactory>();
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
 const ShimClass httpFilterClass{L"Windows.Web.Http.Filters.HttpBaseProtocolFilter",
-                                [](IActivationFactory** value) { return MakeHttpFactory(true, value); }};
+                                [](IActivationFactory** value) { return MakeHttpFactory(true, value); },
+                                ShimPolicy::Replace, InIslands};
 const ShimClass httpClientClass{L"Windows.Web.Http.HttpClient",
-                                [](IActivationFactory** value) { return MakeHttpFactory(false, value); }};
-const ShimClass networkClass{L"Windows.Networking.Connectivity.NetworkInformation", MakeNetworkFactory};
+                                [](IActivationFactory** value) { return MakeHttpFactory(false, value); },
+                                ShimPolicy::Replace, InIslands};
+const ShimClass networkClass{L"Windows.Networking.Connectivity.NetworkInformation", MakeNetworkFactory,
+                             ShimPolicy::Replace, InIslands};
 }

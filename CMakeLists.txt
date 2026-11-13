@@ -268,6 +268,15 @@ add_store_settings_test(ini_env_off "[options]\\nUnlockTrial=1\\nStubIap=1"
     "APPX_PORTABLE_UNLOCK_TRIAL=0|APPX_PORTABLE_STUB_IAP=0" "")
 add_store_settings_test(ini_absent_section "[storage]\\nSaveLocation=game"
     "--unset=APPX_PORTABLE_UNLOCK_TRIAL|--unset=APPX_PORTABLE_STUB_IAP" "")
+# Network=1 hands the network classes to Windows; offline is the default.
+add_store_settings_test(network_ini "[options]\\nNetwork=1"
+    "--unset=APPX_PORTABLE_NETWORK|APPX_PORTABLE_STUB_IAP=0|APPX_PORTABLE_UNLOCK_TRIAL=0" --expect-network)
+add_store_settings_test(network_ini_env_off "[options]\\nNetwork=1\\nStubIap=1"
+    "APPX_PORTABLE_NETWORK=0|--unset=APPX_PORTABLE_STUB_IAP|APPX_PORTABLE_UNLOCK_TRIAL=0" --expect-stub-iap)
+add_test(NAME store_network_cli COMMAND storetest --expect-network --network)
+add_test(NAME store_network_env COMMAND storetest --expect-network)
+set_tests_properties(store_network_cli PROPERTIES ENVIRONMENT_MODIFICATION "APPX_PORTABLE_NETWORK=unset:")
+set_tests_properties(store_network_env PROPERTIES ENVIRONMENT_MODIFICATION "APPX_PORTABLE_NETWORK=set:1")
 add_test(NAME store_unlocked_cli COMMAND storetest --expect-unlocked --unlock-trial)
 add_test(NAME store_unlocked_env COMMAND storetest --expect-unlocked)
 add_test(NAME store_override_disabled COMMAND storetest)
@@ -346,13 +355,21 @@ endforeach()
 if(NOT CMAKE_CROSSCOMPILING)
   set(APPX_CSC "$ENV{WINDIR}/Microsoft.NET/Framework/v4.0.30319/csc.exe")
   file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/host/managed.cs" APPX_HOST_SOURCE)
+  file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/host/components.cs" APPX_COMPONENTS_SOURCE)
   add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-host.exe"
     COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:winexe
       /win32manifest:${CMAKE_SOURCE_DIR}/host/managed.manifest
       /r:System.Windows.Forms.dll /out:${CMAKE_BINARY_DIR}/appx-host.exe
-      "${APPX_HOST_SOURCE}"
-    DEPENDS host/managed.cs host/managed.manifest VERBATIM)
-  add_custom_target(appx_managed_host ALL DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe")
+      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}"
+    DEPENDS host/managed.cs host/components.cs host/managed.manifest VERBATIM)
+  # A native game's C# components: the shim loads this bridge into the desktop
+  # CLR it starts in the game, so there is nothing for players to start.
+  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-components.dll"
+    COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:library
+      /out:${CMAKE_BINARY_DIR}/appx-components.dll "${APPX_COMPONENTS_SOURCE}"
+    DEPENDS host/components.cs VERBATIM)
+  add_custom_target(appx_managed_host ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe" "${CMAKE_BINARY_DIR}/appx-components.dll")
   add_test(NAME xbox11_standins COMMAND "${CMAKE_COMMAND}"
     "-DCSC=${APPX_CSC}" "-DTEST_EXE=$<TARGET_FILE:standintest>"
     "-DSHIM=$<TARGET_FILE:appxportable>" "-DFIXTURE=${CMAKE_BINARY_DIR}/xbox11-fixture"

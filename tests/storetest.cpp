@@ -76,12 +76,27 @@ int main(int argc, char** argv) {
         printf("FAIL CurrentApp factory hr=%08lx\n", hr);
         return 2;
     }
+    // The game is offline unless Network=1: then Windows' network classes serve
+    // it, and the shim declines them.
+    bool connected = false;
+    for (int i = 1; i < argc; ++i) connected = connected || strcmp(argv[i], "--expect-network") == 0;
+    if (connected) {
+        for (const wchar_t* name :
+             {L"Windows.Networking.Connectivity.NetworkInformation", L"Windows.Web.Http.HttpClient",
+              L"Windows.Web.Http.Filters.HttpBaseProtocolFilter"}) {
+            ComPtr<IActivationFactory> declined;
+            if (get(HStringReference(name).Get(), &declined) != CLASS_E_CLASSNOTAVAILABLE || declined) return 41;
+        }
+        puts("storetest: Windows serves the network classes");
+        return 0;
+    }
     ComPtr<IActivationFactory> networkFactory;
     ComPtr<ABI::Windows::Networking::Connectivity::INetworkInformationStatics> network;
     ComPtr<ABI::Windows::Networking::Connectivity::IConnectionProfile> profile;
+    // No internet connection profile, with or without the purchase stub.
     if (FAILED(get(HStringReference(L"Windows.Networking.Connectivity.NetworkInformation").Get(), &networkFactory)) ||
         FAILED(networkFactory.As(&network)) || network->GetInternetConnectionProfile(nullptr) != E_POINTER ||
-        FAILED(network->GetInternetConnectionProfile(&profile)) || bool(profile) != stub)
+        FAILED(network->GetInternetConnectionProfile(&profile)) || profile)
         return 41;
     // Local network facts come from Windows. Unity's .NET networking asks for
     // host names on a worker thread and ends the game when that fails.
@@ -90,45 +105,6 @@ int main(int argc, char** argv) {
     if (FAILED(network->GetHostNames(&hostNames)) || !hostNames || FAILED(network->GetConnectionProfiles(&profiles)) ||
         !profiles)
         return 66;
-    if (stub) {
-        ABI::Windows::Networking::Connectivity::NetworkConnectivityLevel level{};
-        if (FAILED(profile->GetNetworkConnectivityLevel(&level)) ||
-            level != ABI::Windows::Networking::Connectivity::NetworkConnectivityLevel_InternetAccess ||
-            profile->GetNetworkConnectivityLevel(nullptr) != E_POINTER)
-            return 42;
-        // Minion Rush polls this from its network worker and classifies the
-        // connection by IANA type. A missing adapter terminates that thread.
-        ComPtr<ABI::Windows::Networking::Connectivity::INetworkAdapter> adapter, sameAdapter;
-        UINT32 interfaceType = 0;
-        if (profile->get_NetworkAdapter(nullptr) != E_POINTER || FAILED(profile->get_NetworkAdapter(&adapter)) ||
-            !adapter || FAILED(profile->get_NetworkAdapter(&sameAdapter)) || adapter != sameAdapter ||
-            FAILED(adapter->get_IanaInterfaceType(&interfaceType)) || interfaceType != 6 ||
-            adapter->get_IanaInterfaceType(nullptr) != E_POINTER)
-            return 67;
-        GUID adapterId{}, sameId{};
-        if (FAILED(adapter->get_NetworkAdapterId(&adapterId)) || adapterId == GUID_NULL ||
-            FAILED(sameAdapter->get_NetworkAdapterId(&sameId)) || adapterId != sameId)
-            return 68;
-        ComPtr<__FIAsyncOperation_1_Windows__CNetworking__CConnectivity__CConnectionProfile> connected;
-        ComPtr<ABI::Windows::Networking::Connectivity::IConnectionProfile> connectedProfile;
-        if (FAILED(adapter->GetConnectedProfileAsync(&connected)) || !connected ||
-            FAILED(connected->GetResults(&connectedProfile)) || !connectedProfile)
-            return 69;
-        // Cut the Rope 2 queries the Windows 8.1 profile while initializing.
-        ComPtr<ABI::Windows::Networking::Connectivity::IConnectionProfile2> profile2;
-        boolean wireless = true;
-        if (FAILED(profile.As(&profile2)) || FAILED(profile2->get_IsWwanConnectionProfile(&wireless)) || wireless ||
-            FAILED(profile2->get_IsWlanConnectionProfile(&wireless)) || wireless ||
-            profile2->get_IsWlanConnectionProfile(nullptr) != E_POINTER)
-            return 62;
-        ComPtr<ABI::Windows::Networking::Connectivity::IWlanConnectionProfileDetails> wlan;
-        ComPtr<ABI::Windows::Networking::Connectivity::IWwanConnectionProfileDetails> wwan;
-        ComPtr<__FIReference_1_byte> bars;
-        if (FAILED(profile2->get_WlanConnectionProfileDetails(&wlan)) || wlan ||
-            FAILED(profile2->get_WwanConnectionProfileDetails(&wwan)) || wwan ||
-            FAILED(profile2->GetSignalBars(&bars)) || bars || profile2->GetSignalBars(nullptr) != E_POINTER)
-            return 63;
-    }
     ComPtr<ICurrentApp> app;
     ComPtr<ICurrentAppWithConsumables> consumables;
     if (FAILED(factory.As(&app)) || FAILED(factory.As(&consumables))) return 3;

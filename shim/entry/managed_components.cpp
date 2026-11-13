@@ -1,7 +1,8 @@
 // C# Windows Runtime components (analytics, ads, social SDKs) are served by
 // Windows' CLRHost.dll, which needs package identity. Instead, start the
 // desktop .NET Framework CLR in the game's process and let it make the class's
-// activation factory, through the bridge in appx-host.exe beside the game. The
+// activation factory, through the bridge in appx-components.dll beside the
+// game (appx-host.exe in folders installed before that DLL). The
 // desktop CLR finds the component's .winmd beside the executable, as CLRHost
 // would in the package, and the factory it returns is the one CLRHost would
 // hand out, so every component works without a stand-in of its own.
@@ -87,14 +88,36 @@ bool IsClrHostModule(const std::filesystem::path& module) noexcept {
     return _wcsicmp(module.filename().c_str(), L"CLRHost.dll") == 0;
 }
 bool ManagedComponentsHosted() noexcept { return hosted.load(); }
+// The assembly with the bridge beside the game, or an empty path.
+static const std::filesystem::path& Bridge() {
+    static const std::filesystem::path bridge = [] {
+        for (const wchar_t* name : {L"appx-components.dll", L"appx-host.exe"}) {
+            auto path = CurrentPackage().directory / name;
+            if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return path;
+        }
+        return std::filesystem::path();
+    }();
+    return bridge;
+}
+bool ManagedComponentBridgeAvailable() noexcept {
+    static const bool available = [] {
+        if (GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version")) return false;
+        try {
+            return !Bridge().empty();
+        } catch (...) {
+            return false;
+        }
+    }();
+    return available;
+}
 HRESULT ManagedComponentFactory(HSTRING name, IActivationFactory** factory) noexcept {
     if (!factory) return E_POINTER;
     *factory = nullptr;
     const wchar_t* id = WindowsGetStringRawBuffer(name, nullptr);
     try {
-        const auto bridge = CurrentPackage().directory / L"appx-host.exe";
-        if (GetFileAttributesW(bridge.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            Log("FAIL", "C# component %ls: appx-host.exe is not in the game folder", id);
+        const auto& bridge = Bridge();
+        if (bridge.empty()) {
+            Log("FAIL", "C# component %ls: appx-components.dll is not in the game folder", id);
             return REGDB_E_CLASSNOTREG;
         }
         ComPtr<ICLRRuntimeHost> host;

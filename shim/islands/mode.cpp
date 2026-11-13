@@ -68,7 +68,7 @@ static bool NativeSystemXaml() noexcept {
             if (!package.loaded || ManagedMode() || GetOptions().portableXaml) return false;
             // Wine has no XAML Islands.
             if (GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version")) return false;
-            if (!PackageHasXaml(package.directory)) return false;
+            if (!PackageHasXaml(package.directory / package.executable)) return false;
             const bool allowed = ManifestAllowsIslands();
             appx::Log("INFO", "native XAML: %s",
                       allowed ? "Windows XAML in an island" : "portable backend (no maxversiontested in the manifest)");

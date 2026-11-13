@@ -114,7 +114,7 @@ jobs:
                       "$build/appx-native-host.exe"
                   )
                   # The x64 release supports native UWP games; CLR hosting is x86 only.
-                  if ($env:ARCHITECTURE -eq 'x86') { $assets += "$build/appx-host.exe" }
+                  if ($env:ARCHITECTURE -eq 'x86') { $assets += "$build/appx-host.exe", "$build/appx-components.dll" }
                   $machine = if ($env:ARCHITECTURE -eq 'x86') { 0x014c } else { 0x8664 }
                   foreach ($asset in $assets) {
                     if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
