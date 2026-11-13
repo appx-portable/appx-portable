@@ -31,9 +31,7 @@ internal static partial class WinrtProjectionGenerator
         {
             if (!type.IsWindowsRuntime || type.HasGenericParameters || type.HasNestedTypes)
                 throw new System.NotSupportedException("Unsupported component type: " + type.FullName);
-            string kind = type.IsEnum ? "Enum" : IsDelegate(type) ? "Delegate" : type.IsInterface ? "Interface" : "Class";
-            if (type.IsValueType && !type.IsEnum)
-                throw new System.NotSupportedException("Unsupported component struct: " + type.FullName);
+            string kind = type.IsEnum ? "Enum" : type.IsValueType ? "Struct" : IsDelegate(type) ? "Delegate" : type.IsInterface ? "Interface" : "Class";
             var element = document.CreateElement(kind); element.SetAttribute("Name", type.FullName); root.AppendChild(element);
             if (kind != "Class" && kind != "Interface") continue;
             System.Action<string, string> add = (member, name) =>

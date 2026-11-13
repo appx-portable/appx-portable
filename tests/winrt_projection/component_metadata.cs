@@ -117,6 +117,14 @@ class ComponentMetadata
                 Method(iface, "RaiseExternal", ts.Void);
                 iface.Events.Add(new EventDefinition("ExternalChanged", EventAttributes.None, externalHandler) { AddMethod = externalAdd, RemoveMethod = externalRemove });
             }
+            // A struct with HSTRING and boolean fields, as Practical English Usage's EngineWrapper.WDerivedForm.
+            var form = Type("Form", TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout, module.ImportReference(typeof(ValueType)));
+            form.Fields.Add(new FieldDefinition("Word", FieldAttributes.Public, ts.String));
+            form.Fields.Add(new FieldDefinition("Primary", FieldAttributes.Public, ts.Boolean));
+            form.Fields.Add(new FieldDefinition("Rank", FieldAttributes.Public, ts.Int32));
+            Method(iface, "GetForm", form, ts.String);
+            var getLastForm = Method(iface, "get_LastForm", form);
+            iface.Properties.Add(new PropertyDefinition("LastForm", PropertyAttributes.None, form) { GetMethod = getLastForm });
             var engine = Type("Engine", TypeAttributes.Public | TypeAttributes.Sealed, ts.Object);
             var implementation = new InterfaceImplementation(iface);
             // DefaultAttribute has no arguments.
@@ -131,6 +139,7 @@ class ComponentMetadata
                 foreach (var p in method.Parameters) copy.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
             }
             engine.Events.Add(new EventDefinition("Changed", EventAttributes.None, handler) { AddMethod = engine.Methods[6], RemoveMethod = engine.Methods[7] });
+            engine.Properties.Add(new PropertyDefinition("LastForm", PropertyAttributes.None, form) { GetMethod = engine.Methods.Single(m => m.Name == "get_LastForm") });
             if (externalHandler != null)
                 engine.Events.Add(new EventDefinition("ExternalChanged", EventAttributes.None, externalHandler)
                 {

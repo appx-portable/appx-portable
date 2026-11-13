@@ -232,7 +232,11 @@ internal static partial class WinrtProjectionGenerator
             return Runtime + "NativeStringMapView<" + Name(MapViewValue(view)) + ">.Wrap(" + receiver + ".Object(" + number + "), " +
                 StringMapViewAbi(view) + ", v => " + Wrapped(MapViewValue(view), "v") + ")";
         if ((ClrStructFields.ContainsKey(result.FullName) || PlainStruct(result)) && selected.Contains(result.FullName))
+        {
+            if (!ClrStructFields.ContainsKey(result.FullName) && !BlittableStruct(Find(result.FullName)))
+                throw new NotSupportedException("Unsupported non-blittable struct value: " + result.FullName);
             return receiver + ".Value<" + Name(result) + ">(" + number + ")";
+        }
         TypeDefinition definition = Find(result.FullName);
         if (definition.IsEnum)
         {
@@ -694,13 +698,24 @@ internal static partial class WinrtProjectionGenerator
         output.AppendLine("    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]");
         output.Append(ClrStructTemplates[type.FullName]);
     }
-    // A WinRT struct the CLR does not redirect: public fields in metadata order,
-    // blittable (scalar or 32-bit enum fields), returned by value.
+    // A WinRT struct the CLR does not redirect: public fields in metadata order.
+    // Blittable ones (scalar or 32-bit enum fields) travel by value; string and
+    // boolean fields are declared, but their members become stubs.
     private static bool PlainStruct(TypeReference type)
     {
         if (ClrStructFields.ContainsKey(type.FullName) || type.FullName == "Windows.Foundation.TimeSpan" || type.FullName == DateTimeName) return false;
         TypeDefinition definition;
         return types.TryGetValue(type.FullName, out definition) && definition.IsValueType && !definition.IsEnum;
+    }
+    private static bool BlittableField(FieldDefinition field)
+    {
+        string name = field.FieldType.FullName;
+        if (Scalar(field.FieldType) != null) return name != "System.Boolean" && name != "System.Char";
+        return selected.Contains(name) && Find(name).IsEnum;
+    }
+    private static bool BlittableStruct(TypeDefinition type)
+    {
+        return type.Fields.Where(f => !f.IsStatic).All(BlittableField);
     }
     private static void PlainStructContract(StringBuilder output, TypeDefinition type, XmlElement surface)
     {
@@ -711,9 +726,9 @@ internal static partial class WinrtProjectionGenerator
         output.AppendLine("    {");
         foreach (FieldDefinition field in type.Fields.Where(f => !f.IsStatic))
         {
-            bool scalar = Scalar(field.FieldType) != null && field.FieldType.FullName != "System.Boolean" && field.FieldType.FullName != "System.Char";
-            bool enumeration = !scalar && selected.Contains(field.FieldType.FullName) && Find(field.FieldType.FullName).IsEnum;
-            if (!scalar && !enumeration) throw new NotSupportedException("Unsupported struct field: " + type.FullName + "." + field.Name);
+            string name = field.FieldType.FullName;
+            if (!BlittableField(field) && name != "System.String" && name != "System.Boolean")
+                throw new NotSupportedException("Unsupported struct field: " + type.FullName + "." + field.Name);
             output.AppendLine("        public " + Name(field.FieldType) + " " + field.Name + ";");
         }
         output.AppendLine("    }");

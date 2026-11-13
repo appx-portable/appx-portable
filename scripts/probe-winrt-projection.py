@@ -763,7 +763,10 @@ def main():
             run("component-metadata", [metadata_builder.name, windows(component_metadata)])
             generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Component.generated.cs"
-            run("generate-component", [generator.name, "--component", windows(component_metadata), windows(generated)])
+            run("generate-component", [generator.name, "--component", windows(component_metadata), windows(generated)],
+                marker="Stubbed Example.Component.Engine.LastForm: Unsupported non-blittable struct value:")
+            require('throw global::AppxPortable.WinRT.Errors.Unimplemented("Example.Component.Engine.GetForm")' in generated.read_text(encoding="utf-8"),
+                    "a struct-returning component method was not stubbed with its name")
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs")]
             projection = compile_file("component-projection/Example.Component.dll", runtime + [generated], ["/target:library"])
             consumer = compile_file("component.exe", [repo / "tests/winrt_projection/component.cs"], ["/r:" + windows(projection)])
