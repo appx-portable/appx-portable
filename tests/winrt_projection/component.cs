@@ -1,10 +1,29 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 using Example.Component;
+// A managed implementation of a component interface, called back by native code.
+class Recorder : IRenderer
+{
+    private readonly System.Text.StringBuilder log = new System.Text.StringBuilder();
+    public void Begin(bool header, int entry, string label) { log.Append(header + ":" + entry + ":" + label + ";"); }
+    public void Words(IList<string> words) { log.Append(words == null ? "null" : string.Join(",", words)).Append(";"); }
+    public void Unsupported(Changed callback) { throw new Exception("an unsupported thunk reached managed code"); }
+    public double Scale(uint index, double size) { if (index == 0) throw new ArgumentException("zero index"); return index * size; }
+    public string Result() { return log.ToString(); }
+    public uint Sum(byte[] data) { uint sum = 0; foreach (byte value in data) sum += value; return sum; }
+}
 class ComponentTest
 {
     static void Require(bool value, string message) { if (!value) throw new Exception(message); }
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static WeakReference Keep(Printer printer)
+    {
+        var recorder = new Recorder();
+        printer.Keep(recorder);
+        return new WeakReference(recorder);
+    }
     [MethodImpl(MethodImplOptions.NoInlining)]
     static WeakReference Subscribe(Engine engine, out System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken token)
     {
@@ -54,6 +73,17 @@ class ComponentTest
         // Stubs keep the accessor a game's IL calls, not the C# property.
         try { form = engine.get_LastForm(); throw new Exception("struct-typed property stub returned"); }
         catch (NotImplementedException ex) { Require(ex.Message.Contains("Example.Component.Engine.get_LastForm"), "struct property stub names itself"); }
+        // Printer.Render checks the unsupported slot's E_NOTIMPL, Scale's thrown E_INVALIDARG,
+        // and Scale and Sum results itself, then returns Result().
+        var printer = new Printer();
+        Require(printer.Render(new Recorder()) == "True:-42:đá\0💎;alpha,βeta;", "managed interface callbacks");
+        var kept = Keep(printer);
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        Require(kept.IsAlive, "native retains a managed implementation");
+        Require(printer.RenderKept() == "False:7:kept;", "retained managed implementation");
+        printer.Dispose();
+        try { printer.RenderKept(); throw new Exception("closed component still rendered"); }
+        catch (Exception error) { Require(error.HResult == unchecked((int)0x80000013), "IClosable.Close through Dispose: " + error); }
         Console.WriteLine("PASS: generic component ABI");
         return 0;
     }

@@ -171,6 +171,36 @@ class ComponentMetadata
             gauge.Methods.Add(gaugeConstructor);
             var gaugeName = Method(gauge, "get_Name", ts.String);
             gauge.Properties.Add(new PropertyDefinition("Name", PropertyAttributes.None, ts.String) { GetMethod = gaugeName });
+            // IRenderer is implemented by the consumer and called back by the native Printer,
+            // as Practical English Usage implements EngineWrapper.IArticleRenderer.
+            var windows = new AssemblyNameReference("Windows", new Version(255, 255, 255, 255)) { IsWindowsRuntime = true };
+            module.AssemblyReferences.Add(windows);
+            var vector = new TypeReference("Windows.Foundation.Collections", "IVector`1", module, windows);
+            vector.GenericParameters.Add(new GenericParameter(vector));
+            var strings = new GenericInstanceType(vector); strings.GenericArguments.Add(ts.String);
+            var renderer = Type("IRenderer", TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract, null);
+            Attribute(renderer, "Guid", ts.String, "6a1d3f52-7c0e-4b8a-9f21-5e4d3c2b1a09");
+            Method(renderer, "Begin", ts.Void, ts.Boolean, ts.Int32, ts.String);
+            Method(renderer, "Words", ts.Void, strings);
+            Method(renderer, "Unsupported", ts.Void, handler);
+            Method(renderer, "Scale", ts.Double, ts.UInt32, ts.Double);
+            Method(renderer, "Result", ts.String);
+            Method(renderer, "Sum", ts.UInt32, new ArrayType(ts.Byte));
+            var printerInterface = Type("IPrinter", TypeAttributes.NotPublic | TypeAttributes.Interface | TypeAttributes.Abstract, null);
+            Attribute(printerInterface, "Guid", ts.String, "0f3b8d27-4e61-4c9a-b5d2-7a8e9c1f2d36");
+            Method(printerInterface, "Render", ts.String, renderer);
+            Method(printerInterface, "Keep", ts.Void, renderer);
+            Method(printerInterface, "RenderKept", ts.String);
+            var printer = Type("Printer", TypeAttributes.Public | TypeAttributes.Sealed, ts.Object);
+            Default(printer, printerInterface); Attribute(printer, "Activatable", ts.UInt32, (uint)1);
+            var printerConstructor = Method(printer, ".ctor", ts.Void);
+            printerConstructor.Attributes = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
+            Method(printer, "Render", ts.String, renderer);
+            Method(printer, "Keep", ts.Void, renderer);
+            Method(printer, "RenderKept", ts.String);
+            // IClosable lives in the SDK's metadata, which component generation does not read.
+            printer.Interfaces.Add(new InterfaceImplementation(new TypeReference("Windows.Foundation", "IClosable", module, windows)));
+            Method(printer, "Close", ts.Void);
             if (args.Length > 1 && args[1] == "unsupported") { engine.Methods[1].Parameters[0].ParameterType = new ByReferenceType(ts.Int32); iface.Methods[0].Parameters[0].ParameterType = new ByReferenceType(ts.Int32); }
             if (args.Length > 1 && args[1] == "culture") assembly.Name.Culture = "fr";
             if (args.Length > 1 && args[1] == "signed") { assembly.Name.PublicKey = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }; assembly.Name.HasPublicKey = true; }
