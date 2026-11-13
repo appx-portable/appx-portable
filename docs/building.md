@@ -19,7 +19,7 @@ Both Windows architectures also build `appx-native-host.exe` for .NET Native XAM
 
 For x64 games, use an **x64 Native Tools Command Prompt**, `cmake --preset windows-x64`, and `cmake --build --preset windows-x64`. This requires the MSVC x64 assembler and also builds the `XAudio2_9.dll` proxy. Pass `pyappxportable` `--build build/windows-x64` and a matching x64 VCLibs framework. See [runtime structure](runtime-structure.md) and the [embedded XBF support](xbf.md).
 
-GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`, the CLR host for managed games, and `appx-components.dll`, the bridge for a native game's C# components; x64 currently supports native games only, so its ZIP omits both. `pyappxportable` downloads the Microsoft VCLibs packages from [yell0wsuit/vclibs-appx](https://github.com/yell0wsuit/vclibs-appx/releases/latest).
+GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`, the CLR host for managed games, and `appx-components.dll`, the bridge for a native game's C# components; x64 currently supports native games only, so its ZIP omits both. `pyappxportable` downloads the Microsoft VCLibs packages from [appx-portable/vclibs-appx](https://github.com/appx-portable/vclibs-appx/releases/latest).
 
 If CMake cannot find `cl`, use an x86 Visual Studio developer shell. If MSYS2's CMake appears first on `PATH`, put the native Windows CMake ahead of it (typically `C:\Program Files\CMake\bin`).
 
@@ -114,4 +114,4 @@ A game loads appx-portable through a system DLL it imports and looks up in its o
 
 1. Create `proxy/<name>/exports.txt` listing the real DLL's exports, one per line, in the real DLL's ordinal order (games may import by ordinal).
 2. Run `python scripts/gen_proxy.py` to generate the thunks, `.def` file and names header.
-3. Add the name to the proxy list in `CMakeLists.txt`, `PROXIES` in `src/pyappxportable/constants.py` in [pyappxportable](https://github.com/yell0wsuit/pyappxportable), and the release workflow.
+3. Add the name to the proxy list in `CMakeLists.txt`, `PROXIES` in `src/pyappxportable/constants.py` in [pyappxportable](https://github.com/appx-portable/pyappxportable), and the release workflow.

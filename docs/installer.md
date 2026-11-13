@@ -6,7 +6,7 @@
 
 The installer needs **Python 3.8 or later**. On Windows, install it from [python.org](https://www.python.org/downloads/windows/) (the installer adds the `py` launcher) or with `winget install Python.Python.3.13`. On Windows 8/8.1, use a Python 3 release that still supports your Windows version.
 
-Install the dedicated [pyappxportable package](https://github.com/yell0wsuit/pyappxportable):
+Install the dedicated [pyappxportable package](https://github.com/appx-portable/pyappxportable):
 
 ```sh
 python -m pip install pyappxportable
@@ -18,7 +18,7 @@ On Windows, `py -m pip` and `py -m pyappxportable` also work. On macOS/Linux, us
 ## What it asks
 
 1. The folder to install into. The default is beside the package, named after the game's package name.
-2. A VCLibs package, only if downloading it from the [VCLibs release](https://github.com/yell0wsuit/vclibs-appx/releases/latest) fails.
+2. A VCLibs package, only if downloading it from the [VCLibs release](https://github.com/appx-portable/vclibs-appx/releases/latest) fails.
 3. Whether to unlock the trial, complete in-app purchases locally, both, or neither. The choice is saved in `appx-portable.ini`; see [trial override](trial-mode.md) and [offline in-app purchases](stub-iap.md).
 4. Whether to write the `00_click2startme` launcher.
 
@@ -49,7 +49,7 @@ Run it again on the same folder to update after a new release: it replaces the g
 
 Double-click the game's executable itself (`appx-host.exe` for managed games, `appx-native-host.exe` for .NET Native games and native games that import no proxy; the `.desktop.exe` copy on Windows 8/8.1). The Store options in `appx-portable.ini` apply either way.
 
-.NET Native XAML games such as Deus Ex GO start through `appx-native-host.exe` on Windows. The installer detects the forwarding executable and stages this launcher automatically. It uses dependencies supplied with `--dependencies`, matching installed Windows packages, or the [.NET Native dependency release](https://github.com/yell0wsuit/vclibs-appx/releases/tag/v2), in that order. Downloads are checked against pinned SHA-256 hashes. The supported packages are .NET Native Framework 1.3 and Runtime 1.4.
+.NET Native XAML games such as Deus Ex GO start through `appx-native-host.exe` on Windows. The installer detects the forwarding executable and stages this launcher automatically. It uses dependencies supplied with `--dependencies`, matching installed Windows packages, or the [.NET Native dependency release](https://github.com/appx-portable/vclibs-appx/releases/tag/v2), in that order. Downloads are checked against pinned SHA-256 hashes. The supported packages are .NET Native Framework 1.3 and Runtime 1.4.
 
 Native games that import none of the proxy DLLs from their folder, such as Unity games built with IL2CPP for UWP, also start through `appx-native-host.exe` on Windows. XAML games among them (with compiled XAML: `.xbf` files, loose or in `resources.pri`; or XAML built in code, when the executable or a DLL it imports from the game folder names `Windows.UI.Xaml.Application`) run in XAML Islands, and the installer writes `Game.exe.manifest` beside the executable, because Windows allows XAML Islands only in a process whose manifest declares Windows 10 version 1903 as tested, and updates the executable's timestamp so Windows reads the new manifest. Windows ignores that file if the executable embeds a manifest of its own; the installer then warns.
 

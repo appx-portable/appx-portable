@@ -20,7 +20,7 @@ Select-String -Path 'C:\Games\CutTheRope2\AppxManifest.xml' -Pattern 'Microsoft\
 | `Microsoft.VCLibs.120.00` (Windows 8.1 games)    | `msvcr120_app.dll`, `msvcp120_app.dll`, `vccorlib120_app.dll`                          |
 | `Microsoft.VCLibs.140.00` (Windows 10 UWP games) | `vcruntime140_app.dll`, `msvcp140_app.dll`, `vccorlib140_app.dll`, `concrt140_app.dll` |
 
-Download the packages with the game's architecture from the [VCLibs release](https://github.com/yell0wsuit/vclibs-appx/releases/latest). The installer uses `11.0.51106.1`, `12.0.21005.1` and `14.0.30704.0`; check the game's manifest for its minimum version. These provide the UWP `_app.dll` files; `Microsoft.VCLibs.140.00.UWPDesktop` provides a different runtime. An x64 game needs the x64 package.
+Download the packages with the game's architecture from the [VCLibs release](https://github.com/appx-portable/vclibs-appx/releases/latest). The installer uses `11.0.51106.1`, `12.0.21005.1` and `14.0.30704.0`; check the game's manifest for its minimum version. These provide the UWP `_app.dll` files; `Microsoft.VCLibs.140.00.UWPDesktop` provides a different runtime. An x64 game needs the x64 package.
 
 The release notes list each package's SHA-256. For a package from anywhere other than Microsoft, check that Microsoft signed it; `Status` should be `Valid` and the signer `CN=Microsoft Corporation, …`:
 
@@ -34,7 +34,7 @@ Each VCLibs `.appx` is a ZIP archive with its DLLs at the root. Copy the DLLs li
 
 ## 3. Add the Appx Portable DLLs
 
-Download `appx-portable-<version>-x86.zip` (or `-x64.zip` for an x64 game) from the latest [release](https://github.com/yell0wsuit/appx-portable/releases) and extract its DLLs beside the game's executable. For a managed (C#) game, also copy `appx-host.exe` from the x86 zip; the game starts through it. The x86 zip's `appx-components.dll` is among those DLLs; it runs the C# components some native games ship.
+Download `appx-portable-<version>-x86.zip` (or `-x64.zip` for an x64 game) from the latest [release](https://github.com/appx-portable/appx-portable/releases) and extract its DLLs beside the game's executable. For a managed (C#) game, also copy `appx-host.exe` from the x86 zip; the game starts through it. The x86 zip's `appx-components.dll` is among those DLLs; it runs the C# components some native games ship.
 
 ## 4. Settings and patches
 
