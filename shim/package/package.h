@@ -38,10 +38,11 @@ const std::wstring& PackageDisplayName() noexcept;
 // display (Assets\scale-100\SmallLogo.png for Assets\SmallLogo.png), or the
 // path as written when the package indexes no such file.
 std::filesystem::path ResolvePackageFile(const PackageInfo& package, const std::wstring& relative);
-// XAML pages, as pyappxportable detects them: .xbf or source .xaml files, or
-// .xbf names in resources.pri. Such a native game runs Windows' XAML in an
-// island; the others run a CoreWindow.
-bool PackageHasXaml(const std::filesystem::path& directory);
+// XAML, as pyappxportable detects it: .xbf or source .xaml files, .xbf names
+// in resources.pri, or, for XAML built in code, Windows.UI.Xaml.Application
+// named by the executable or a DLL it imports from the game folder. Such a
+// native game runs Windows' XAML in an island; the others run a CoreWindow.
+bool PackageHasXaml(const std::filesystem::path& executable);
 // Windows' publisher ID: the first 8 bytes of SHA-256 over the UTF-16LE
 // publisher, in Crockford base32 (13 characters).
 std::wstring PublisherId(const std::wstring& publisher);

@@ -10,6 +10,9 @@ bool IsClrHostModule(const std::filesystem::path& module) noexcept;
 // The activation factory of a C# component class, made by the desktop CLR in
 // this process; REGDB_E_CLASSNOTREG when the CLR or the bridge is unavailable.
 HRESULT ManagedComponentFactory(HSTRING name, IActivationFactory** factory) noexcept;
+// Whether the bridge can be tried: appx-host.exe is beside the game, outside
+// Wine, whose 32-bit .NET hangs instead of failing.
+bool ManagedComponentBridgeAvailable() noexcept;
 // True once the CLR has been started for components: its calls into Windows
 // classes then count as the game's.
 bool ManagedComponentsHosted() noexcept;

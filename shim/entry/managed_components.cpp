@@ -87,6 +87,18 @@ bool IsClrHostModule(const std::filesystem::path& module) noexcept {
     return _wcsicmp(module.filename().c_str(), L"CLRHost.dll") == 0;
 }
 bool ManagedComponentsHosted() noexcept { return hosted.load(); }
+bool ManagedComponentBridgeAvailable() noexcept {
+    static const bool available = [] {
+        if (GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version")) return false;
+        try {
+            const auto bridge = CurrentPackage().directory / L"appx-host.exe";
+            return GetFileAttributesW(bridge.c_str()) != INVALID_FILE_ATTRIBUTES;
+        } catch (...) {
+            return false;
+        }
+    }();
+    return available;
+}
 HRESULT ManagedComponentFactory(HSTRING name, IActivationFactory** factory) noexcept {
     if (!factory) return E_POINTER;
     *factory = nullptr;

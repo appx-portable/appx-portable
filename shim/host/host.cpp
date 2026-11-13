@@ -185,6 +185,8 @@ static bool initialXamlFrame = false;
 static void UpdateActivation(WPARAM activation) {
     const bool active = window && IsWindowVisible(window) && !IsIconic(window);
     if (active == reportedActive) return;
+    if (active && IslandsMode() && DeferUntilIslandContentLoaded([activation] { UpdateActivation(activation); }))
+        return;
     reportedActive = active;
     const WPARAM state = active ? (activation == WA_CLICKACTIVE ? WA_CLICKACTIVE : WA_ACTIVE) : WA_INACTIVE;
     auto notifyActivated = [state, active] {

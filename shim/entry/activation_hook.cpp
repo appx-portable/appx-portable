@@ -88,6 +88,24 @@ static bool FromGame(void* returnAddress) noexcept {
     } catch (...) {}
     return game;
 }
+// A C# component the package ships runs on the desktop CLR, through the
+// bridge, ahead of the shim's stand-in for it: a stand-in matches one version
+// of a component, and another version keeps its interface IDs but changes
+// their methods (Asphalt 8's FacebookHelper statics). The stand-in serves
+// where the bridge cannot: without appx-host.exe (x64, Wine) or when the CLR
+// fails. CLASS_E_CLASSNOTAVAILABLE leaves the class to the usual order.
+static HRESULT BridgedComponentFactory(HSTRING name, IActivationFactory** factory) noexcept {
+    const wchar_t* text = WindowsGetStringRawBuffer(name, nullptr);
+    if (!FindShimClass(text) || !ManagedComponentBridgeAvailable()) return CLASS_E_CLASSNOTAVAILABLE;
+    for (const auto& entry : CurrentPackage().classes) {
+        if (entry.id != text || !IsClrHostModule(entry.module)) continue;
+        const HRESULT hr = ManagedComponentFactory(name, factory);
+        if (SUCCEEDED(hr)) return hr;
+        Log("INFO", "C# component %ls: the shim's stand-in serves it", text);
+        return CLASS_E_CLASSNOTAVAILABLE;
+    }
+    return CLASS_E_CLASSNOTAVAILABLE;
+}
 static HRESULT GetFactoryFor(HSTRING name, REFIID iid, void** out, bool game) noexcept {
     if (!out) return E_POINTER;
     *out = nullptr;
@@ -107,7 +125,8 @@ static HRESULT GetFactoryFor(HSTRING name, REFIID iid, void** out, bool game) no
             *out = nullptr;
         }
         Microsoft::WRL::ComPtr<IActivationFactory> factory;
-        hr = ShimGetFactory(name, &factory);
+        hr = BridgedComponentFactory(name, &factory);
+        if (hr == CLASS_E_CLASSNOTAVAILABLE) hr = ShimGetFactory(name, &factory);
         if (hr == CLASS_E_CLASSNOTAVAILABLE) {
             hr = originalFactory(name, iid, out);
             if (hr == REGDB_E_CLASSNOTREG) {
@@ -336,7 +355,7 @@ static int LaunchHosted(const std::filesystem::path& executable) {
     STARTUPINFOW startup{sizeof startup};
     GetStartupInfoW(&startup);
     PROCESS_INFORMATION process{};
-    const bool xaml = PackageHasXaml(executable.parent_path());
+    const bool xaml = PackageHasXaml(executable);
     SetEnvironmentVariableW(L"APPX_PORTABLE_HOSTED", xaml ? L"xaml" : L"1");
     const BOOL created = CreateProcessW(executable.c_str(), line.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED,
                                         nullptr, executable.parent_path().c_str(), &startup, &process);
