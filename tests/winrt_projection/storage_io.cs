@@ -121,6 +121,13 @@ class StorageIoProjectionTest
         Directory.CreateDirectory(Path.Combine(local.Path, "sub"));
         File.WriteAllBytes(Path.Combine(local.Path, "sub", "nested.bin"), bytes);
         Check((await local.GetFileAsync(@"sub\nested.bin")).Name == "nested.bin", "relative subfolder lookup");
+        // Practical English Usage keeps its favorites and history in RoamingFolder.
+        var roaming = Windows.Storage.ApplicationData.Current.RoamingFolder;
+        Check(!string.Equals(Path.GetFullPath(roaming.Path), Path.GetFullPath(local.Path), StringComparison.OrdinalIgnoreCase),
+            "RoamingFolder is separate from LocalFolder");
+        string roamingPath = Path.Combine(roaming.Path, "roamed.bin"); File.WriteAllBytes(roamingPath, bytes);
+        Check((await roaming.GetFileAsync("roamed.bin")).Path == roamingPath, "RoamingFolder native lookup");
+        try { await local.GetFileAsync("roamed.bin"); throw new Exception("roaming file visible in LocalFolder"); } catch (FileNotFoundException) { }
         try { await local.GetFileAsync("absent.bin"); throw new Exception("missing local file accepted"); } catch (FileNotFoundException) { }
         try { await local.GetFileAsync(@"..\escape.bin"); throw new Exception("parent traversal accepted"); } catch (ArgumentException) { }
         try { await StorageFile.GetFileFromPathAsync(path + "\0tail"); throw new Exception("NUL path accepted"); } catch (ArgumentException) { }

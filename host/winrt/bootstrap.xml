@@ -450,6 +450,7 @@
     <Property Name="Current" />
     <Property Name="LocalSettings" />
     <Property Name="LocalFolder" />
+    <Property Name="RoamingFolder" />
     <Property Name="RoamingSettings" />
   </Class>
   <Class Name="Windows.Storage.ApplicationDataContainer">
