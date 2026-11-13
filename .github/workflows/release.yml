@@ -251,5 +251,16 @@ jobs:
                     'build/wine-clr/appx-portable-wine-clr-macos.tar.xz'
                     'build/wine-clr/appx-portable-wine-clr-sources.tar.xz'
                   )
+                  # pyappxportable reads these checksums from the release's direct
+                  # download links, so it never needs the rate-limited GitHub API.
+                  foreach ($asset in @(
+                    'build/appx-portable-winrt-tools.zip'
+                    'build/wine-clr/appx-portable-wine-clr-macos.tar.xz'
+                  )) {
+                    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+                    $name = Split-Path -Leaf $asset
+                    Set-Content -LiteralPath "$asset.sha256" -Value "$hash  $name" -Encoding ascii
+                    $archives += "$asset.sha256"
+                  }
                   gh release create $env:RELEASE_TAG @archives --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes --latest
                   if ($LASTEXITCODE -ne 0) { throw 'Failed to publish release.' }
