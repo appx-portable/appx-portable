@@ -72,6 +72,26 @@ int main() {
     if (client->GetAsync(uri.Get(), nullptr) != E_POINTER) return 24;
     request.Reset();
     if (client->GetAsync(nullptr, &request) != E_INVALIDARG || request) return 25;
+    // The client's other requests fail the same way.
+    if (FAILED(client->PostAsync(uri.Get(), nullptr, &request)) || !request ||
+        request->GetResults(&response) != networkError)
+        return 26;
+    ComPtr<__FIAsyncOperationWithProgress_2_HSTRING_Windows__CWeb__CHttp__CHttpProgress> text;
+    HString body;
+    if (FAILED(client->GetStringAsync(uri.Get(), &text)) || !text ||
+        text->GetResults(body.GetAddressOf()) != networkError)
+        return 27;
+    // Default headers a game adds are kept for the next time it asks.
+    ComPtr<ABI::Windows::Web::Http::Headers::IHttpRequestHeaderCollection> headers;
+    if (FAILED(client->get_DefaultRequestHeaders(&headers)) || !headers ||
+        FAILED(headers->Append(HStringReference(L"x-test").Get(), HStringReference(L"1").Get())))
+        return 28;
+    headers.Reset();
+    ComPtr<__FIMap_2_HSTRING_HSTRING> map;
+    boolean found = false;
+    if (FAILED(client->get_DefaultRequestHeaders(&headers)) || FAILED(headers.As(&map)) ||
+        FAILED(map->HasKey(HStringReference(L"x-test").Get(), &found)) || !found)
+        return 29;
     puts("stubtest: ads unavailable; playback fails");
     return 0;
 }

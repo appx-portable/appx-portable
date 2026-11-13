@@ -72,6 +72,7 @@ Options Parse() {
     const auto ini = SettingsFile();
     options.unlockTrial = Setting(L"APPX_PORTABLE_UNLOCK_TRIAL", L"UnlockTrial", ini);
     options.stubIap = Setting(L"APPX_PORTABLE_STUB_IAP", L"StubIap", ini);
+    options.network = Setting(L"APPX_PORTABLE_NETWORK", L"Network", ini);
     options.frameRate = FrameRate(ini);
     options.stubIapProducts = ProductSetting(ini, L"APPX_PORTABLE_STUB_IAP_PRODUCTS", L"StubIapProducts");
     options.stubXboxProducts = ProductSetting(ini, L"APPX_PORTABLE_STUB_XBOX_PRODUCTS", L"StubXboxProducts");
@@ -89,6 +90,7 @@ Options Parse() {
         if (_wcsicmp(word.c_str(), L"--passthrough") == 0) options.passthrough = true;
         if (_wcsicmp(word.c_str(), L"--stub-iap") == 0) options.stubIap = true;
         if (_wcsicmp(word.c_str(), L"--unlock-trial") == 0) options.unlockTrial = true;
+        if (_wcsicmp(word.c_str(), L"--network") == 0) options.network = true;
     });
     // Tracing and passthrough exist to produce a log.
     if (options.trace || options.passthrough || options.diagnostics) options.log = true;

@@ -268,6 +268,15 @@ add_store_settings_test(ini_env_off "[options]\\nUnlockTrial=1\\nStubIap=1"
     "APPX_PORTABLE_UNLOCK_TRIAL=0|APPX_PORTABLE_STUB_IAP=0" "")
 add_store_settings_test(ini_absent_section "[storage]\\nSaveLocation=game"
     "--unset=APPX_PORTABLE_UNLOCK_TRIAL|--unset=APPX_PORTABLE_STUB_IAP" "")
+# Network=1 hands the network classes to Windows; offline is the default.
+add_store_settings_test(network_ini "[options]\\nNetwork=1"
+    "--unset=APPX_PORTABLE_NETWORK|APPX_PORTABLE_STUB_IAP=0|APPX_PORTABLE_UNLOCK_TRIAL=0" --expect-network)
+add_store_settings_test(network_ini_env_off "[options]\\nNetwork=1\\nStubIap=1"
+    "APPX_PORTABLE_NETWORK=0|--unset=APPX_PORTABLE_STUB_IAP|APPX_PORTABLE_UNLOCK_TRIAL=0" --expect-stub-iap)
+add_test(NAME store_network_cli COMMAND storetest --expect-network --network)
+add_test(NAME store_network_env COMMAND storetest --expect-network)
+set_tests_properties(store_network_cli PROPERTIES ENVIRONMENT_MODIFICATION "APPX_PORTABLE_NETWORK=unset:")
+set_tests_properties(store_network_env PROPERTIES ENVIRONMENT_MODIFICATION "APPX_PORTABLE_NETWORK=set:1")
 add_test(NAME store_unlocked_cli COMMAND storetest --expect-unlocked --unlock-trial)
 add_test(NAME store_unlocked_env COMMAND storetest --expect-unlocked)
 add_test(NAME store_override_disabled COMMAND storetest)

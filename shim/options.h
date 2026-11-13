@@ -14,6 +14,9 @@ namespace appx {
 //   --passthrough   activate the OS classes and only log           APPX_PORTABLE_MODE=trace
 //   --stub-iap      complete in-app purchases locally             APPX_PORTABLE_STUB_IAP=1
 //   --unlock-trial  report an active, full base-app license        APPX_PORTABLE_UNLOCK_TRIAL=1
+//   --network       Windows' connection status and HTTP classes    APPX_PORTABLE_NETWORK=1
+// The last can also be set in appx-portable.ini, [options] Network=1. Without it
+// the game is told it has no internet connection, and its HTTP requests fail.
 // [options] StubIapProducts=id1,id2 names products for the stub IAP listing of
 // a game without a bundled catalog; APPX_PORTABLE_STUB_IAP_PRODUCTS wins over it.
 // [options] Xaml=portable keeps a native XAML game on the portable XAML backend
@@ -24,6 +27,7 @@ namespace appx {
 struct Options {
     bool log = false, trace = false, capture = false, diagnostics = false, passthrough = false;
     bool unlockTrial = false, stubIap = false, hosted = false, hostedXaml = false, portableXaml = false;
+    bool network = false;
     unsigned frameRate = 60;
     std::wstring stubIapProducts;
     // Xbox offer GUID:asset ID:quantity entries, separated by commas.
