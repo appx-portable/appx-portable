@@ -355,13 +355,21 @@ endforeach()
 if(NOT CMAKE_CROSSCOMPILING)
   set(APPX_CSC "$ENV{WINDIR}/Microsoft.NET/Framework/v4.0.30319/csc.exe")
   file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/host/managed.cs" APPX_HOST_SOURCE)
+  file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/host/components.cs" APPX_COMPONENTS_SOURCE)
   add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-host.exe"
     COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:winexe
       /win32manifest:${CMAKE_SOURCE_DIR}/host/managed.manifest
       /r:System.Windows.Forms.dll /out:${CMAKE_BINARY_DIR}/appx-host.exe
-      "${APPX_HOST_SOURCE}"
-    DEPENDS host/managed.cs host/managed.manifest VERBATIM)
-  add_custom_target(appx_managed_host ALL DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe")
+      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}"
+    DEPENDS host/managed.cs host/components.cs host/managed.manifest VERBATIM)
+  # A native game's C# components: the shim loads this bridge into the desktop
+  # CLR it starts in the game, so there is nothing for players to start.
+  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-components.dll"
+    COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:library
+      /out:${CMAKE_BINARY_DIR}/appx-components.dll "${APPX_COMPONENTS_SOURCE}"
+    DEPENDS host/components.cs VERBATIM)
+  add_custom_target(appx_managed_host ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe" "${CMAKE_BINARY_DIR}/appx-components.dll")
   add_test(NAME xbox11_standins COMMAND "${CMAKE_COMMAND}"
     "-DCSC=${APPX_CSC}" "-DTEST_EXE=$<TARGET_FILE:standintest>"
     "-DSHIM=$<TARGET_FILE:appxportable>" "-DFIXTURE=${CMAKE_BINARY_DIR}/xbox11-fixture"

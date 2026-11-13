@@ -19,7 +19,7 @@ Both Windows architectures also build `appx-native-host.exe` for .NET Native XAM
 
 For x64 games, use an **x64 Native Tools Command Prompt**, `cmake --preset windows-x64`, and `cmake --build --preset windows-x64`. This requires the MSVC x64 assembler and also builds the `XAudio2_9.dll` proxy. Pass `pyappxportable` `--build build/windows-x64` and a matching x64 VCLibs framework. See [runtime structure](runtime-structure.md) and the [embedded XBF support](xbf.md).
 
-GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`; x64 currently supports native games only, so its ZIP omits the CLR host. `pyappxportable` downloads the Microsoft VCLibs packages from [yell0wsuit/vclibs-appx](https://github.com/yell0wsuit/vclibs-appx/releases/latest).
+GitHub Actions builds and tests each architecture in its own job, with Ninja and a ccache compiler cache, and publishes `appx-portable-<version>-x86.zip` and `appx-portable-<version>-x64.zip` together. Both ZIPs contain the runtime and all four proxy DLLs. The x86 ZIP also contains `appx-host.exe`, the CLR host for managed games, and `appx-components.dll`, the bridge for a native game's C# components; x64 currently supports native games only, so its ZIP omits both. `pyappxportable` downloads the Microsoft VCLibs packages from [yell0wsuit/vclibs-appx](https://github.com/yell0wsuit/vclibs-appx/releases/latest).
 
 If CMake cannot find `cl`, use an x86 Visual Studio developer shell. If MSYS2's CMake appears first on `PATH`, put the native Windows CMake ahead of it (typically `C:\Program Files\CMake\bin`).
 
@@ -43,7 +43,7 @@ dotnet format host/managed.csproj --verify-no-changes
 dotnet build host/managed.csproj --no-restore -warnaserror
 ```
 
-Omit `--verify-no-changes` to apply formatting fixes. This project is for tooling; CMake still builds `appx-host.exe` with the Windows .NET Framework compiler. The tooling project keeps C# 5 compatibility with that compiler.
+Omit `--verify-no-changes` to apply formatting fixes. This project is for tooling; CMake still builds `appx-host.exe` and `appx-components.dll` with the Windows .NET Framework compiler. The tooling project keeps C# 5 compatibility with that compiler.
 
 Open `appx-portable.slnx` for C# editing so the editor uses the launcher's `net48` target and C# 5 language version. Modern .NET suggestions such as replacing `DllImport` with `LibraryImport` do not apply to this Framework launcher.
 

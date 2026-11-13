@@ -34,7 +34,7 @@ Each VCLibs `.appx` is a ZIP archive with its DLLs at the root. Copy the DLLs li
 
 ## 3. Add the Appx Portable DLLs
 
-Download `appx-portable-<version>-x86.zip` (or `-x64.zip` for an x64 game) from the latest [release](https://github.com/yell0wsuit/appx-portable/releases) and extract its DLLs beside the game's executable. For a managed (C#) game, also copy `appx-host.exe` from the x86 zip; the game starts through it.
+Download `appx-portable-<version>-x86.zip` (or `-x64.zip` for an x64 game) from the latest [release](https://github.com/yell0wsuit/appx-portable/releases) and extract its DLLs beside the game's executable. For a managed (C#) game, also copy `appx-host.exe` from the x86 zip; the game starts through it. The x86 zip's `appx-components.dll` is among those DLLs; it runs the C# components some native games ship.
 
 ## 4. Settings and patches
 

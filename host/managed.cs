@@ -1,11 +1,9 @@
 // Managed launcher: runs the game's managed exe in-process so the process
 // carries this exe's manifest (maxversiontested for XAML Islands).
 using System;
-using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Xml;
 
@@ -26,7 +24,7 @@ internal sealed class UiContext : SynchronizationContext
     private void Run(SendOrPostCallback d, object state)
     {
         try { d(state); }
-        catch (Exception ex) { Host.AppendLog(log, "[posted continuation threw] " + ex + "\n"); }
+        catch (Exception ex) { ManagedLog.AppendLog(log, "[posted continuation threw] " + ex + "\n"); }
     }
     public override void Post(SendOrPostCallback d, object state)
     {
@@ -46,87 +44,8 @@ internal sealed class UiContext : SynchronizationContext
     public override SynchronizationContext CreateCopy() { return this; }
 }
 
-// Called by the shim in native games, through ICLRRuntimeHost::
-// ExecuteInDefaultAppDomain, for a class the package serves from Windows'
-// CLRHost.dll (a C# Windows Runtime component), which needs package identity.
-// The desktop CLR resolves the component's .winmd beside the game executable
-// and makes the same managed activation factory CLRHost would.
-public static class ManagedComponents
-{
-    private const int ClassNotRegistered = unchecked((int)0x80040154);
-    private static int observing;
-
-    // Component exceptions surface in native code only as HRESULTs; log them
-    // to managed.log, as the managed launcher does for C# games.
-    private static void Observe()
-    {
-        if (Interlocked.Exchange(ref observing, 1) != 0)
-        {
-            return;
-        }
-        string log = Path.Combine(Path.GetDirectoryName(typeof(ManagedComponents).Assembly.Location), "managed.log");
-        Host.AppendLog(log, "[components] desktop CLR started for C# components\n");
-        AppDomain.CurrentDomain.FirstChanceException += (s, e) =>
-            Host.AppendLog(log, string.Format("[first-chance] {0} 0x{1:X8}: {2}\n{3}\n",
-                e.Exception.GetType().FullName, e.Exception.HResult, e.Exception.Message,
-                new System.Diagnostics.StackTrace(1, false)));
-        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
-            Host.AppendLog(log, "[unhandled] " + e.ExceptionObject + "\n");
-    }
-
-    // request is "<hex address>|<class id>"; the AddRef'd IActivationFactory is
-    // written to the address. Returns an HRESULT.
-    public static int GetFactory(string request)
-    {
-        try
-        {
-            Observe();
-            int split = request.IndexOf('|');
-            IntPtr slot = new IntPtr(long.Parse(request.Substring(0, split), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
-            Type type = Type.GetType(request.Substring(split + 1) + ", Windows, ContentType=WindowsRuntime", false);
-            if (type == null)
-            {
-                return ClassNotRegistered;
-            }
-            IActivationFactory factory = WindowsRuntimeMarshal.GetActivationFactory(type);
-            Marshal.WriteIntPtr(slot, Marshal.GetComInterfaceForObject(factory, typeof(IActivationFactory)));
-            return 0;
-        }
-        catch (TypeLoadException)
-        {
-            return ClassNotRegistered;
-        }
-        catch (Exception ex)
-        {
-            return ex.HResult < 0 ? ex.HResult : unchecked((int)0x80004005);
-        }
-    }
-}
-
 internal static class Host
 {
-    private static readonly object logLock = new object();
-    [ThreadStatic]
-    private static bool writingLog;
-
-    internal static void AppendLog(string path, string text)
-    {
-        // First-chance events can arrive concurrently. A sharing violation in
-        // the exception observer itself can terminate the CLR. Logging must
-        // never throw or recursively log its own failures.
-        if (writingLog)
-        {
-            return;
-        }
-        writingLog = true;
-        try
-        {
-            lock (logLock) { File.AppendAllText(path, text); }
-        }
-        catch (Exception) { }
-        finally { writingLog = false; }
-    }
-
     [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void ShimBootstrap();
     [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -168,11 +87,11 @@ internal static class Host
         string log = Path.Combine(dir, "managed.log");
         File.WriteAllText(log, "");
         AppDomain.CurrentDomain.FirstChanceException += (s, e) =>
-            AppendLog(log, string.Format("[first-chance] {0} 0x{1:X8}: {2}\n{3}\n",
+            ManagedLog.AppendLog(log, string.Format("[first-chance] {0} 0x{1:X8}: {2}\n{3}\n",
                 e.Exception.GetType().FullName, e.Exception.HResult, e.Exception.Message,
                 new System.Diagnostics.StackTrace(1, false)));
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
-            AppendLog(log, "[unhandled] " + e.ExceptionObject + "\n");
+            ManagedLog.AppendLog(log, "[unhandled] " + e.ExceptionObject + "\n");
         ShimBootstrap();
         try
         {
@@ -196,7 +115,7 @@ internal static class Host
 
             Assembly assembly = Assembly.LoadFrom(target);
             bool coreWindow = assembly.EntryPoint.IsDefined(typeof(MTAThreadAttribute), false);
-            AppendLog(log, coreWindow ? "[host] managed CoreWindow (MTA)\n" : "[host] managed XAML Islands (STA)\n");
+            ManagedLog.AppendLog(log, coreWindow ? "[host] managed CoreWindow (MTA)\n" : "[host] managed XAML Islands (STA)\n");
             if (coreWindow)
             {
                 ShimSetManagedCoreWindowMode();
@@ -213,7 +132,7 @@ internal static class Host
                 }
                 catch (Exception ex)
                 {
-                    AppendLog(log, "[escaped Main] " + ex + "\n");
+                    ManagedLog.AppendLog(log, "[escaped Main] " + ex + "\n");
                 }
             });
             ui.SetApartmentState(ApartmentState.STA);
@@ -223,7 +142,7 @@ internal static class Host
         }
         catch (Exception ex)
         {
-            AppendLog(log, "[escaped Main] " + ex + "\n");
+            ManagedLog.AppendLog(log, "[escaped Main] " + ex + "\n");
             return 1;
         }
     }

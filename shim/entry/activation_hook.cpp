@@ -92,7 +92,7 @@ static bool FromGame(void* returnAddress) noexcept {
 // bridge, ahead of the shim's stand-in for it: a stand-in matches one version
 // of a component, and another version keeps its interface IDs but changes
 // their methods (Asphalt 8's FacebookHelper statics). The stand-in serves
-// where the bridge cannot: without appx-host.exe (x64, Wine) or when the CLR
+// where the bridge cannot: without appx-components.dll (x64, Wine) or when the CLR
 // fails. CLASS_E_CLASSNOTAVAILABLE leaves the class to the usual order.
 static HRESULT BridgedComponentFactory(HSTRING name, IActivationFactory** factory) noexcept {
     const wchar_t* text = WindowsGetStringRawBuffer(name, nullptr);
