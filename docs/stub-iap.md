@@ -117,9 +117,9 @@ Tested on staged copies of the supplied packages:
 
 | Game                                       | Purchase verified                                                                                                                                                                  |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cut the Rope 2 1.0.0.46                    | Store / Candy Coins / 250 coins; balance increased from 57 to 307 and consumable fulfillment succeeded. Checked while StubIap reported a connection; not rechecked offline, where it may need `Network=1`. |
+| Cut the Rope 2 1.0.0.46                    | Store / Candy Coins / 250 coins; balance increased from 57 to 307 and consumable fulfillment succeeded. Offline (`Network=0`), Candy Coins / x2000 raised the balance by 2,000. |
 | Where's My Mickey? 1.1.0.30                | Goofy / Shipwrecked and Glass Half Empty / Menace of Venice episodes; show the thank-you dialog. The staged EXE requires the separate AMPS Python patch.                           |
-| Where's My Water? 1.13.1.3                 | Allie's Story; Try/Buy changes to Play.                                                                                                                                            |
+| Where's My Water? 1.13.1.3                 | Allie's Story; Try/Buy changes to Play. Needs `Network=1`: offline, the game says it could not connect and keeps the episode locked. |
 | Fruit Ninja 1.8.1.66                       | Dojo ? Gutsu?s Cart ? Starfruit ? Buy; user verified Item Purchased after the receipt fix. Requires `--unlock-trial --stub-iap`.                                                   |
 | Where's My Perry? manifest version 1.5.1.1 | Chapter unlocks (`LP_TWO`, `LP_THREE`, `LP_FOUR`); queued completion fixes the stuck Processing dialog.                                                                            |
 | Human Anatomy Atlas 2019 2019.1.26.0 (x64) | All animations, advanced animations and 3D dental anatomy; Unity IAP initializes and the game validates each receipt and unlocks. Requires `StubIapProducts` (above).              |
