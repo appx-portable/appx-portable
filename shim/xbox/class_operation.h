@@ -37,7 +37,8 @@ public:
                 reinterpret_cast<Invoke>((*reinterpret_cast<void***>(callback.Get()))[3])(
                     callback.Get(), static_cast<OperationAbi<T>*>(self.Get()), AsyncStatus::Completed);
             };
-            if (FAILED(PostHostWork(0, invoke))) invoke();
+            // A UI-thread handler runs on a later UI turn; another thread's runs here (see OnHostThread).
+            if (!OnHostThread() || FAILED(PostHostWork(0, invoke))) invoke();
         }
         return S_OK;
     }

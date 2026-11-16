@@ -278,6 +278,11 @@ add_library(page_projection_fixture SHARED tests/page_projection_fixture.cpp tes
 target_link_libraries(page_projection_fixture PRIVATE runtimeobject ole32)
 add_library(network_projection_fixture SHARED tests/network_projection_fixture.cpp tests/network_projection_fixture.def)
 target_link_libraries(network_projection_fixture PRIVATE runtimeobject ole32)
+add_executable(completiontest tests/completiontest.cpp)
+target_link_libraries(completiontest PRIVATE runtimeobject ole32)
+add_test(NAME completiontest COMMAND completiontest)
+set_tests_properties(completiontest PROPERTIES TIMEOUT 60
+    ENVIRONMENT "APPX_PORTABLE_DATA=${CMAKE_CURRENT_BINARY_DIR}/completion-save")
 add_executable(storetest tests/storetest.cpp)
 target_link_libraries(storetest PRIVATE runtimeobject ole32)
 add_test(NAME storetest COMMAND storetest)

@@ -11,6 +11,11 @@ HWND CreateSurfaceWindow() noexcept;
 HWND ShowXamlFallbackWindow();
 void HideXamlFallbackWindow();
 DWORD HostThread() noexcept;
+// Whether the caller is the host's UI thread. Finished async operations deliver a
+// handler registered there on a later UI turn, and one registered on any other
+// thread on that thread, as Windows' free-threaded operations do: the UI thread
+// may be blocked waiting for it.
+bool OnHostThread() noexcept;
 void ActivateHostWindow();
 bool IsHostFullscreen() noexcept;
 // Writes the window's size, position and mode now (normally saved on changes and on exit).

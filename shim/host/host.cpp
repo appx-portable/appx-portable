@@ -235,6 +235,7 @@ void SetHostTitle(const std::wstring& title) {
     }
 }
 DWORD HostThread() noexcept { return thread; }
+bool OnHostThread() noexcept { return thread && GetCurrentThreadId() == thread; }
 void ActivateHostWindow() {
     if (window) SendMessageW(window, ActivateMessage, 0, 0);
 }
