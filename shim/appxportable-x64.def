@@ -14,3 +14,5 @@ EXPORTS
   ShimSetXamlInputHandler
   ShimCaptureXamlWindow
   ShimXamlFrameCount
+  ShimGetHostWindow
+  ShimSetXamlMessageLoop

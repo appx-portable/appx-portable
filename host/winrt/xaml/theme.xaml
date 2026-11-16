@@ -16,6 +16,15 @@
                       Color="#DEFFFFFF"/>
      <SolidColorBrush x:Key="ApplicationPressedForegroundThemeBrush"
                       Color="#FFFFFFFF"/>
+     <SolidColorBrush x:Key="ListBoxBorderThemeBrush" Color="#FFFFFFFF"/>
+     <SolidColorBrush x:Key="ListBoxDisabledForegroundThemeBrush" Color="#66FFFFFF"/>
+     <SolidColorBrush x:Key="ListBoxItemDisabledForegroundThemeBrush" Color="#66FFFFFF"/>
+     <Style x:Key="HeaderTextBlockStyle" TargetType="TextBlock">
+          <Setter Property="FontFamily" Value="Segoe UI"/>
+          <Setter Property="FontSize" Value="56"/>
+          <Setter Property="FontWeight" Value="Light"/>
+          <Setter Property="Foreground" Value="{StaticResource ApplicationHeaderForegroundThemeBrush}"/>
+     </Style>
 
      <SolidColorBrush x:Key="AppBarItemBackgroundThemeBrush"
                       Color="#00000000"/>

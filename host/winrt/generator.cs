@@ -359,12 +359,18 @@ internal static partial class WinrtProjectionGenerator
     }
 
     // The ABI parameters, the using lines that prepare them, and the call arguments of a method.
-    private static void MarshalArguments(TypeDefinition type, MethodDefinition method, List<string> abi, List<string> setup, List<string> arguments)
+    private static void MarshalArguments(TypeDefinition type, MethodDefinition method, List<string> abi, List<string> setup, List<string> arguments,
+        List<string> declarations = null, List<string> outputs = null)
     {
         foreach (ParameterDefinition parameter in method.Parameters)
         {
             string full = parameter.ParameterType.FullName, value = "@" + parameter.Name;
             string local = "argument" + Literal(parameter.Index), prepare;
+            if (parameter.ParameterType.IsByReference && parameter.IsOut && !parameter.IsIn && outputs != null)
+            {
+                MarshalOutput(((ByReferenceType)parameter.ParameterType).ElementType, value, local, abi, setup, arguments, declarations, outputs);
+                continue;
+            }
             // A fill array is [out] but passed by value; a receive array is by reference.
             if ((parameter.IsOut && !(parameter.ParameterType is ArrayType)) || parameter.ParameterType.IsByReference || parameter.ParameterType.IsPointer)
                 throw new NotSupportedException("Unsupported parameter: " + method.FullName + " " + parameter.Name);
@@ -423,6 +429,42 @@ internal static partial class WinrtProjectionGenerator
         }
     }
 
+    private static void MarshalOutput(TypeReference type, string value, string local, List<string> abi, List<string> setup,
+        List<string> arguments, List<string> declarations, List<string> outputs)
+    {
+        string scalar = Scalar(type), converted = local;
+        if (scalar != null)
+        {
+            if (type.FullName == "System.Boolean") converted += " != 0";
+            else if (type.FullName == "System.Char") converted = "(char)" + local;
+        }
+        else if (Available(type.FullName) && Find(type.FullName).IsEnum)
+        {
+            scalar = Scalar(Find(type.FullName).Fields.Single(f => f.Name == "value__").FieldType);
+            if (scalar != "int" && scalar != "uint") throw new NotSupportedException("Unsupported output enum: " + type.FullName);
+            converted = "unchecked((" + Name(type) + ")" + local + ")";
+        }
+        if (scalar != null)
+        {
+            abi.Add("out " + scalar + " " + local);
+            declarations.Add(scalar + " " + local + ";");
+            arguments.Add("out " + local);
+        }
+        else
+        {
+            bool text = type.FullName == "System.String", inspectable = type.FullName == "System.Object";
+            if (!text && !inspectable && IsDelegate(Parameter(type, "output parameter")))
+                throw new NotSupportedException("Unsupported output delegate: " + type.FullName);
+            abi.Add("out global::System.IntPtr " + local);
+            setup.Add("                using (var " + local + " = new " + Runtime + "NativeOutput(" + (text ? "true" : "false") + "))");
+            arguments.Add("out " + local + ".Value");
+            string owned = Runtime + "NativeObject.ObjectResult(0, " + local + ".Detach())";
+            converted = text ? Runtime + "NativeString.TakeResult(0, " + local + ".Detach())"
+                : inspectable ? Inspectable(owned) : Wrapped(type, owned);
+        }
+        outputs.Add(value + " = " + converted + ";");
+    }
+
     private static void MethodOverload(StringBuilder output, TypeDefinition type, MethodDefinition method, bool composable, bool overloaded)
     {
         string name = method.Name;
@@ -444,7 +486,11 @@ internal static partial class WinrtProjectionGenerator
         var abi = new List<string>();
         var setup = new List<string>();
         var arguments = new List<string>();
-        MarshalArguments(type, method, abi, setup, arguments);
+        var declarations = new List<string>();
+        var outputs = new List<string>();
+        MarshalArguments(type, method, abi, setup, arguments, declarations, outputs);
+        bool pointerResult = returns && resultAbi == "global::System.IntPtr";
+        if (pointerResult) setup.Add("                using (var result = new " + Runtime + "NativeOutput(" + (stringResult ? "true" : "false") + "))");
         output.AppendLine("        " + StdCall);
         output.AppendLine("        private delegate int Native_" + nativeName + "(global::System.IntPtr self" +
             string.Concat(abi.Select(p => ", " + p)) + (returns ? ", out " + resultAbi + " result" : "") + ");");
@@ -452,7 +498,7 @@ internal static partial class WinrtProjectionGenerator
         string abiName = overload == null ? name : (string)overload.ConstructorArguments[0].Value;
         output.AppendLine("        // " + owner.FullName + "::" + abiName + ", slot " + Literal(slot));
         output.AppendLine("        public " + (method.IsStatic ? "static " : "") + (returns ? Name(method.ReturnType) : "void") + " " + name + "(" +
-            string.Join(", ", method.Parameters.Select(p => Name(p.ParameterType) + " @" + p.Name)) + ")");
+            DeclaredParameters(method) + ")");
         output.AppendLine("        {");
         output.AppendLine("            using (var invocation = " + Runtime + "Errors.Begin())");
         output.AppendLine("            {");
@@ -460,9 +506,15 @@ internal static partial class WinrtProjectionGenerator
         foreach (string line in setup) output.AppendLine(line);
         output.AppendLine("                using (var call = new " + Runtime + "NativeObject.Access(" + receiver + "))");
         output.AppendLine("                {");
-        if (returns) output.AppendLine("                    " + resultAbi + " result;");
+        foreach (string declaration in declarations) output.AppendLine("                    " + declaration);
+        if (returns && !pointerResult) output.AppendLine("                    " + resultAbi + " result;");
         output.AppendLine("                    int hr = call.Method<Native_" + nativeName + ">(" + Literal(slot) + ")(call.Self" +
-            string.Concat(arguments.Select(p => ", " + p)) + (returns ? ", out result" : "") + ");");
+            string.Concat(arguments.Select(p => ", " + p)) + (returns ? ", out result" + (pointerResult ? ".Value" : "") : "") + ");");
+        if (outputs.Count != 0)
+        {
+            output.AppendLine("                    " + Runtime + "Errors.Check(hr);");
+            foreach (string assignment in outputs) output.AppendLine("                    " + assignment);
+        }
         if (enumResult)
         {
             output.AppendLine("                    " + Runtime + "Errors.Check(hr);");
@@ -473,10 +525,10 @@ internal static partial class WinrtProjectionGenerator
             output.AppendLine("                    " + Runtime + "Errors.Check(hr);");
             output.AppendLine("                    return " + (method.ReturnType.FullName == "System.Boolean" ? "result != 0" : method.ReturnType.FullName == "System.Char" ? "(char)result" : "result") + ";");
         }
-        else if (stringResult) output.AppendLine("                    return " + Runtime + "NativeString.TakeResult(hr, result);");
+        else if (stringResult) output.AppendLine("                    return " + Runtime + "NativeString.TakeResult(hr, result.Detach());");
         else if (returns)
         {
-            string result = Runtime + "NativeObject.ObjectResult(hr, result)";
+            string result = Runtime + "NativeObject.ObjectResult(hr, result.Detach())";
             output.AppendLine("                    return " + (method.ReturnType.FullName == "System.Object" ? Inspectable(result) : Wrapped(method.ReturnType, result)) + ";");
         }
         else output.AppendLine("                    " + Runtime + "Errors.Check(hr);");
@@ -688,7 +740,8 @@ internal static partial class WinrtProjectionGenerator
         { "Windows.Foundation.Rect", new[] { "X:System.Single", "Y:System.Single", "Width:System.Single", "Height:System.Single" } },
         { "Windows.UI.Color", new[] { "A:System.Byte", "R:System.Byte", "G:System.Byte", "B:System.Byte" } },
         { "Windows.UI.Xaml.Thickness", new[] { "Left:System.Double", "Top:System.Double", "Right:System.Double", "Bottom:System.Double" } },
-        { "Windows.UI.Xaml.Duration", new[] { "TimeSpan:Windows.Foundation.TimeSpan", "Type:Windows.UI.Xaml.DurationType" } } };
+        { "Windows.UI.Xaml.Duration", new[] { "TimeSpan:Windows.Foundation.TimeSpan", "Type:Windows.UI.Xaml.DurationType" } },
+        { "Windows.UI.Xaml.GridLength", new[] { "Value:System.Double", "GridUnitType:Windows.UI.Xaml.GridUnitType" } } };
     private static void ClrStruct(StringBuilder output, TypeDefinition type, XmlElement surface)
     {
         string[] fields;
@@ -698,6 +751,8 @@ internal static partial class WinrtProjectionGenerator
             throw new NotSupportedException("Unsupported CLR-redirected struct: " + type.FullName);
         if (type.FullName == "Windows.UI.Xaml.Duration" && !selected.Contains("Windows.UI.Xaml.DurationType"))
             throw new NotSupportedException("Duration needs Windows.UI.Xaml.DurationType");
+        if (type.FullName == "Windows.UI.Xaml.GridLength" && !selected.Contains("Windows.UI.Xaml.GridUnitType"))
+            throw new NotSupportedException("GridLength needs Windows.UI.Xaml.GridUnitType");
         output.AppendLine("    [global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential)]");
         output.Append(ClrStructTemplates[type.FullName]);
     }
@@ -858,6 +913,31 @@ internal static partial class WinrtProjectionGenerator
         public static bool operator ==(Thickness a, Thickness b) { return a.Equals(b); }
         public static bool operator !=(Thickness a, Thickness b) { return !a.Equals(b); }
         public override string ToString() { return Left + "","" + Top + "","" + Right + "","" + Bottom; }
+    }
+" },
+        { "Windows.UI.Xaml.GridLength", @"    public struct GridLength
+    {
+        private double _value;
+        private GridUnitType _unit;
+        public GridLength(double pixels) : this(pixels, GridUnitType.Pixel) { }
+        public GridLength(double value, GridUnitType type)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0) throw new global::System.ArgumentException(""Invalid grid length"", ""value"");
+            if (type != GridUnitType.Auto && type != GridUnitType.Pixel && type != GridUnitType.Star) throw new global::System.ArgumentException(""Invalid grid unit"", ""type"");
+            _value = type == GridUnitType.Auto ? 1 : value; _unit = type;
+        }
+        public static GridLength Auto { get { return new GridLength(1, GridUnitType.Auto); } }
+        public double Value { get { return IsAuto ? 1 : _value; } }
+        public GridUnitType GridUnitType { get { return _unit; } }
+        public bool IsAbsolute { get { return _unit == GridUnitType.Pixel; } }
+        public bool IsAuto { get { return _unit == GridUnitType.Auto; } }
+        public bool IsStar { get { return _unit == GridUnitType.Star; } }
+        public bool Equals(GridLength value) { return _unit == value._unit && Value == value.Value; }
+        public override bool Equals(object value) { return value is GridLength && Equals((GridLength)value); }
+        public override int GetHashCode() { return Value.GetHashCode() ^ (int)_unit; }
+        public static bool operator ==(GridLength a, GridLength b) { return a.Equals(b); }
+        public static bool operator !=(GridLength a, GridLength b) { return !a.Equals(b); }
+        public override string ToString() { return IsAuto ? ""Auto"" : Value.ToString(global::System.Globalization.CultureInfo.InvariantCulture) + (IsStar ? ""*"" : """"); }
     }
 " },
         { "Windows.UI.Xaml.Duration", @"    public struct Duration

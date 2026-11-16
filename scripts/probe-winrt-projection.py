@@ -17,7 +17,7 @@ import subprocess
 # independent of the metadata the generator reads. Slots follow IInspectable's six.
 # WPF backs Windows.UI.Xaml for managed games under Wine: every Windows.dll built
 # from the bootstrap selection compiles these, against Wine Mono's WPF.
-XAML_SOURCES = ("xaml/host.cs", "xaml/peers.cs", "xaml/values.cs", "xaml/properties.cs", "xaml/tree.cs", "xaml/events.cs", "xaml/navigation.cs", "xaml/animation.cs", "xaml/loader.cs", "xaml/states.cs", "xaml/markup.cs", "xaml/controls.cs", "xaml/images.cs", "xaml/input_events.cs", "xaml/layout.cs", "xaml/colors.cs", "xaml/services.cs", "xaml/popup.cs", "xaml/transitions.cs", "xaml/compositor.cs", "xml_dom.cs")
+XAML_SOURCES = ("xaml/host.cs", "xaml/peers.cs", "xaml/values.cs", "xaml/properties.cs", "xaml/tree.cs", "xaml/events.cs", "xaml/navigation.cs", "xaml/animation.cs", "xaml/loader.cs", "xaml/xbf.cs", "xaml/startup.cs", "xaml/webview.cs", "xaml/states.cs", "xaml/markup.cs", "xaml/controls.cs", "xaml/images.cs", "xaml/input_events.cs", "xaml/layout.cs", "xaml/colors.cs", "xaml/services.cs", "xaml/popup.cs", "xaml/transitions.cs", "xaml/compositor.cs", "xml_dom.cs", "resources.cs")
 XAML_THEME, XAML_THEME_NAME = "xaml/theme.xaml", "AppxPortable.WinRT.Xaml.theme.xaml"
 BOOTSTRAP_GENERATED = ("Windows.generated.cs", "Windows.interop.cs", "Windows.xbox-interop.cs", "Mutated.generated.cs")
 
@@ -273,7 +273,7 @@ def main():
         command = [windows(mono / "4.5/mcs.exe"), "/nologo", "/noconfig", "/nostdlib+", "/warnaserror+",
                    "/langversion:5", "/platform:" + args.architecture, "/out:" + windows(destination)]
         command += ["/r:" + windows(references / name)
-                    for name in ("mscorlib.dll", "System.dll", "System.Core.dll", "System.Xml.dll")]
+                    for name in ("mscorlib.dll", "System.dll", "System.Core.dll", "System.Xml.dll", "System.Windows.Forms.dll", "System.Drawing.dll")]
         command += ["/r:" + windows(r) for r in wpf_references(mono)]
         if any(Path(path).name in BOOTSTRAP_GENERATED for path in sources):
             sources = list(sources) + [repo / "host/winrt" / n for n in XAML_SOURCES]

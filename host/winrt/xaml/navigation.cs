@@ -68,6 +68,7 @@ namespace Windows.UI.Xaml.Controls
         public int BackStackDepth { get { CheckThread(); return back.Count; } }
         public bool CanGoBack { get { CheckThread(); return back.Count > 0; } }
         public bool CanGoForward { get { CheckThread(); return forward.Count > 0; } }
+        public Type CurrentSourcePageType { get { CheckThread(); return current.HasValue ? current.Value.Type : null; } }
 
         public void GoBack() { Step(back, forward, NavigationMode.Back); }
         public void GoForward() { Step(forward, back, NavigationMode.Forward); }
@@ -191,7 +192,12 @@ namespace AppxPortable.WinRT.Xaml
 {
     // Marks a UWP virtual the adapter calls; overriding any other one is named in the log.
     [AttributeUsage(AttributeTargets.Method)]
-    internal sealed class RaisedAttribute : Attribute { }
+    internal sealed class RaisedAttribute : Attribute
+    {
+        internal readonly Type SupportedBase;
+        public RaisedAttribute() { }
+        public RaisedAttribute(Type supportedBase) { SupportedBase = supportedBase; }
+    }
 
     internal static class Overrides
     {
@@ -230,8 +236,12 @@ namespace AppxPortable.WinRT.Xaml
                     MethodInfo definition = method.GetBaseDefinition();
                     if (definition == method && (method.Attributes & MethodAttributes.NewSlot) == 0)
                         Errors.Unimplemented(projected.FullName + "." + method.Name + " override");
-                    else if (definition != method && definition.DeclaringType.Assembly == projection && !definition.IsDefined(typeof(RaisedAttribute), false))
-                        Errors.Unimplemented(definition.DeclaringType.FullName + "." + definition.Name + " override");
+                    else if (definition != method && definition.DeclaringType.Assembly == projection)
+                    {
+                        var raised = (RaisedAttribute)Attribute.GetCustomAttribute(definition, typeof(RaisedAttribute));
+                        if (raised == null || raised.SupportedBase != null && raised.SupportedBase != projected)
+                            Errors.Unimplemented(definition.DeclaringType.FullName + "." + definition.Name + " override");
+                    }
                 }
         }
     }

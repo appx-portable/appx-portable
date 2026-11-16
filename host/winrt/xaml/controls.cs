@@ -22,6 +22,7 @@ namespace AppxPortable.WinRT.Xaml
     {
         public ScrollViewerPeer()
         {
+            ScrollProperties.UpdatePanning(this);
             RequestBringIntoView += (s, e) => { if (!ScrollProperties.GetBringIntoViewOnFocusChange(this)) e.Handled = true; };
         }
 
@@ -32,10 +33,14 @@ namespace AppxPortable.WinRT.Xaml
             if (!e.Handled && ScrollInfo != null && ScrollableHeight <= 0 && ScrollableWidth > 0 &&
                 HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled)
             {
+                bool edge = e.Delta < 0 ? HorizontalOffset >= ScrollableWidth : HorizontalOffset <= 0;
+                if (edge && ScrollProperties.GetIsHorizontalScrollChainingEnabled(this)) return;
                 if (e.Delta < 0) ScrollInfo.MouseWheelRight(); else ScrollInfo.MouseWheelLeft();
                 e.Handled = true;
                 return;
             }
+            if (!e.Handled && ScrollInfo != null && ScrollProperties.GetIsVerticalScrollChainingEnabled(this) &&
+                (e.Delta < 0 ? VerticalOffset >= ScrollableHeight : VerticalOffset <= 0)) return;
             base.OnMouseWheel(e);
         }
     }
@@ -48,10 +53,10 @@ namespace AppxPortable.WinRT.Xaml
             new PropertyMetadata(global::Windows.UI.Xaml.Controls.ZoomMode.Disabled, (d, e) =>
             { if ((global::Windows.UI.Xaml.Controls.ZoomMode)e.NewValue != global::Windows.UI.Xaml.Controls.ZoomMode.Disabled) throw Errors.Unimplemented("Windows.UI.Xaml.Controls.ScrollViewer.ZoomMode"); }));
         public static readonly DependencyProperty BringIntoViewOnFocusChangeProperty = DependencyProperty.RegisterAttached("BringIntoViewOnFocusChange", typeof(bool), typeof(ScrollProperties), new PropertyMetadata(true));
-        public static readonly DependencyProperty IsHorizontalRailEnabledProperty = Disabled("IsHorizontalRailEnabled");
-        public static readonly DependencyProperty IsVerticalRailEnabledProperty = Disabled("IsVerticalRailEnabled");
-        public static readonly DependencyProperty IsHorizontalScrollChainingEnabledProperty = Disabled("IsHorizontalScrollChainingEnabled");
-        public static readonly DependencyProperty IsVerticalScrollChainingEnabledProperty = Disabled("IsVerticalScrollChainingEnabled");
+        public static readonly DependencyProperty IsHorizontalRailEnabledProperty = Rail("IsHorizontalRailEnabled");
+        public static readonly DependencyProperty IsVerticalRailEnabledProperty = Rail("IsVerticalRailEnabled");
+        public static readonly DependencyProperty IsHorizontalScrollChainingEnabledProperty = Chaining("IsHorizontalScrollChainingEnabled");
+        public static readonly DependencyProperty IsVerticalScrollChainingEnabledProperty = Chaining("IsVerticalScrollChainingEnabled");
 
         static ScrollProperties()
         {
@@ -59,10 +64,26 @@ namespace AppxPortable.WinRT.Xaml
                 ((DependencyProperty)field.GetValue(null)).AddOwner(typeof(ScrollViewer));
         }
 
-        private static DependencyProperty Disabled(string name)
+        private static DependencyProperty Rail(string name)
         {
-            return DependencyProperty.RegisterAttached(name, typeof(bool), typeof(ScrollProperties), new PropertyMetadata(false, (d, e) =>
-            { if ((bool)e.NewValue) throw Errors.Unimplemented("Windows.UI.Xaml.Controls.ScrollViewer." + name); }));
+            return DependencyProperty.RegisterAttached(name, typeof(bool), typeof(ScrollProperties),
+                new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.Inherits, (d, e) => UpdatePanning(d)));
+        }
+        private static DependencyProperty Chaining(string name)
+        {
+            return DependencyProperty.RegisterAttached(name, typeof(bool), typeof(ScrollProperties),
+                new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.Inherits));
+        }
+        internal static void UpdatePanning(DependencyObject owner)
+        {
+            var viewer = owner as ScrollViewer;
+            if (viewer == null) return;
+            bool horizontal = GetHorizontalScrollMode(owner) != global::Windows.UI.Xaml.Controls.ScrollMode.Disabled;
+            bool vertical = GetVerticalScrollMode(owner) != global::Windows.UI.Xaml.Controls.ScrollMode.Disabled;
+            bool horizontalRail = GetIsHorizontalRailEnabled(owner), verticalRail = GetIsVerticalRailEnabled(owner);
+            viewer.PanningMode = !horizontal ? (vertical ? PanningMode.VerticalOnly : PanningMode.None)
+                : !vertical ? PanningMode.HorizontalOnly : horizontalRail && !verticalRail ? PanningMode.HorizontalFirst
+                : verticalRail && !horizontalRail ? PanningMode.VerticalFirst : PanningMode.Both;
         }
 
         private static DependencyProperty Mode(string name, bool vertical)
@@ -74,6 +95,7 @@ namespace AppxPortable.WinRT.Xaml
                     var mode = (global::Windows.UI.Xaml.Controls.ScrollMode)e.NewValue;
                     if (mode == global::Windows.UI.Xaml.Controls.ScrollMode.Disabled) d.SetValue(property, ScrollBarVisibility.Disabled);
                     else if ((ScrollBarVisibility)d.GetValue(property) == ScrollBarVisibility.Disabled) d.SetValue(property, ScrollBarVisibility.Auto);
+                    UpdatePanning(d);
                 }));
         }
 

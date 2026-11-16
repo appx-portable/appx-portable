@@ -65,6 +65,27 @@ class ComponentTest
         engine.remove_Changed(token);
         try { engine.Fail(); throw new Exception("native error lost"); }
         catch (ArgumentException) { }
+        int signedValue; uint unsignedValue; bool flag; char character; double number;
+        string outputText; Engine returned; object boxed; OutputStatus enumeration;
+        uint references = engine.References();
+        var status = engine.ReadOutputs(0, out signedValue, out unsignedValue, out flag, out character, out number,
+            out outputText, out returned, out boxed, out enumeration);
+        Require(signedValue == -1234567 && unsignedValue == 0xfedcba98U && flag && character == 'β' && number == 1.25, "output scalar ABI widths");
+        Require(outputText == "đá\0💎" && ReferenceEquals(engine, returned) && ReferenceEquals(engine, boxed), "owned output strings and native identity");
+        Require(status == OutputStatus.Value && enumeration == status, "unsigned output enum and return");
+        engine.ReadOutputs(1, out signedValue, out unsignedValue, out flag, out character, out number,
+            out outputText, out returned, out boxed, out enumeration);
+        Require(!flag && outputText == "" && returned == null && boxed == null, "null outputs");
+        for (int i = 0; i < 20; i++)
+        {
+            try {
+                engine.ReadOutputs(2, out signedValue, out unsignedValue, out flag, out character, out number,
+                    out outputText, out returned, out boxed, out enumeration);
+                throw new Exception("output HRESULT lost");
+            }
+            catch (ArgumentException) { }
+        }
+        Require(engine.References() == references, "owned outputs released on success and failure");
         // Non-blittable structs are declared with their metadata fields; members passing them by value are named stubs.
         var form = new Form { Word = "đá 💎", Primary = true, Rank = -3 };
         Require(form.Word == "đá 💎" && form.Primary && form.Rank == -3, "struct string, boolean and scalar fields");

@@ -559,3 +559,6 @@ extern "C" UINT __cdecl ShimXamlFrameCount() noexcept {
     std::lock_guard<std::mutex> lock(appx::frameMutex);
     return appx::latest.generation;
 }
+
+// Parent for HWND-backed managed services such as the HTML view.
+extern "C" HWND __cdecl ShimGetHostWindow() noexcept { return appx::HostWindow(); }

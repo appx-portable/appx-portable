@@ -18,6 +18,56 @@ namespace AppxPortable.WinRT.Xaml
 
         private static System.Windows.ResourceDictionary resources;
 
+        internal static string RequestedTheme = "Dark";
+        internal static void SetTheme(string value)
+        {
+            if (value != "Dark" && value != "Light") throw new System.ArgumentException("Unknown application theme: " + value);
+            if (value == RequestedTheme) return;
+            RequestedTheme = value;
+            if (resources != null) resources.MergedDictionaries[0] = CreateTheme();
+        }
+        private static System.Windows.ResourceDictionary CreateTheme()
+        {
+            var document = new System.Xml.XmlDocument { XmlResolver = null };
+            using (var stream = typeof(Host).Assembly.GetManifestResourceStream("AppxPortable.WinRT.Xaml.theme.xaml")) document.Load(stream);
+            // Light variant of the runtime's own palette; retain accents,
+            // image overlays, focus strokes and tooltips.
+            if (RequestedTheme == "Light")
+                foreach (System.Xml.XmlNode child in document.DocumentElement.ChildNodes)
+                {
+                    var brush = child as System.Xml.XmlElement;
+                    if (brush == null || brush.LocalName != "SolidColorBrush") continue;
+                    string key = brush.GetAttribute("Key", "http://schemas.microsoft.com/winfx/2006/xaml");
+                    if (key.StartsWith("FocusVisual", System.StringComparison.Ordinal) || key.Contains("Overlay") || key == "ToolTipBackgroundThemeBrush" || key == "ToggleButtonCheckedForegroundThemeBrush") continue;
+                    string color = brush.GetAttribute("Color");
+                    switch (color)
+                    {
+                        case "#FF1D1D1D": color = "#FFFFFFFF"; break;
+                        case "#FF3D3D3D": color = "#FFF0F0F0"; break;
+                        case "#FFFFFFFF": color = "#FF000000"; break;
+                        case "#FF000000": color = "#FFFFFFFF"; break;
+                        case "#DEFFFFFF": color = "#DE000000"; break;
+                        case "#99FFFFFF": color = "#99000000"; break;
+                        case "#66FFFFFF": color = "#66000000"; break;
+                        case "#21FFFFFF": color = "#21000000"; break;
+                        case "#59FFFFFF": color = "#59000000"; break;
+                    }
+                    brush.SetAttribute("Color", color);
+                }
+            System.Windows.ResourceDictionary dictionary;
+            using (var reader = new System.Xml.XmlNodeReader(document)) dictionary = (System.Windows.ResourceDictionary)System.Windows.Markup.XamlReader.Load(reader);
+            // Implicit styles match an element's exact type: UWP-created viewers share the theme's.
+            var viewer = (System.Windows.Style)dictionary[typeof(System.Windows.Controls.ScrollViewer)];
+            dictionary[typeof(ScrollViewerPeer)] = new System.Windows.Style(typeof(ScrollViewerPeer), viewer);
+            // WPF's CheckBox defaults to black text. UWP's dark-theme
+            // ToggleSwitch header uses the application foreground brush.
+            var toggle = new System.Windows.Style(typeof(ToggleSwitchPeer));
+            toggle.Setters.Add(new System.Windows.Setter(System.Windows.Controls.Control.ForegroundProperty,
+                dictionary["ApplicationForegroundThemeBrush"]));
+            dictionary[typeof(ToggleSwitchPeer)] = toggle;
+            return dictionary;
+        }
+
         // WPF finds application resources through System.Windows.Application: its
         // dictionary merges the theme, then the app's Application.Resources.
         internal static void EnsureTheme()
@@ -27,20 +77,7 @@ namespace AppxPortable.WinRT.Xaml
             var application = System.Windows.Application.Current ??
                 new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
             resources = new System.Windows.ResourceDictionary();
-            using (var theme = typeof(Host).Assembly.GetManifestResourceStream("AppxPortable.WinRT.Xaml.theme.xaml"))
-            {
-                var dictionary = (System.Windows.ResourceDictionary)System.Windows.Markup.XamlReader.Load(theme);
-                // Implicit styles match an element's exact type: UWP-created viewers share the theme's.
-                var viewer = (System.Windows.Style)dictionary[typeof(System.Windows.Controls.ScrollViewer)];
-                dictionary[typeof(ScrollViewerPeer)] = new System.Windows.Style(typeof(ScrollViewerPeer), viewer);
-                // WPF's CheckBox defaults to black text. UWP's dark-theme
-                // ToggleSwitch header uses the application foreground brush.
-                var toggle = new System.Windows.Style(typeof(ToggleSwitchPeer));
-                toggle.Setters.Add(new System.Windows.Setter(System.Windows.Controls.Control.ForegroundProperty,
-                    dictionary["ApplicationForegroundThemeBrush"]));
-                dictionary[typeof(ToggleSwitchPeer)] = toggle;
-                resources.MergedDictionaries.Add(dictionary);
-            }
+            resources.MergedDictionaries.Add(CreateTheme());
             application.Resources = resources;
         }
 
@@ -102,7 +139,7 @@ namespace Windows.UI.Xaml
             if (initialized) return;
             initialized = true;
             var uri = new global::System.Uri("ms-appx:///App.xaml");
-            if (global::System.IO.File.Exists(global::System.IO.Path.Combine(AppxPortable.WinRT.Xaml.XamlLoader.PackageRoot, "App.xaml")))
+            if (AppxPortable.WinRT.Xaml.XamlLoader.HasMarkup(uri))
                 LoadComponent(this, uri);
         }
 

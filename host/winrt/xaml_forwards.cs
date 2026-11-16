@@ -6,3 +6,5 @@ using System.Runtime.CompilerServices;
 [assembly: TypeForwardedTo(typeof(Windows.UI.Xaml.Thickness))]
 [assembly: TypeForwardedTo(typeof(Windows.UI.Xaml.Duration))]
 [assembly: TypeForwardedTo(typeof(Windows.UI.Xaml.DurationType))]
+[assembly: TypeForwardedTo(typeof(Windows.UI.Xaml.GridLength))]
+[assembly: TypeForwardedTo(typeof(Windows.UI.Xaml.GridUnitType))]

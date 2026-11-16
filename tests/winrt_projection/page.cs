@@ -806,9 +806,24 @@ class PageApp : Application, Windows.UI.Xaml.Markup.IXamlMetadataProvider
             source.RootVisual = null; source.Dispose();
             // Whatever is the window's content by now was laid out, loaded and rendered for the shim.
             var current = (global::System.Windows.FrameworkElement)PeerOf(Window.Current.Content);
+            // Navigation tests leave an empty, transparent page. Keep an opaque
+            // drawing until WPF has presented; native timer ticks do not promise
+            // that WPF's render dispatcher has run.
+            var control = current as global::System.Windows.Controls.Control;
+            if (control != null) control.Background = global::System.Windows.Media.Brushes.Red;
+            current.UpdateLayout();
+            var hostType = typeof(DependencyObject).Assembly.GetType("AppxPortable.WinRT.Xaml.Host");
+            var count = hostType.GetProperty("Frames", global::System.Reflection.BindingFlags.Static | global::System.Reflection.BindingFlags.NonPublic);
+            var watch = global::System.Diagnostics.Stopwatch.StartNew();
+            var renderFrame = new global::System.Windows.Threading.DispatcherFrame();
+            var wait = new global::System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+            wait.Tick += (s, e) => { if ((int)count.GetValue(null, null) > 0 || watch.ElapsedMilliseconds > 4000) renderFrame.Continue = false; };
+            wait.Start();
+            try { global::System.Windows.Threading.Dispatcher.PushFrame(renderFrame); }
+            finally { wait.Stop(); }
             var frames = (int)typeof(DependencyObject).Assembly.GetType("AppxPortable.WinRT.Xaml.Host")
                 .GetProperty("Frames", global::System.Reflection.BindingFlags.Static | global::System.Reflection.BindingFlags.NonPublic).GetValue(null, null);
-            Check(current.IsLoaded && current.ActualWidth > 0 && frames > 0, "the window's content is loaded, laid out and rendered for the compositor");
+            Check(current.IsLoaded && current.ActualWidth > 0 && frames > 0, "the window's content is loaded, laid out and rendered for the compositor: loaded=" + current.IsLoaded + ", width=" + current.ActualWidth + ", frames=" + frames);
             VerifyHostMouse();
             VerifyHostWheel();
             Console.WriteLine("PASS: WPF-backed tree keeps wrapper identity for children, names, resources and Loaded, and renders for the compositor");

@@ -33,13 +33,43 @@ namespace AppxPortable.WinRT.Xaml
     {
         // ms-appx:/// paths resolve against the package, where the app's executable is.
         internal static string PackageRoot = AppDomain.CurrentDomain.BaseDirectory;
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<System.Windows.DependencyObject, System.Windows.NameScope> componentNames =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<System.Windows.DependencyObject, System.Windows.NameScope>();
+
+        internal static object FindName(System.Windows.FrameworkElement element, string name)
+        {
+            System.Windows.NameScope scope;
+            // A templated WPF control can retain its earlier names internally.
+            // LoadComponent's current UWP scope is the authoritative one.
+            return componentNames.TryGetValue(element, out scope) ? scope.FindName(name) : element.FindName(name);
+        }
 
         internal static void Load(object component, Uri uri)
         {
             if (component == null) throw new ArgumentNullException("component");
             if (uri == null) throw new ArgumentNullException("resourceLocator");
-            string path = Resolve(uri);
-            using (var text = File.OpenText(path)) Load(component, text, uri.OriginalString);
+            using (var reader = OpenMarkup(uri)) Load(component, reader, uri.OriginalString);
+        }
+
+        internal static bool HasMarkup(Uri uri) { return File.Exists(MarkupPath(uri)); }
+
+        private static string MarkupPath(Uri uri)
+        {
+            string path = Resolve(uri, false);
+            if (File.Exists(path) || !path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)) return path;
+            return Resolve(new Uri(uri.AbsoluteUri.Substring(0, uri.AbsoluteUri.Length - 5) + ".xbf"), false);
+        }
+
+        private static XamlReader OpenMarkup(Uri uri)
+        {
+            string path = MarkupPath(uri);
+            if (!File.Exists(path)) throw new FileNotFoundException("XAML not found: " + uri.OriginalString, path);
+            if (path.EndsWith(".xbf", StringComparison.OrdinalIgnoreCase)) return XbfReader.Read(path);
+            // XamlXmlReader does not consistently close a caller-supplied XML
+            // reader under Wine Mono. Keep no package file handle in its tree.
+            if (new FileInfo(path).Length > 64 * 1024 * 1024) throw new NotSupportedException("Source XAML exceeds 64 MiB");
+            return new XamlXmlReader(System.Xml.XmlReader.Create(new StringReader(File.ReadAllText(path))), UwpSchemaContext.Instance,
+                new XamlXmlReaderSettings { ProvideLineInfo = true, CloseInput = true });
         }
 
         internal static string Resolve(Uri uri, bool requireFile = true)
@@ -59,7 +89,7 @@ namespace AppxPortable.WinRT.Xaml
             return current;
         }
 
-        private static void Load(object component, TextReader text, string source)
+        private static void Load(object component, XamlReader reader, string source)
         {
             var app = component as global::Windows.UI.Xaml.Application;
             var wrapper = component as global::Windows.UI.Xaml.DependencyObject;
@@ -73,8 +103,12 @@ namespace AppxPortable.WinRT.Xaml
             }
             object root = app != null ? new ApplicationPeer() : Values.Dependency(wrapper);
             Reset(root);
+            // Publish the live dictionary while it is populated. Deferred WPF
+            // templates prefetch StaticResource values during parsing, including
+            // references into earlier merged package dictionaries.
+            if (app != null) app.Resources = (global::Windows.UI.Xaml.ResourceDictionary)Peers.Wrap(((ApplicationPeer)root).Resources);
             var load = new Loading(component, root, source);
-            load.Run(text);
+            load.Run(reader);
             if (app != null) app.Resources = (global::Windows.UI.Xaml.ResourceDictionary)Peers.Wrap(((ApplicationPeer)root).Resources);
         }
 
@@ -86,8 +120,7 @@ namespace AppxPortable.WinRT.Xaml
         {
             if (uri == null) throw new ArgumentNullException("value");
             Host.EnsureTheme();
-            string path = Resolve(uri);
-            using (var text = File.OpenText(path)) new Loading(null, dictionary, uri.OriginalString).Run(text);
+            using (var reader = OpenMarkup(uri)) new Loading(null, dictionary, uri.OriginalString).Run(reader);
             sources.Remove(dictionary);
             sources.Add(dictionary, uri);
         }
@@ -152,6 +185,13 @@ namespace AppxPortable.WinRT.Xaml
             // Builds the nodes into the root, or into a new object it returns.
             internal object Run(XamlReader reader)
             {
+                var dependency = root as System.Windows.DependencyObject;
+                if (dependency != null)
+                {
+                    System.Windows.NameScope.SetNameScope(dependency, names);
+                    componentNames.Remove(dependency);
+                    componentNames.Add(dependency, names);
+                }
                 var context = UwpSchemaContext.Instance;
                 var settings = new XamlObjectWriterSettings { RootObjectInstance = root };
                 // Package dictionaries contain images that are never used. WPF's
@@ -159,6 +199,10 @@ namespace AppxPortable.WinRT.Xaml
                 // normal error path, rather than aborting the whole dictionary.
                 settings.AfterBeginInitHandler = (sender, args) =>
                 {
+                    var dictionary = args.Instance as System.Windows.ResourceDictionary;
+                    var application = component as global::Windows.UI.Xaml.Application;
+                    if (application != null && root is ApplicationPeer && dictionary != null && frames.Count == 2)
+                        application.Resources = (global::Windows.UI.Xaml.ResourceDictionary)Peers.Wrap(dictionary);
                     var bitmap = args.Instance as System.Windows.Media.Imaging.BitmapImage;
                     if (bitmap != null) bitmap.CreateOptions |= System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation;
                 };
@@ -405,7 +449,7 @@ namespace AppxPortable.WinRT.Xaml
                         current = null;
                     }
                 }
-                int chosen = keys.IndexOf("Dark");
+                int chosen = keys.IndexOf(Host.RequestedTheme);
                 if (chosen < 0) chosen = keys.IndexOf("Default");
                 if (chosen < 0) return null;
                 return (System.Windows.ResourceDictionary)new Loading(component, null, source).Run(entries[chosen].GetReader());
@@ -448,11 +492,11 @@ namespace AppxPortable.WinRT.Xaml
     // An Application's XAML root: it collects the resources UWP keeps on Application.
     public sealed class ApplicationPeer : System.Windows.FrameworkElement
     {
-        // Only the dark theme is provided (theme.xaml).
+        // Application theme selects the runtime palette before its resources load.
         public string RequestedTheme
         {
-            get { return "Dark"; }
-            set { if (value != "Dark") throw new NotSupportedException("Only the dark theme is provided, not " + value); }
+            get { return Host.RequestedTheme; }
+            set { Host.SetTheme(value); }
         }
     }
 
@@ -510,6 +554,15 @@ namespace AppxPortable.WinRT.Xaml
             var metadata = provider == null ? null : provider.GetXamlType(fullName);
             Type type = metadata != null ? metadata.UnderlyingType : AppDomain.CurrentDomain.GetAssemblies()
                 .Select(a => a.GetType(fullName, false)).FirstOrDefault(t => t != null);
+            // XBF can name a control from a referenced library before any IL
+            // has loaded it. Ask those declared references for the exact type.
+            if (type == null && global::Windows.UI.Xaml.Application.Current != null)
+                foreach (var reference in global::Windows.UI.Xaml.Application.Current.GetType().Assembly.GetReferencedAssemblies())
+                {
+                    try { type = Assembly.Load(reference).GetType(fullName, false); }
+                    catch (FileNotFoundException) { continue; }
+                    if (type != null) break;
+                }
             if (type == null) return null;
             Type wrapper = type;
             while (wrapper != null && Peers.PeerType(wrapper) == null) wrapper = wrapper.BaseType;
@@ -543,6 +596,9 @@ namespace AppxPortable.WinRT.Xaml
         {
             var member = peer.GetMember(name);
             if (member != null) return member;
+            // Binary nodes resolve members before the object writer constructs
+            // the control. Its static initializer registers the custom DPs.
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
             var property = GameProperties.Find(type, name);
             return property == null ? null : new AppMember(name, this, property);
         }

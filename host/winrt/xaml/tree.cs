@@ -16,7 +16,7 @@ namespace Windows.UI.Xaml
 
         public object FindName(string name)
         {
-            return Values.FromWpf(Element.FindName(name), typeof(object));
+            return Values.FromWpf(XamlLoader.FindName(Element, name), typeof(object));
         }
 
         // The logical parent, as UWP's.
@@ -133,6 +133,60 @@ namespace Windows.UI.Xaml
 
 namespace Windows.UI.Xaml.Controls
 {
+    public partial class Grid
+    {
+        private ColumnDefinitionCollection columns;
+        private RowDefinitionCollection rows;
+        public ColumnDefinitionCollection ColumnDefinitions
+        {
+            get { CheckThread(); return columns ?? (columns = new ColumnDefinitionCollection(this, ((global::System.Windows.Controls.Grid)Values.Dependency(this)).ColumnDefinitions)); }
+        }
+        public RowDefinitionCollection RowDefinitions
+        {
+            get { CheckThread(); return rows ?? (rows = new RowDefinitionCollection(this, ((global::System.Windows.Controls.Grid)Values.Dependency(this)).RowDefinitions)); }
+        }
+    }
+
+    public sealed partial class ColumnDefinitionCollection : IList<ColumnDefinition>
+    {
+        private readonly PeerList<ColumnDefinition, global::System.Windows.Controls.ColumnDefinition> items;
+        internal ColumnDefinitionCollection(Grid owner, IList<global::System.Windows.Controls.ColumnDefinition> peers)
+        { items = new PeerList<ColumnDefinition, global::System.Windows.Controls.ColumnDefinition>(owner, peers); }
+        public ColumnDefinition this[int index] { get { return items[index]; } set { items[index] = value; } }
+        public int Count { get { return items.Count; } }
+        public bool IsReadOnly { get { return items.IsReadOnly; } }
+        public int IndexOf(ColumnDefinition item) { return items.IndexOf(item); }
+        public void Insert(int index, ColumnDefinition item) { items.Insert(index, item); }
+        public void RemoveAt(int index) { items.RemoveAt(index); }
+        public void Add(ColumnDefinition item) { items.Add(item); }
+        public void Clear() { items.Clear(); }
+        public bool Contains(ColumnDefinition item) { return items.Contains(item); }
+        public void CopyTo(ColumnDefinition[] array, int index) { items.CopyTo(array, index); }
+        public bool Remove(ColumnDefinition item) { return items.Remove(item); }
+        public IEnumerator<ColumnDefinition> GetEnumerator() { return items.GetEnumerator(); }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
+    public sealed partial class RowDefinitionCollection : IList<RowDefinition>
+    {
+        private readonly PeerList<RowDefinition, global::System.Windows.Controls.RowDefinition> items;
+        internal RowDefinitionCollection(Grid owner, IList<global::System.Windows.Controls.RowDefinition> peers)
+        { items = new PeerList<RowDefinition, global::System.Windows.Controls.RowDefinition>(owner, peers); }
+        public RowDefinition this[int index] { get { return items[index]; } set { items[index] = value; } }
+        public int Count { get { return items.Count; } }
+        public bool IsReadOnly { get { return items.IsReadOnly; } }
+        public int IndexOf(RowDefinition item) { return items.IndexOf(item); }
+        public void Insert(int index, RowDefinition item) { items.Insert(index, item); }
+        public void RemoveAt(int index) { items.RemoveAt(index); }
+        public void Add(RowDefinition item) { items.Add(item); }
+        public void Clear() { items.Clear(); }
+        public bool Contains(RowDefinition item) { return items.Contains(item); }
+        public void CopyTo(RowDefinition[] array, int index) { items.CopyTo(array, index); }
+        public bool Remove(RowDefinition item) { return items.Remove(item); }
+        public IEnumerator<RowDefinition> GetEnumerator() { return items.GetEnumerator(); }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
     public partial class Panel
     {
         private UIElementCollection children;

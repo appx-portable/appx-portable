@@ -232,6 +232,27 @@ namespace Windows.Storage
             return NativeFuture<global::System.Collections.Generic.IReadOnlyList<IStorageItem>>.FromNative(
                 native.Object(StorageAbi.Folder_GetItemsAsyncOverloadDefaultStartAndCount), StorageAbi.ItemsFuture, Items);
         }
+        public IAsyncOperation<global::System.Collections.Generic.IReadOnlyList<StorageFile>> GetFilesAsync()
+        {
+            var files = new ManagedOperation<global::System.Collections.Generic.IReadOnlyList<StorageFile>>();
+            var listing = GetItemsAsync();
+            listing.Completed = (operation, status) =>
+            {
+                if (status != AsyncStatus.Completed) { files.Fail(operation.ErrorCode ?? new OperationCanceledException()); return; }
+                try
+                {
+                    var result = new global::System.Collections.Generic.List<StorageFile>();
+                    foreach (var item in operation.GetResults())
+                    {
+                        var file = item as StorageFile;
+                        if (file != null) result.Add(file);
+                    }
+                    files.Complete(result.AsReadOnly());
+                }
+                catch (Exception error) { files.Fail(error); }
+            };
+            return files;
+        }
         private static global::System.Collections.Generic.IReadOnlyList<IStorageItem> Items(NativeObject view)
         {
             var items = new global::System.Collections.Generic.List<IStorageItem>();
@@ -250,6 +271,7 @@ namespace Windows.Storage
             return items.AsReadOnly();
         }
         public IAsyncOperation<StorageFile> GetFileAsync(string name) { return NativeFuture<StorageFile>.FromNative(StorageCalls.Text(native, StorageAbi.Folder_GetFileAsync, name), StorageAbi.FileFuture, StorageFile.FromNative); }
+        public IAsyncOperation<StorageFolder> GetFolderAsync(string name) { return NativeFuture<StorageFolder>.FromNative(StorageCalls.Text(native, StorageAbi.Folder_GetFolderAsync, name), StorageAbi.FolderFuture, FromNative); }
         public IAsyncOperation<StorageFile> CreateFileAsync(string desiredName) { return NativeFuture<StorageFile>.FromNative(StorageCalls.Text(native, StorageAbi.Folder_CreateFileAsyncOverloadDefaultOptions, desiredName), StorageAbi.FileFuture, StorageFile.FromNative); }
         public IAsyncOperation<StorageFile> CreateFileAsync(string desiredName, CreationCollisionOption options)
         {

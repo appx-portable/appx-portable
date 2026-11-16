@@ -45,6 +45,11 @@ namespace AppxPortable.WinRT.Xaml
                 value is int || value is uint || value is long || value is ulong || value is float))
                 return System.Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
             if (value.GetType().IsEnum && type.IsEnum) return Enumeration(value, type);
+            if (value is global::Windows.UI.Xaml.GridLength && type == typeof(System.Windows.GridLength))
+            {
+                var length = (global::Windows.UI.Xaml.GridLength)value;
+                return new System.Windows.GridLength(length.Value, (System.Windows.GridUnitType)Enumeration(length.GridUnitType, typeof(System.Windows.GridUnitType)));
+            }
             if (value is global::Windows.UI.Color && type == typeof(System.Windows.Media.Color))
             {
                 var color = (global::Windows.UI.Color)value;
@@ -77,6 +82,11 @@ namespace AppxPortable.WinRT.Xaml
             {
                 var color = (System.Windows.Media.Color)value;
                 return global::Windows.UI.Color.FromArgb(color.A, color.R, color.G, color.B);
+            }
+            if (value is System.Windows.GridLength && type.IsAssignableFrom(typeof(global::Windows.UI.Xaml.GridLength)))
+            {
+                var length = (System.Windows.GridLength)value;
+                return new global::Windows.UI.Xaml.GridLength(length.Value, (global::Windows.UI.Xaml.GridUnitType)Enumeration(length.GridUnitType, typeof(global::Windows.UI.Xaml.GridUnitType)));
             }
             if (value is System.Windows.Thickness && type.IsAssignableFrom(typeof(global::Windows.UI.Xaml.Thickness)))
             {

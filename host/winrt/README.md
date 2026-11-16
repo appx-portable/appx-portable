@@ -1056,3 +1056,39 @@ enum. The managed static getter uses the existing native view policy; it does no
 cache the state or synthesize a managed orientation. The Page fixture compares it
 with an independent SDK IApplicationViewStatics call after landscape and portrait
 host resizes, through both an external consumer and the direct ABI build.
+
+## Compiled package markup and startup controls
+
+The managed loader accepts source XAML or a package's XBF 1 metadata and node
+stream. Both use the same schema context and object writer, including application
+metadata, component connections, names, retrieved collections, styles and deferred
+templates. XBF 2 is rejected explicitly. `ResourceLoader` reads local, single
+candidate UTF-16 strings from PRI resources; ambiguous qualifiers and external
+resource data remain unsupported. These readers bound package offsets, string
+tables and expanded paths before allocating or reading.
+
+Startup adapters include custom Panel measurement/arrangement, Page app bars,
+SearchBox query notifications, Light theme resources, selection notifications,
+Frame current-page reporting, live Grid definition collections, CLR GridLength
+forwarding and wheel chaining. `StorageFolder.GetFilesAsync` filters the existing
+native item listing into a read-only file list. `GetFolderAsync` validates child
+paths and returns native async folder results or lookup errors. Exact touch rail behavior has
+not been verified. WebView uses Wine Gecko through a native child browser window,
+with navigation and ScriptNotify support. The browser remains above the painted
+XAML fallback. Native window airspace still prevents WPF overlays from covering
+the browser, and ancestor clipping is not fully reproduced. Offscreen XAML
+captures do not contain the browser's pixels.
+
+Once managed XAML creates its presentation source, the host runs WPF's dispatcher
+loop on the view thread. The framework owns its message filters and rendering
+lifecycle, while native host window messages continue through the same HWND.
+The startup probe checks first-frame presentation after `OnLaunched` returns,
+both with an opaque control and with HTML views navigating from Loaded handlers.
+
+`scripts/probe-package-markup.py` tests a prebuilt runtime using independent PRI
+and XBF fixtures and startup consumers. It requires `--wine`, `--prefix`,
+`--runtime`, `--shim` and a fresh `--output` directory; `--cases` selects focused
+checks. The component fixture additionally checks metadata-declared output
+parameters, including owned string/object outputs on failed HRESULTs. Output
+ownership is guarded until conversion completes. Input/output reference
+parameters remain unsupported.

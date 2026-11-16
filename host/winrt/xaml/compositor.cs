@@ -20,6 +20,16 @@ namespace AppxPortable.WinRT.Xaml
         private static extern int ShimCaptureXamlWindow(IntPtr window);
         [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         private static extern uint ShimXamlFrameCount();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int MessageLoop();
+        [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern int ShimSetXamlMessageLoop(MessageLoop loop);
+        private static readonly MessageLoop messageLoop = RunMessageLoop;
+        private static int RunMessageLoop()
+        {
+            try { System.Windows.Threading.Dispatcher.Run(); return 0; }
+            catch (Exception error) { return Errors.Report(error); }
+        }
         [DllImport("user32.dll", ExactSpelling = true)]
         private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
         private const uint NoMoveZOrderActivate = 0x0002 | 0x0004 | 0x0010;  // SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
@@ -64,6 +74,7 @@ namespace AppxPortable.WinRT.Xaml
                 presentation = new HwndSource(parameters);
             }
             presentation.RootVisual = Layers;
+            Errors.Check(ShimSetXamlMessageLoop(messageLoop));
             global::Windows.UI.Xaml.Media.CompositionTarget.add_Rendering((sender, args) => Render());
             ForwardInput();
         }

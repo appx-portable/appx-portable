@@ -158,7 +158,7 @@ namespace AppxPortable.WinRT.Xaml
             if (content != null) content.Visibility = IsActive ? System.Windows.Visibility.Visible : System.Windows.Visibility.Hidden;
         }
     }
-    public sealed class PagePeer : System.Windows.Controls.UserControl { }
+    public sealed partial class PagePeer : System.Windows.Controls.UserControl { }
     public sealed class FramePeer : System.Windows.Controls.ContentControl { }
     // Placeholders for shim-backed services; they hold a place in the tree.
     public abstract class NativeHostPeer : System.Windows.FrameworkElement { internal NativeHostPeer() { } }

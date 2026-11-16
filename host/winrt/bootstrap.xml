@@ -1,4 +1,5 @@
 <Projection>
+  <Class Name="Windows.ApplicationModel.Resources.ResourceLoader" />
   <!-- CLR-redirected structs; System.Runtime.WindowsRuntime(.UI.Xaml) forward to them. -->
   <Struct Name="Windows.Foundation.Point" Adapter="Clr" />
   <Struct Name="Windows.Foundation.Size" Adapter="Clr" />
@@ -7,6 +8,8 @@
   <Struct Name="Windows.UI.Xaml.Thickness" Adapter="Clr" />
   <Struct Name="Windows.UI.Xaml.Duration" Adapter="Clr" />
   <Enum Name="Windows.UI.Xaml.DurationType" />
+  <Struct Name="Windows.UI.Xaml.GridLength" Adapter="Clr" />
+  <Enum Name="Windows.UI.Xaml.GridUnitType" />
   <Class Name="Windows.ApplicationModel.Package">
     <Property Name="Current" />
     <Property Name="Id" />
@@ -96,10 +99,13 @@
     <Property Name="Tag" Wpf="System.Windows.FrameworkElement.TagProperty" />
     <Property Name="Style" Wpf="System.Windows.FrameworkElement.StyleProperty" />
   </Class>
-  <Class Name="Windows.UI.Xaml.Controls.Panel" Adapter="Wpf" Peer="System.Windows.Controls.Panel">
+  <Class Name="Windows.UI.Xaml.Controls.Panel" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.PanelPeer">
+    <Constructor />
     <Property Name="ChildrenTransitions" Wpf="AppxPortable.WinRT.Xaml.CompatibilityProperties.ChildrenTransitionsProperty" />
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.UIElementCollection" Adapter="Wpf" />
+  <Class Name="Windows.UI.Xaml.Controls.ColumnDefinitionCollection" Adapter="Wpf" />
+  <Class Name="Windows.UI.Xaml.Controls.RowDefinitionCollection" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Controls.Grid" Adapter="Wpf" Peer="System.Windows.Controls.Grid">
     <Constructor />
     <Property Name="RowProperty" Wpf="System.Windows.Controls.Grid.RowProperty" />
@@ -108,6 +114,14 @@
     <Property Name="ColumnProperty" Wpf="System.Windows.Controls.Grid.ColumnProperty" />
     <Method Name="GetColumn" Wpf="System.Windows.Controls.Grid.ColumnProperty" />
     <Method Name="SetColumn" Wpf="System.Windows.Controls.Grid.ColumnProperty" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.ColumnDefinition" Adapter="Wpf" Peer="System.Windows.Controls.ColumnDefinition">
+    <Constructor />
+    <Property Name="Width" Wpf="System.Windows.Controls.ColumnDefinition.WidthProperty" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.RowDefinition" Adapter="Wpf" Peer="System.Windows.Controls.RowDefinition">
+    <Constructor />
+    <Property Name="Height" Wpf="System.Windows.Controls.RowDefinition.HeightProperty" />
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.Image" Adapter="Wpf" Peer="System.Windows.Controls.Image">
     <Constructor />
@@ -274,6 +288,11 @@
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.ItemContainerGenerator" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Controls.Primitives.Selector" Adapter="Wpf" Peer="System.Windows.Controls.Primitives.Selector" />
+  <Class Name="Windows.UI.Xaml.Controls.ListBox" Adapter="Wpf" Peer="System.Windows.Controls.ListBox">
+    <Constructor />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.SelectionChangedEventArgs" Adapter="Wpf" />
+  <Delegate Name="Windows.UI.Xaml.Controls.SelectionChangedEventHandler" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Controls.ListViewBase" Adapter="Wpf">
     <Property Name="IsSwipeEnabled" Wpf="AppxPortable.WinRT.Xaml.ListViewPeer.IsSwipeEnabledProperty" />
   </Class>
@@ -359,6 +378,21 @@
   <Enum Name="Windows.UI.Xaml.Controls.Primitives.ComponentResourceLocation" />
   <Class Name="Windows.UI.Xaml.RoutedEventArgs" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Input.KeyRoutedEventArgs" Adapter="Wpf" />
+  <Class Name="Windows.UI.Xaml.Controls.AppBar" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.AppBarPeer">
+    <Constructor />
+    <Property Name="IsOpen" Wpf="AppxPortable.WinRT.Xaml.AppBarPeer.IsOpenProperty" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.SearchBox" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.SearchBoxPeer">
+    <Constructor />
+    <Property Name="SearchHistoryEnabled" Wpf="AppxPortable.WinRT.Xaml.SearchBoxPeer.SearchHistoryEnabledProperty" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.SearchBoxQueryChangedEventArgs" Adapter="Wpf" />
+  <Class Name="Windows.UI.Xaml.Controls.WebView" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.WebViewPeer">
+    <Constructor />
+    <Property Name="DefaultBackgroundColor" Wpf="AppxPortable.WinRT.Xaml.WebViewPeer.DefaultBackgroundColorProperty" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.Controls.NotifyEventArgs" Adapter="Wpf" />
+  <Delegate Name="Windows.UI.Xaml.Controls.NotifyEventHandler" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Controls.Control" Adapter="Wpf" Peer="System.Windows.Controls.Control">
     <Constructor />
     <Property Name="IsEnabled" Wpf="System.Windows.UIElement.IsEnabledProperty" />

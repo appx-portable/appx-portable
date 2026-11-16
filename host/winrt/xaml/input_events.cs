@@ -136,3 +136,52 @@ namespace AppxPortable.WinRT.Xaml
         }
     }
 }
+
+namespace Windows.UI.Xaml.Controls
+{
+    public sealed partial class SelectionChangedEventArgs
+    {
+        private readonly IList<object> added, removed;
+        internal SelectionChangedEventArgs(global::System.Windows.Controls.SelectionChangedEventArgs args)
+            : base(Values.FromWpf(args.OriginalSource, typeof(object)))
+        {
+            added = Copy(args.AddedItems); removed = Copy(args.RemovedItems);
+        }
+        private static IList<object> Copy(global::System.Collections.IList values)
+        {
+            var result = new List<object>();
+            foreach (object value in values) result.Add(Values.FromWpf(value, typeof(object)));
+            return result.AsReadOnly();
+        }
+        public IList<object> AddedItems { get { return added; } }
+        public IList<object> RemovedItems { get { return removed; } }
+    }
+    public partial class ListBox
+    {
+        public void ScrollIntoView(object item)
+        {
+            ((global::System.Windows.Controls.ListBox)Values.Dependency(this)).ScrollIntoView(Values.ToWpf(item, typeof(object)));
+        }
+    }
+}
+
+namespace Windows.UI.Xaml.Controls.Primitives
+{
+    public partial class Selector
+    {
+        private Dictionary<long, Delegate> selectionChanged;
+        public EventRegistrationToken add_SelectionChanged(global::Windows.UI.Xaml.Controls.SelectionChangedEventHandler handler)
+        {
+            CheckThread(); if (handler == null) throw new ArgumentNullException("handler");
+            global::System.Windows.Controls.SelectionChangedEventHandler callback = (s, e) =>
+                Host.Callback(() => handler(this, new global::Windows.UI.Xaml.Controls.SelectionChangedEventArgs(e)));
+            ((global::System.Windows.Controls.Primitives.Selector)Values.Dependency(this)).SelectionChanged += callback;
+            return Tokens.Add(ref selectionChanged, callback);
+        }
+        public void remove_SelectionChanged(EventRegistrationToken token)
+        {
+            CheckThread(); var callback = Tokens.Remove(selectionChanged, token) as global::System.Windows.Controls.SelectionChangedEventHandler;
+            if (callback != null) ((global::System.Windows.Controls.Primitives.Selector)Values.Dependency(this)).SelectionChanged -= callback;
+        }
+    }
+}

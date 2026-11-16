@@ -40,6 +40,8 @@ MIDL_INTERFACE("2fc62e47-e1ce-471d-9098-014b39ca938e") IEngine : IInspectable {
     virtual HRESULT STDMETHODCALLTYPE Remove(INT64) = 0;
     virtual HRESULT STDMETHODCALLTYPE Raise(INT32, BYTE, HSTRING, HSTRING*) = 0;
     virtual HRESULT STDMETHODCALLTYPE Fail() = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReadOutputs(INT32, INT32*, UINT32*, BYTE*, WCHAR*, DOUBLE*, HSTRING*, IEngine**, IInspectable**, UINT32*, UINT32*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE References(UINT32*) = 0;
     virtual HRESULT STDMETHODCALLTYPE SetNode(INode*) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetNode(INode**) = 0;
     virtual HRESULT STDMETHODCALLTYPE NextMode(INT32, INT32*) = 0;
@@ -109,6 +111,33 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Fail() override { return E_INVALIDARG; }
+    HRESULT STDMETHODCALLTYPE ReadOutputs(INT32 mode, INT32* signedValue, UINT32* unsignedValue, BYTE* flag, WCHAR* character,
+                                         DOUBLE* number, HSTRING* text, IEngine** engine, IInspectable** object,
+                                         UINT32* enumeration, UINT32* result) override {
+        *signedValue = -1234567;
+        *unsignedValue = 0xfedcba98;
+        *flag = mode == 0 ? 1 : 0;
+        *character = L'\x03b2';
+        *number = 1.25;
+        *text = nullptr;
+        *engine = nullptr;
+        *object = nullptr;
+        *enumeration = *result = 0xf1234567;
+        if (mode != 1) {
+            static const wchar_t value[] = L"đá\0\xD83D\xDC8E";
+            HRESULT hr = WindowsCreateString(value, ARRAYSIZE(value) - 1, text);
+            if (FAILED(hr)) return hr;
+            QueryInterface(IID_PPV_ARGS(engine));
+            QueryInterface(IID_PPV_ARGS(object));
+        }
+        // Deliberately retain owned outputs even on failure to check consumer cleanup.
+        return mode == 2 ? E_INVALIDARG : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE References(UINT32* result) override {
+        AddRef();
+        *result = Release();
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE SetNode(INode* node) override {
         // Validate the independently declared IID rather than accepting a layout cast.
         node_.Reset();

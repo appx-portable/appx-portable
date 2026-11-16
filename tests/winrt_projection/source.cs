@@ -301,7 +301,7 @@ namespace Fixture
 
             File.WriteAllText("Pages/replacement.xaml", "<Page" + Ns + " x:Name='replacement'/>");
             Application.LoadComponent(page, new Uri("ms-appx:///Pages/replacement.xaml"));
-            Check(page.Content == null && page.FindName("title") == null && ReferenceEquals(page.FindName("replacement"), page), "reload replaces tree and names");
+            Check(page.Content == null && page.FindName("title") == null && ReferenceEquals(page.FindName("replacement"), page), "reload replaces tree and names: content=" + page.Content + ", old=" + page.FindName("title") + ", new=" + page.FindName("replacement"));
             Console.WriteLine("PASS: managed loader builds WPF content with names, connections and game types; unsupported input fails explicitly");
             VerifyCompatibility();
             VerifyStartupSurface();
@@ -1096,9 +1096,9 @@ namespace Fixture
             File.WriteAllText("Pages/nokey.xaml", "<Page" + Ns + "><TextBlock Style='{StaticResource Nope}'/></Page>");
             string missing = Fails("ms-appx:///Pages/nokey.xaml", new SourcePage());
             Check(missing.Contains("Nope") && missing.Contains("nokey.xaml"), "unknown resource key is named with its file: " + missing);
-            File.WriteAllText("light.xaml", AppXaml.Replace("Dark", "Light"));
-            string light = Fails("ms-appx:///light.xaml", this);
-            Check(light.Contains("Light"), "an unsupported theme is named: " + light);
+            File.WriteAllText("invalid-theme.xaml", AppXaml.Replace("Dark", "Sepia"));
+            string invalidTheme = Fails("ms-appx:///invalid-theme.xaml", this);
+            Check(invalidTheme.Contains("Sepia"), "an unknown theme is named: " + invalidTheme);
             Console.WriteLine("PASS: styles, templates, merged and theme resources load through WPF");
             VerifyBindings();
         }

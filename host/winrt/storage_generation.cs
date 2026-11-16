@@ -26,6 +26,7 @@ internal static partial class WinrtProjectionGenerator
             "CreateFileAsyncOverloadDefaultOptions|(System.String)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.StorageFile>",
             "CreateFileAsync|(System.String,Windows.Storage.CreationCollisionOption)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.StorageFile>",
             "GetFileAsync|(System.String)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.StorageFile>",
+            "GetFolderAsync|(System.String)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.StorageFolder>",
             "GetItemsAsyncOverloadDefaultStartAndCount|()->Windows.Foundation.IAsyncOperation`1<Windows.Foundation.Collections.IVectorView`1<Windows.Storage.IStorageItem>>" });
         StorageInterface(output, "FileStatics", "Windows.Storage.IStorageFileStatics", new[] {
             "GetFileFromPathAsync|(System.String)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.StorageFile>",
@@ -94,6 +95,7 @@ internal static partial class WinrtProjectionGenerator
             throw new NotSupportedException("Unsupported stream reader activation or load operation contract");
         StorageFuture(output, "Load", "System.UInt32", false);
         StorageFuture(output, "File", "Windows.Storage.StorageFile", false);
+        StorageFuture(output, "Folder", "Windows.Storage.StorageFolder", false);
         StorageFuture(output, "Random", "Windows.Storage.Streams.IRandomAccessStream", false);
         StorageFuture(output, "Stream", "Windows.Storage.Streams.IRandomAccessStreamWithContentType", false);
         StorageFuture(output, "Input", "Windows.Storage.Streams.IInputStream", false);

@@ -27,6 +27,8 @@ void CoreInputMessage(UINT message, WPARAM wparam, LPARAM lparam);
 bool ExitLikeStoreApp();
 static HWND window;
 static DWORD thread;
+using XamlMessageLoop = HRESULT(__cdecl*)();
+static XamlMessageLoop xamlMessageLoop;
 static std::mutex queueMutex;
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<int, std::deque<std::function<void()>>, std::greater<int>> queue;
@@ -100,7 +102,8 @@ HWND ShowXamlFallbackWindow() {
     // Wine's native GPU view can remain above a GDI sibling despite HWND_TOP.
     // Retained swap chains must not cover the XAML-only view after rendering stops.
     ShowGameSurfaces(false);
-    SetWindowPos(xamlFallback, HWND_TOP, 0, 0, client.right, client.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // Native service children (such as WebView) must remain above the painted layer.
+    SetWindowPos(xamlFallback, HWND_BOTTOM, 0, 0, client.right, client.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     return xamlFallback;
 }
 void HideXamlFallbackWindow() {
@@ -468,7 +471,11 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
         InitializeMacGameMenu(window);
         hr = initialize();
     }
-    if (SUCCEEDED(hr)) {
+    if (SUCCEEDED(hr) && xamlMessageLoop) {
+        // Managed WPF owns its dispatcher loop, including its message filters
+        // and rendering lifecycle. Native host messages still reach our HWND.
+        hr = xamlMessageLoop();
+    } else if (SUCCEEDED(hr)) {
         MSG msg{};
         BOOL result;
         while ((result = GetMessageW(&msg, nullptr, 0, 0)) > 0) {
@@ -479,6 +486,7 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
         if (result == -1) hr = HRESULT_FROM_WIN32(GetLastError());
     }
     ShutdownMacGameMenu(window);
+    xamlMessageLoop = nullptr;
     ShutdownSettingsMenu();
     ShutdownXamlLayer();
     if (IsWindow(window)) DestroyWindow(window);
@@ -497,4 +505,10 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
     return hr;
 }
+}
+
+extern "C" HRESULT __cdecl ShimSetXamlMessageLoop(appx::XamlMessageLoop loop) noexcept {
+    if (!appx::OnHostThread()) return RPC_E_WRONG_THREAD;
+    appx::xamlMessageLoop = loop;
+    return S_OK;
 }

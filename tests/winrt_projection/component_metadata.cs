@@ -96,6 +96,14 @@ class ComponentMetadata
             Method(iface, "Raise", ts.String, ts.Int32, ts.Boolean, ts.String);
             Method(iface, "Fail", ts.Void);
             iface.Events.Add(new EventDefinition("Changed", EventAttributes.None, handler) { AddMethod = add, RemoveMethod = remove });
+            var engine = Type("Engine", TypeAttributes.Public | TypeAttributes.Sealed, ts.Object);
+            var status = Type("OutputStatus", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(Enum)));
+            status.Fields.Add(new FieldDefinition("value__", FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName, ts.UInt32));
+            status.Fields.Add(new FieldDefinition("Value", FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault, status) { Constant = 0xf1234567U });
+            var outputs = Method(iface, "ReadOutputs", status, ts.Int32);
+            foreach (var result in new TypeReference[] { ts.Int32, ts.UInt32, ts.Boolean, ts.Char, ts.Double, ts.String, engine, ts.Object, status })
+                outputs.Parameters.Add(new ParameterDefinition("p" + outputs.Parameters.Count, ParameterAttributes.Out, new ByReferenceType(result)));
+            Method(iface, "References", ts.UInt32);
             TypeDefinition externalHandler = null;
             if (args.Length > 1 && args[1].StartsWith("cross", StringComparison.Ordinal))
             {
@@ -125,7 +133,6 @@ class ComponentMetadata
             Method(iface, "GetForm", form, ts.String);
             var getLastForm = Method(iface, "get_LastForm", form);
             iface.Properties.Add(new PropertyDefinition("LastForm", PropertyAttributes.None, form) { GetMethod = getLastForm });
-            var engine = Type("Engine", TypeAttributes.Public | TypeAttributes.Sealed, ts.Object);
             var implementation = new InterfaceImplementation(iface);
             // DefaultAttribute has no arguments.
             var defaultAttribute = new TypeReference("Windows.Foundation.Metadata", "DefaultAttribute", module, ts.CoreLibrary);

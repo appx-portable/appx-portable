@@ -480,6 +480,29 @@ namespace AppxPortable.WinRT
         }
     }
 
+    // Own every pointer output before checking the HRESULT or converting any of
+    // the other outputs. A failed call or conversion must release the whole set.
+    internal sealed class NativeOutput : IDisposable
+    {
+        [DllImport("combase.dll")]
+        private static extern int WindowsDeleteString(IntPtr value);
+        private readonly bool text;
+        internal IntPtr Value = IntPtr.Zero;
+        internal NativeOutput(bool text) { this.text = text; }
+        internal IntPtr Detach()
+        {
+            IntPtr value = Value;
+            Value = IntPtr.Zero;
+            return value;
+        }
+        public void Dispose()
+        {
+            IntPtr value = Detach();
+            if (text) WindowsDeleteString(value);
+            else if (value != IntPtr.Zero) Marshal.Release(value);
+        }
+    }
+
     internal sealed class NativeString : IDisposable
     {
         [DllImport("combase.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
