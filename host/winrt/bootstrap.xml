@@ -387,6 +387,13 @@
     <Property Name="SearchHistoryEnabled" Wpf="AppxPortable.WinRT.Xaml.SearchBoxPeer.SearchHistoryEnabledProperty" />
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.SearchBoxQueryChangedEventArgs" Adapter="Wpf" />
+  <Class Name="Windows.UI.Xaml.Controls.SettingsFlyout" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.SettingsFlyoutPeer">
+    <Constructor />
+    <Property Name="Title" Wpf="AppxPortable.WinRT.Xaml.SettingsFlyoutPeer.TitleProperty" />
+    <Property Name="HeaderBackground" Wpf="AppxPortable.WinRT.Xaml.SettingsFlyoutPeer.HeaderBackgroundProperty" />
+    <Property Name="HeaderForeground" Wpf="AppxPortable.WinRT.Xaml.SettingsFlyoutPeer.HeaderForegroundProperty" />
+    <Property Name="IconSource" Wpf="AppxPortable.WinRT.Xaml.SettingsFlyoutPeer.IconSourceProperty" />
+  </Class>
   <Class Name="Windows.UI.Xaml.Controls.WebView" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.WebViewPeer">
     <Constructor />
     <Property Name="DefaultBackgroundColor" Wpf="AppxPortable.WinRT.Xaml.WebViewPeer.DefaultBackgroundColorProperty" />

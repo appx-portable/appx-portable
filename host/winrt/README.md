@@ -1075,8 +1075,8 @@ native item listing into a read-only file list. `GetFolderAsync` validates child
 paths and returns native async folder results or lookup errors. Exact touch rail behavior has
 not been verified. WebView uses Wine Gecko through a native child browser window,
 with navigation and ScriptNotify support. The browser remains above the painted
-XAML fallback. Native window airspace still prevents WPF overlays from covering
-the browser, and ancestor clipping is not fully reproduced. Offscreen XAML
+XAML fallback. General WPF overlays cannot cover the browser, and ancestor
+clipping is not fully reproduced. Offscreen XAML
 captures do not contain the browser's pixels.
 
 HTML control bounds also update the embedded document viewport; native host
@@ -1084,6 +1084,18 @@ resizing leaves these independently arranged children alone. HTML strings that
 request Segoe UI use an Arial/system UI/sans-serif fallback stack when Segoe UI is absent.
 This is a fallback, not an exact Segoe UI reproduction. SearchBox supplies readable
 size/padding defaults, and ListBox recycles its virtualized row containers.
+
+SettingsFlyout supports construction, title/header/icon properties, Show,
+ShowIndependent and Hide through the composited popup layer. One flyout occupies
+the window's right edge at a time, follows host resizing and restores its declared
+dimensions when dismissed. Its header provides a back button; independent back
+returns to the app, while Show's back returns to SettingsPane. Light dismissal
+and Escape close the pane. Existing native HTML views are clipped beneath the
+flyout and restored on close, leaving the flyout's own HTML content visible.
+The startup probe checks sizing, replacement, dismissal and browser clipping.
+Package image attributes use delayed BitmapImage decoding, including optional
+flyout icons: missing images follow WPF's Image failure path without aborting
+LoadComponent, while relative URIs retain the XAML file's directory.
 
 Once managed XAML creates its presentation source, the host runs WPF's dispatcher
 loop on the view thread. The framework owns its message filters and rendering

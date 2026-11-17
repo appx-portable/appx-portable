@@ -53,6 +53,14 @@ class StartupApp : Application
     static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
     [DllImport("user32.dll", ExactSpelling = true)]
     static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern int GetWindowRgn(IntPtr window, IntPtr region);
+    [DllImport("gdi32.dll", ExactSpelling = true)]
+    static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+    [DllImport("gdi32.dll", ExactSpelling = true)]
+    static extern bool PtInRegion(IntPtr region, int x, int y);
+    [DllImport("gdi32.dll", ExactSpelling = true)]
+    static extern bool DeleteObject(IntPtr value);
     static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     static object Peer(DependencyObject value)
     {
@@ -249,6 +257,79 @@ class StartupApp : Application
                 pagePeer.ApplyTemplate();
                 var pageRoot = (System.Windows.Controls.Panel)System.Windows.Media.VisualTreeHelper.GetChild(pagePeer, 0);
                 Check(ReferenceEquals(pageRoot.Background, pagePeer.Background), "AppBar page template retains its background");
+            }
+            else if (mode == "settings-flyout")
+            {
+                var page = new Grid(); var behind = new WebView(); page.Children.Add(behind);
+                behind.NavigateToString("<html><head><title>Background article</title></head><body>Original article</body></html>");
+                Window.Current.Content = page; Window.Current.Activate();
+                var root = (System.Windows.FrameworkElement)typeof(Application).Assembly.GetType("AppxPortable.WinRT.Xaml.Host").GetProperty("Root", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null, null);
+                Pump(() => root.ActualHeight > 150);
+                Directory.CreateDirectory("Assets");
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(System.Windows.Media.Imaging.BitmapSource.Create(1, 1, 96, 96,
+                    System.Windows.Media.PixelFormats.Bgra32, null, new byte[] { 0, 0, 255, 255 }, 4)));
+                using (var stream = File.Create("Assets/pixel.png")) encoder.Save(stream);
+                File.WriteAllText("Images.xaml", "<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><Grid.Background><ImageBrush ImageSource='/Assets/pixel.png'/></Grid.Background><Image x:Name='valid' Source='/Assets/pixel.png'/></Grid>");
+                var images = new Grid(); Application.LoadComponent(images, new Uri("ms-appx:///Images.xaml"));
+                var image = (System.Windows.Controls.Image)Peer((Image)images.FindName("valid"));
+                var brush = (System.Windows.Media.ImageBrush)((System.Windows.Controls.Grid)Peer(images)).Background;
+                Check(((System.Windows.Media.Imaging.BitmapSource)image.Source).PixelWidth == 1 && ((System.Windows.Media.Imaging.BitmapSource)brush.ImageSource).PixelHeight == 1, "package Image and ImageBrush still decode valid assets");
+                var flyout = new SettingsFlyout();
+                Directory.CreateDirectory("View");
+                File.WriteAllText("View/Settings.xaml", "<SettingsFlyout xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' Width='500' Title='Layout' IconSource='Assets/SmallLogo.png' HeaderBackground='#FF143C70'><Grid><WebView x:Name='articleView' HorizontalAlignment='Left' VerticalAlignment='Top'/></Grid></SettingsFlyout>");
+                Application.LoadComponent(flyout, new Uri("ms-appx:///View/Settings.xaml"));
+                var peer = (System.Windows.Controls.ContentControl)Peer(flyout);
+                var optionalIcon = (System.Windows.Media.Imaging.BitmapImage)peer.GetType().GetProperty("IconSource").GetValue(peer, null);
+                Check(optionalIcon.UriSource.AbsoluteUri.EndsWith("/View/Assets/SmallLogo.png"), "optional icon retains the XAML-relative URI rather than guessing a different asset");
+                var web = (WebView)flyout.FindName("articleView");
+                var webPeer = (System.Windows.FrameworkElement)Peer(web);
+                peer.SizeChanged += (sender, change) => { webPeer.Width = peer.Width - 80; webPeer.Height = peer.Height - 150; };
+                web.NavigateToString("<html><head><title>Settings article</title></head><body>Layout help</body></html>");
+                Call(flyout, "ShowIndependent");
+                Pump(() => peer.IsLoaded && webPeer.IsLoaded && peer.IsArrangeValid);
+                Check(root.IsAncestorOf(peer), "settings content belongs to the composited host tree");
+                var point = peer.TranslatePoint(new System.Windows.Point(), root);
+                Check(Math.Abs(point.X - (root.ActualWidth - 500)) < 1 && Math.Abs(peer.ActualHeight - root.ActualHeight) < 1, "settings flyout fills the right edge of the host");
+                Check(peer.Height == root.ActualHeight && webPeer.Width == 420 && webPeer.Height == peer.Height - 150, "SizeChanged handlers can read finite Width and Height to size HTML content");
+                Check((string)Call(flyout, "get_Title") == "Layout", "settings title survives compiled/source loading");
+                var nativeBehind = (System.Windows.Forms.WebBrowser)Peer(behind).GetType().GetProperty("Browser", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Peer(behind), null);
+                var region = CreateRectRgn(0, 0, 0, 0);
+                try { Check(GetWindowRgn(nativeBehind.Handle, region) != 0 && !PtInRegion(region, (int)root.ActualWidth - 10, 10), "native article does not cover the settings header"); }
+                finally { DeleteObject(region); }
+
+                var back = (System.Windows.Controls.Button)peer.Template.FindName("SettingsBackButton", peer);
+                Check(back != null && back.IsVisible, "settings header has a visible back button");
+                var snapshot = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                snapshot.Render(root);
+                var screenshot = new System.Windows.Media.Imaging.PngBitmapEncoder(); screenshot.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(snapshot));
+                using (var stream = File.Create("settings-tree.png")) screenshot.Save(stream);
+                back.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Pump(() => !peer.IsLoaded);
+                Check(!root.IsAncestorOf(peer), "Back dismisses an independent settings flyout");
+                region = CreateRectRgn(0, 0, 0, 0);
+                try { Check(GetWindowRgn(nativeBehind.Handle, region) == 0 || PtInRegion(region, (int)root.ActualWidth - 10, 10), "native article is restored after settings close"); }
+                finally { DeleteObject(region); }
+
+                Check(double.IsNaN(peer.Height) && peer.Width == 500, "closing restores the flyout's declared dimensions");
+                Call(flyout, "Show"); Pump(() => peer.IsLoaded);
+                var second = new SettingsFlyout(); Call(second, "ShowIndependent");
+                var secondPeer = (System.Windows.FrameworkElement)Peer(second);
+                Pump(() => secondPeer.IsLoaded);
+                Check(!root.IsAncestorOf(peer) && root.IsAncestorOf(secondPeer), "showing another flyout replaces the first");
+                Call(second, "Hide"); Pump(() => !secondPeer.IsLoaded);
+                Call(flyout, "ShowIndependent"); Pump(() => peer.IsLoaded);
+                var host = ShimGetHostWindow(); NativeRect bounds; GetWindowRect(host, out bounds);
+                SetWindowPos(host, IntPtr.Zero, 0, 0, bounds.Right - bounds.Left + 70, bounds.Bottom - bounds.Top + 50, 0x0002 | 0x0004 | 0x0010);
+                Pump(() => peer.Height == root.ActualHeight && Math.Abs(peer.TranslatePoint(new System.Windows.Point(), root).X - (root.ActualWidth - 500)) < 1);
+                Check(peer.Height == root.ActualHeight, "open settings flyout follows host resize");
+                PressHostKey(host, 0x1b, false);
+                Pump(() => !peer.IsLoaded);
+                Check(!root.IsAncestorOf(peer), "Escape dismisses settings");
+                Call(flyout, "ShowIndependent"); Pump(() => peer.IsLoaded);
+                ClickHost(host, 10, 10); Pump(() => !peer.IsLoaded);
+                Check(!root.IsAncestorOf(peer), "clicking outside settings light-dismisses it");
+                Call(flyout, "Hide");
             }
             else if (mode == "search-input")
             {

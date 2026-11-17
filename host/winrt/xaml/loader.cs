@@ -274,7 +274,20 @@ namespace AppxPortable.WinRT.Xaml
                                     Uri uri;
                                     if (!Uri.TryCreate(image, UriKind.Absolute, out uri) || uri.Scheme == "ms-appx" || image.StartsWith("/", StringComparison.Ordinal))
                                     {
-                                        writer.WriteValue(new Uri(Resolve(Combine(source, image), false), UriKind.Absolute).AbsoluteUri);
+                                        var absolute = new Uri(Resolve(Combine(source, image), false), UriKind.Absolute);
+                                        if (typeof(System.Windows.Media.ImageSource).IsAssignableFrom(valueFrame.Member.Type.UnderlyingType))
+                                        {
+                                            // ImageSourceConverter decodes eagerly and aborts the page
+                                            // for a missing optional image. Let the Image control own
+                                            // first use and its normal ImageFailed behavior instead.
+                                            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                                            bitmap.BeginInit();
+                                            bitmap.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation;
+                                            bitmap.UriSource = absolute;
+                                            bitmap.EndInit();
+                                            writer.WriteValue(bitmap);
+                                        }
+                                        else writer.WriteValue(absolute.AbsoluteUri);
                                         reader.Read();
                                         continue;
                                     }

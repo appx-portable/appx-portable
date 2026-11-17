@@ -18,12 +18,21 @@ namespace AppxPortable.WinRT.Xaml
         private static extern IntPtr SetParent(IntPtr child, IntPtr parent);
         [DllImport("user32.dll", ExactSpelling = true)]
         private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll", ExactSpelling = true)]
+        private static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
+        [DllImport("gdi32.dll", ExactSpelling = true)]
+        private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+        [DllImport("gdi32.dll", ExactSpelling = true)]
+        private static extern int CombineRgn(IntPtr target, IntPtr first, IntPtr second, int mode);
+        [DllImport("gdi32.dll", ExactSpelling = true)]
+        private static extern bool DeleteObject(IntPtr value);
         public static readonly DependencyProperty DefaultBackgroundColorProperty = DependencyProperty.Register("DefaultBackgroundColor", typeof(Color), typeof(WebViewPeer), new PropertyMetadata(Colors.White));
         public Color DefaultBackgroundColor { get { return (Color)GetValue(DefaultBackgroundColorProperty); } set { SetValue(DefaultBackgroundColorProperty, value); } }
         private Forms.WebBrowser browser;
         private string html;
         private Uri source;
         private Rect lastBounds = Rect.Empty;
+        private Rect lastOcclusion = Rect.Empty;
         private bool visible;
         private static readonly bool useUiFontFallback = MissingUiFont();
         private static bool MissingUiFont()
@@ -74,6 +83,8 @@ namespace AppxPortable.WinRT.Xaml
                 if (browser == null || browser.Document == null) return;
                 var color = DefaultBackgroundColor;
                 browser.Document.BackColor = System.Drawing.Color.FromArgb(color.R, color.G, color.B);
+                // Native HTML takes clicks before the composited overlay can.
+                browser.Document.MouseDown += (sender, args) => SettingsFlyoutPeer.DismissOutside(this);
             };
             if (html != null) browser.DocumentText = html;
             else if (source != null) browser.Navigate(Resolve(source));
@@ -109,6 +120,7 @@ namespace AppxPortable.WinRT.Xaml
             if (browser == null) return;
             bool show = IsLoaded && IsVisible && ActualWidth > 0 && ActualHeight > 0;
             Rect bounds = Rect.Empty;
+            Rect occlusion = Rect.Empty;
             if (show)
             {
                 var point = TranslatePoint(new Point(0, 0), Host.Root);
@@ -116,9 +128,11 @@ namespace AppxPortable.WinRT.Xaml
                 point = matrix.Transform(point);
                 var size = matrix.Transform(new Vector(ActualWidth, ActualHeight));
                 bounds = new Rect(point.X, point.Y, Math.Max(0, size.X), Math.Max(0, size.Y));
+                occlusion = SettingsFlyoutPeer.Occlusion(this);
+                if (!occlusion.IsEmpty) { occlusion.Transform(matrix); occlusion.Intersect(bounds); }
             }
-            if (bounds == lastBounds && show == visible) return;
-            lastBounds = bounds; visible = show;
+            if (bounds == lastBounds && occlusion == lastOcclusion && show == visible) return;
+            lastBounds = bounds; lastOcclusion = occlusion; visible = show;
             // ActiveX sizes its document from the control's managed Bounds.
             // Resizing only the HWND leaves the HTML viewport at its default size.
             if (show)
@@ -127,12 +141,31 @@ namespace AppxPortable.WinRT.Xaml
             SetWindowPos(browser.Handle, IntPtr.Zero, show ? (int)Math.Round(bounds.X) : 0, show ? (int)Math.Round(bounds.Y) : 0,
                 show ? Math.Max(1, (int)Math.Round(bounds.Width)) : 0, show ? Math.Max(1, (int)Math.Round(bounds.Height)) : 0,
                 0x0004 | 0x0010 | (show ? 0x0040U : 0x0080U)); // NOZORDER | NOACTIVATE | SHOW/HIDE
+            ClipForSettings(bounds, occlusion);
+        }
+        private void ClipForSettings(Rect bounds, Rect occlusion)
+        {
+            if (occlusion.IsEmpty) { SetWindowRgn(browser.Handle, IntPtr.Zero, true); return; }
+            var region = CreateRectRgn(0, 0, (int)Math.Round(bounds.Width), (int)Math.Round(bounds.Height));
+            var cutout = CreateRectRgn((int)Math.Floor(occlusion.Left - bounds.Left), (int)Math.Floor(occlusion.Top - bounds.Top),
+                (int)Math.Ceiling(occlusion.Right - bounds.Left), (int)Math.Ceiling(occlusion.Bottom - bounds.Top));
+            try
+            {
+                if (region == IntPtr.Zero || cutout == IntPtr.Zero || CombineRgn(region, region, cutout, 4) == 0 || SetWindowRgn(browser.Handle, region, true) == 0)
+                    throw new InvalidOperationException("Cannot clip HTML behind SettingsFlyout");
+                region = IntPtr.Zero; // SetWindowRgn owns the region after success.
+            }
+            finally
+            {
+                if (region != IntPtr.Zero) DeleteObject(region);
+                if (cutout != IntPtr.Zero) DeleteObject(cutout);
+            }
         }
         private void ReleaseBrowser()
         {
             var current = browser; browser = null;
             if (current != null) { current.ObjectForScripting = null; current.Dispose(); }
-            lastBounds = Rect.Empty; visible = false;
+            lastBounds = Rect.Empty; lastOcclusion = Rect.Empty; visible = false;
         }
         [ComVisible(true), ClassInterface(ClassInterfaceType.AutoDispatch)]
         public sealed class ScriptBridge

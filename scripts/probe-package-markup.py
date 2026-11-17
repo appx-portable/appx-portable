@@ -17,8 +17,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('wine', 'prefix', 'runtime', 'shim', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument('--cases', nargs='+', choices=('resources', 'compiled', 'panel', 'appbar', 'search', 'light', 'webview', 'scroll', 'selection', 'navigation', 'files', 'grid', 'webview-loaded', 'mainloop', 'webview-layout', 'webview-resize', 'webview-unicode', 'webview-fonts', 'index-recycle', 'search-input'),
-                        default=['resources', 'compiled', 'panel', 'appbar', 'search', 'light', 'webview', 'scroll', 'selection', 'navigation', 'files', 'grid', 'webview-loaded', 'mainloop', 'webview-layout', 'webview-resize', 'webview-unicode', 'webview-fonts', 'index-recycle', 'search-input'])
+    parser.add_argument('--cases', nargs='+', choices=('resources', 'compiled', 'panel', 'appbar', 'search', 'light', 'webview', 'scroll', 'selection', 'navigation', 'files', 'grid', 'webview-loaded', 'mainloop', 'webview-layout', 'webview-resize', 'webview-unicode', 'webview-fonts', 'index-recycle', 'search-input', 'settings-flyout'),
+                        default=['resources', 'compiled', 'panel', 'appbar', 'search', 'light', 'webview', 'scroll', 'selection', 'navigation', 'files', 'grid', 'webview-loaded', 'mainloop', 'webview-layout', 'webview-resize', 'webview-unicode', 'webview-fonts', 'index-recycle', 'search-input', 'settings-flyout'])
     args = parser.parse_args()
     wine, prefix, runtime, shim, output = (getattr(args, name).resolve() for name in ('wine', 'prefix', 'runtime', 'shim', 'output'))
     if output.exists():
