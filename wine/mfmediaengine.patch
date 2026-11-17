@@ -1,0 +1,24 @@
+Wine 11.18: implement IMFMediaEngine.Load using the existing eager source
+resolution, retaining shutdown errors. CommonDX calls Source, Load, then Play;
+the old E_NOTIMPL prevented Play from being reached.
+
+--- a/dlls/mfmediaengine/main.c
++++ b/dlls/mfmediaengine/main.c
+@@ -1875,3 +1875,4 @@
+-    HRESULT hr = E_NOTIMPL;
+-
+-    FIXME("(%p): stub.\n", iface);
++    HRESULT hr = S_OK;
++    BSTR source;
++
++    TRACE("%p.\n", iface);
+@@ -1882,0 +1884,9 @@
++    /* SetSource already starts resolution. Continue that request instead of
++     * starting a second concurrent load; for a resolved URL, reload it using
++     * the same source-selection path. Copy it before set_source frees it. */
++    else if (!(engine->flags & FLAGS_ENGINE_SOURCE_PENDING) && engine->current_source)
++    {
++        source = SysAllocString(engine->current_source);
++        hr = source ? media_engine_set_source(engine, NULL, source) : E_OUTOFMEMORY;
++        SysFreeString(source);
++    }

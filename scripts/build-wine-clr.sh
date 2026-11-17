@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the WoW64 engine component for the pinned macOS Wine runtime.
+# Build the WoW64 and media engine components for the pinned macOS Wine runtime.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 output=${1:-"$root/build/wine-clr"}
@@ -20,6 +20,7 @@ source="$work/wine-$version"
 rm -rf "$source"
 tar xf "$archive" -C "$work"
 patch -d "$source" -p1 < "$root/wine/wow64cpu.patch"
+patch -d "$source" -p1 < "$root/wine/mfmediaengine.patch"
 if [[ $(uname) == Darwin ]]; then
   export PATH="$(brew --prefix bison)/bin:$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
   host=(arch -x86_64)
@@ -41,10 +42,16 @@ if [[ ! -f Makefile ]]; then
     || { tail -20 configure.log >&2; exit 1; }
 fi
 ${host[@]+"${host[@]}"} make -j"$(getconf _NPROCESSORS_ONLN)" \
-  dlls/wow64cpu/x86_64-windows/wow64cpu.dll > make.log 2>&1 \
+  dlls/wow64cpu/x86_64-windows/wow64cpu.dll \
+  dlls/mfmediaengine/i386-windows/mfmediaengine.dll \
+  dlls/mfmediaengine/x86_64-windows/mfmediaengine.dll > make.log 2>&1 \
   || { tail -20 make.log >&2; exit 1; }
 # This is an engine builtin, so retain its Wine builtin marker.
 cp dlls/wow64cpu/x86_64-windows/wow64cpu.dll "$output/wow64cpu.dll"
+for arch in i386-windows x86_64-windows; do
+  cp "dlls/mfmediaengine/$arch/mfmediaengine.dll" "$output/mfmediaengine-$arch.dll"
+done
+cp "$root/wine/mfmediaengine.patch" "$output/"
 cp "$archive" "$output/wine-$version.tar.xz"
 cp "$root/wine/wow64cpu.patch" "$root/scripts/build-wine-clr.sh" "$output/"
 if [[ $(uname) == Darwin ]]; then

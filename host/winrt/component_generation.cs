@@ -141,6 +141,17 @@ internal static partial class WinrtProjectionGenerator
     private static string Wrapped(Mono.Cecil.TypeReference type, string owned)
     {
         if (ComponentAction(type)) return Runtime + "NativeComponentProjection.Action(" + owned + ")";
+        var sdkFuture = SdkFuture(type);
+        if (sdkFuture != null)
+        {
+            var item = sdkFuture.GenericArguments[0];
+            string signature = EventSignature(item);
+            var contract = Find(sdkFuture.ElementType.FullName);
+            string abi = "new " + Runtime + "FutureAbi(new global::System.Guid(\"" + ParameterizedIid(Iid(contract), signature) +
+                "\"), new global::System.Guid(\"" + ParameterizedIid(Iid(Find("Windows.Foundation.AsyncOperationCompletedHandler`1")), signature) +
+                "\"), global::System.Guid.Empty, " + NamedSlot(contract, "put_Completed") + ", " + NamedSlot(contract, "get_Completed") + ", " + NamedSlot(contract, "GetResults") + ")";
+            return Runtime + "NativeFuture<" + Name(item) + ">.FromNative(" + owned + ", " + abi + ", value => " + Wrapped(item, "value") + ")";
+        }
         var future = ComponentFuture(type);
         var view = ComponentView(type);
         var generic = future ?? view;

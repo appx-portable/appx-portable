@@ -391,6 +391,36 @@ fault, and distinguishes cancellation from a faulted `OperationCanceledException
 Completion-handler failures are logged separately and cannot replace the task's
 result. `winrt_task_bridge_projection` covers those cases.
 
+## Message dialogs and music
+
+`MessageDialog` constructors, content/title, command vectors, command indices,
+options and `ShowAsync` bind to the native popup ABI. `UICommand` constructors
+retain labels, boxed IDs and invocation callbacks. The SDK generator derives
+closed async operation and completion-handler IIDs and slots from metadata for
+selected object results, including `IAsyncOperation<IUICommand>`.
+
+The native factory retains the OS dialog on supported Windows systems. Missing
+or unimplemented OS support uses a desktop task dialog owned by the host window,
+with a scoped Common Controls v6 activation context embedded in the shim. Showing
+returns a pending operation; selection invokes the command before completing it.
+Host-thread callers receive callbacks through the host dispatcher. Cancellation
+closes the UI without choosing a command; nonzero `MessageDialogOptions` remain
+explicitly unsupported. Other native creation/initialization errors are preserved.
+
+`scripts/probe-coreapplication.py --fixture message-dialog` and CTest's
+`winrt_message_dialog_projection` exercise real isolated dialog windows: custom
+button selection and identity, boxed IDs, configured Enter/cancel behavior,
+implicit Close, pending/closed errors, concurrent-show rejection and cancellation.
+
+The packaged Wine runtime also includes `wine/mfmediaengine.patch` for both PE
+architectures. It implements `IMFMediaEngine.Load` using the engine's existing
+source-resolution path; the original CommonDX music wrapper calls Source, Load,
+then Play. `scripts/probe-common-music.py` exercises the original game wrapper
+and a supplied music asset, checking audio-stream detection, advancing playback,
+pause/resume, stop and shutdown behavior without modifying game assemblies.
+Pass `--asset Content/TMP_ambient.mp3` to check Monster Island's ambient track.
+These checks establish playback progress, not speaker audibility.
+
 ## Mono SharpDX compatibility
 
 The three tested Miniclip packages ship a SharpDX generic `cpblk` helper whose

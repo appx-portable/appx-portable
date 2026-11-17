@@ -70,6 +70,15 @@ internal static partial class WinrtProjectionGenerator
         return "global::" + type.FullName;
     }
 
+    private static GenericInstanceType SdkFuture(TypeReference type)
+    {
+        var generic = type as GenericInstanceType;
+        if (lenient || generic == null || generic.ElementType.FullName != "Windows.Foundation.IAsyncOperation`1" ||
+            !selected.Contains(generic.ElementType.FullName) || generic.GenericArguments.Count != 1) return null;
+        var item = generic.GenericArguments[0];
+        return selected.Contains(item.FullName) && !Find(item.FullName).IsValueType && !IsDelegate(Find(item.FullName)) ? generic : null;
+    }
+
     // The expression that wraps a native pointer as a selected type: interfaces use
     // their generated wrapper, which also finds the most derived selected class.
     private static string Wrapper(TypeReference type)
@@ -484,7 +493,7 @@ internal static partial class WinrtProjectionGenerator
             if (width != "System.Int32" && width != "System.UInt32") throw new NotSupportedException("Unsupported enum return: " + method.ReturnType.FullName);
             resultAbi = width == "System.Int32" ? "int" : "uint";
         }
-        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object" && ComponentFuture(method.ReturnType) == null && !ComponentAction(method.ReturnType)) Parameter(method.ReturnType, type.FullName + "." + name);
+        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object" && ComponentFuture(method.ReturnType) == null && SdkFuture(method.ReturnType) == null && !ComponentAction(method.ReturnType)) Parameter(method.ReturnType, type.FullName + "." + name);
         TypeDefinition owner = MemberInterface(type, method);
         int slot = Slot(owner, method);
         string nativeName = name + (overloaded ? "_" + Literal(slot) : "");
@@ -1228,6 +1237,7 @@ namespace AppxPortable.WinRT.Projected
         bool text = getter.ReturnType.FullName == "System.String";
         bool inspectable = getter.ReturnType.FullName == "System.Object";
         bool interval = getter.ReturnType.FullName == "Windows.Foundation.TimeSpan";
+        bool word = getter.ReturnType.FullName == "System.UInt32";
         bool enumValue = Available(getter.ReturnType.FullName) && Find(getter.ReturnType.FullName).IsEnum;
         if (enumValue)
         {
@@ -1243,7 +1253,7 @@ namespace AppxPortable.WinRT.Projected
             if (setter.Parameters.Count != 1 || setter.ReturnType.FullName != "System.Void" || setter.IsStatic != getter.IsStatic)
                 throw new NotSupportedException("Unsupported property setter signature: " + type.FullName + "." + name);
             ValidateExternalIdentity(setter.Parameters[0].ParameterType);
-            if (boolean || text || inspectable || interval || enumValue)
+            if (boolean || text || inspectable || interval || enumValue || word)
             {
                 if (setter.Parameters[0].ParameterType.FullName != getter.ReturnType.FullName)
                     throw new NotSupportedException("Primitive property setter type differs: " + type.FullName + "." + name);
@@ -1274,6 +1284,7 @@ namespace AppxPortable.WinRT.Projected
             receiver = Receiver(output, type, writer, setter.IsStatic, composable);
             if (boolean) output.AppendLine("                    " + receiver + ".SetBoolean(" + Literal(Slot(writer, setter)) + ", value);");
             else if (interval) output.AppendLine("                    " + receiver + ".SetInt64(" + Literal(Slot(writer, setter)) + ", value.Ticks);");
+            else if (word) output.AppendLine("                    " + receiver + ".SetUInt32(" + Literal(Slot(writer, setter)) + ", value);");
             else if (enumValue) output.AppendLine("                    " + receiver + ".SetUInt32(" + Literal(Slot(writer, setter)) + ", unchecked((uint)value));");
             else if (text)
             {

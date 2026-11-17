@@ -21,6 +21,7 @@
 #include <winrt/Windows.UI.Popups.h>
 using namespace Microsoft::WRL;
 namespace appx {
+HRESULT MakeDesktopMessageDialog(HSTRING, HSTRING, ABI::Windows::UI::Popups::IMessageDialog**);
 namespace {
 namespace Share = ABI::Windows::ApplicationModel::DataTransfer;
 namespace Settings = ABI::Windows::UI::ApplicationSettings;
@@ -40,6 +41,8 @@ class MessageDialogFactory final : public Factory<ABI::Windows::UI::Popups::IMes
         ComPtr<IInitializeWithWindow> owner;
         if (SUCCEEDED(hr)) hr = dialog.As(&owner);
         if (SUCCEEDED(hr)) hr = owner->Initialize(HostWindow());
+        if (hr == REGDB_E_CLASSNOTREG || hr == RO_E_METADATA_NAME_NOT_FOUND || hr == E_NOTIMPL)
+            return MakeDesktopMessageDialog(content, title, value);
         return SUCCEEDED(hr) ? dialog.CopyTo(value) : hr;
     }
 

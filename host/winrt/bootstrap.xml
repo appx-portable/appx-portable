@@ -665,6 +665,22 @@
     <Property Name="Id" />
     <Property Name="Label" />
   </Class>
+  <Class Name="Windows.UI.Popups.MessageDialog">
+    <Constructor />
+    <Property Name="Title" />
+    <Property Name="Content" />
+    <Property Name="Commands" />
+    <Property Name="DefaultCommandIndex" />
+    <Property Name="CancelCommandIndex" />
+    <Property Name="Options" />
+    <Method Name="ShowAsync" />
+  </Class>
+  <Enum Name="Windows.UI.Popups.MessageDialogOptions" />
+  <Class Name="Windows.UI.Popups.UICommand">
+    <Constructor />
+    <Property Name="Id" />
+    <Property Name="Label" />
+  </Class>
   <Interface Name="Windows.UI.Popups.IUICommand">
     <Property Name="Id" />
     <Property Name="Label" />

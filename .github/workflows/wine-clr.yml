@@ -4,6 +4,7 @@ on:
     pull_request:
         paths:
             - 'wine/wow64cpu.patch'
+            - 'wine/mfmediaengine.patch'
             - 'wine/game_menu.m'
             - 'scripts/build-macos-menu.sh'
             - 'tests/macos/**'
