@@ -281,7 +281,8 @@ The generator supports static runtime classes and parameterless activation
 when WinMD explicitly advertises it. Completion scopes definitions to the input
 projection assembly, retaining external Windows and System scopes. Xbox members
 outside the selected surface have named NotImplementedException bodies;
-Package projections can forward methods returning `IAsyncOperation<T>` and
+Package projections can forward methods returning `IAsyncAction` through the
+SDK action adapter, methods returning `IAsyncOperation<T>` and
 properties returning `IVectorView<T>` when `T` is a projected runtime class.
 Async properties and vector-returning methods remain unsupported. The SDK artifact records the generic
 contract IIDs from its input metadata; the component generator combines those
@@ -293,7 +294,13 @@ binding is not equivalent to implementing those APIs.
 
 `scripts/probe-xbox-marketplace.py` checks native offline completion and
 `GetResults` errors, plus a configured local offer collection, item metadata,
-collection bounds, and closed-operation behavior. It is also registered as
+collection bounds, and closed-operation behavior. It also checks
+`LeaderboardService.PostResultAsync` completion and callbacks, 64-bit score
+arguments, Task awaiting, and signed-out errors with local sign-out/sign-in.
+Score posts keep the native shim's existing local-only behavior; they are not
+sent to Xbox servers. The SDK advertises action support through its
+metadata-derived `ProjectionContract` marker, so older SDK references retain
+named stubs instead of generating calls to a missing adapter. It is also registered as
 `winrt_xbox_marketplace_projection` when `APPX_XBOX_METADATA` is supplied.
 
 `xbox_metadata.cs` verifies IUser's IID and full ordered ABI signatures against

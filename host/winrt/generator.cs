@@ -64,6 +64,7 @@ internal static partial class WinrtProjectionGenerator
         if (type.FullName == "Windows.UI.Xaml.Interop.TypeName") return "global::System.Type";
         if (type.FullName == "Windows.Foundation.TimeSpan") return "global::System.TimeSpan";
         if (type.FullName == DateTimeName) return "global::System.DateTimeOffset";
+        if (ComponentAction(type)) return "global::Windows.Foundation.IAsyncAction";
         if (!Available(type.FullName))
             throw new NotSupportedException("Type is not selected: " + type.FullName);
         return "global::" + type.FullName;
@@ -483,7 +484,7 @@ internal static partial class WinrtProjectionGenerator
             if (width != "System.Int32" && width != "System.UInt32") throw new NotSupportedException("Unsupported enum return: " + method.ReturnType.FullName);
             resultAbi = width == "System.Int32" ? "int" : "uint";
         }
-        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object" && ComponentFuture(method.ReturnType) == null) Parameter(method.ReturnType, type.FullName + "." + name);
+        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object" && ComponentFuture(method.ReturnType) == null && !ComponentAction(method.ReturnType)) Parameter(method.ReturnType, type.FullName + "." + name);
         TypeDefinition owner = MemberInterface(type, method);
         int slot = Slot(owner, method);
         string nativeName = name + (overloaded ? "_" + Literal(slot) : "");
@@ -2282,7 +2283,7 @@ namespace AppxPortable.WinRT.Projected
             output.AppendLine("[assembly: global::System.Reflection.AssemblyVersion(\"" + (component ? sourceModule.Assembly.Name.Version.ToString() : "255.255.255.255") + "\")]");
             if (interop) output.AppendLine("[assembly: " + Interop + "ProjectionProvider(typeof(global::AppxPortable.WinRT.Projected.CrossAssemblyProvider))]");
             if (interop && !component)
-                foreach (string contract in sharedContracts)
+                foreach (string contract in sharedContracts.Where(c => c != "Windows.Foundation.IAsyncAction" || selected.Contains(c)))
                     output.AppendLine("[assembly: " + Interop + "ProjectionContract(\"" + contract + "\", \"" + Iid(Find(contract)) + "\")]");
             foreach (var reference in external.Values.Select(t => t.Module).Distinct()) output.AppendLine("// Reference " + reference.Name + " SHA256 " + Hash(reference.FileName));
             foreach (XmlElement element in elements.OrderBy(e => e.GetAttribute("Name"), StringComparer.Ordinal))

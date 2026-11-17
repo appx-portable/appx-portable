@@ -56,7 +56,8 @@ internal static partial class WinrtProjectionGenerator
     private static bool interop;
     private static readonly System.Collections.Generic.Dictionary<string, string> contractIids = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal);
     private static readonly string[] sharedContracts = {
-        "Windows.Foundation.IAsyncOperation`1", "Windows.Foundation.AsyncOperationCompletedHandler`1", "Windows.Foundation.Collections.IVectorView`1"
+        "Windows.Foundation.IAsyncOperation`1", "Windows.Foundation.AsyncOperationCompletedHandler`1", "Windows.Foundation.Collections.IVectorView`1",
+        "Windows.Foundation.IAsyncAction"
     };
     private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> external =
         new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
@@ -139,6 +140,7 @@ internal static partial class WinrtProjectionGenerator
     }
     private static string Wrapped(Mono.Cecil.TypeReference type, string owned)
     {
+        if (ComponentAction(type)) return Runtime + "NativeComponentProjection.Action(" + owned + ")";
         var future = ComponentFuture(type);
         var view = ComponentView(type);
         var generic = future ?? view;
@@ -153,6 +155,10 @@ internal static partial class WinrtProjectionGenerator
         }
         return external.ContainsKey(type.FullName) ? Interop + "ProjectionInterop.Wrap<" + Name(type) + ">(" + owned + ")"
             : Wrapper(type) + ".FromNative(" + owned + ")";
+    }
+    private static bool ComponentAction(Mono.Cecil.TypeReference type)
+    {
+        return type.FullName == "Windows.Foundation.IAsyncAction" && referenced.Contains(type.FullName) && contractIids.ContainsKey(type.FullName);
     }
     private static Mono.Cecil.GenericInstanceType ComponentContract(Mono.Cecil.TypeReference type, string contract)
     {

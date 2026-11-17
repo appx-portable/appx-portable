@@ -12,6 +12,11 @@ namespace AppxPortable.WinRT
     // duplicating those types. Every borrowed result is retained by its wrapper.
     public static class NativeComponentProjection
     {
+        public static IAsyncAction Action(SafeHandle owned)
+        {
+            if (owned == null) return null;
+            using (owned) return NativeAction.FromNative(NativeObject.FromLease(owned));
+        }
         public static IAsyncOperation<T> Operation<T>(SafeHandle owned, Guid iid, Guid completed, Func<SafeHandle, T> convert) where T : class
         {
             if (owned == null) return null;
