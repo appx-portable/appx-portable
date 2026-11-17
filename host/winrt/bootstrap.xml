@@ -1,5 +1,29 @@
 <Projection>
   <Class Name="Windows.ApplicationModel.Resources.ResourceLoader" />
+  <Class Name="Windows.ApplicationModel.Core.CoreApplication">
+    <Method Name="Run" />
+    <Method Name="GetCurrentView" />
+    <Method Name="Exit" />
+    <Property Name="MainView" />
+    <Property Name="Id" />
+    <Event Name="Suspending" />
+    <Event Name="Resuming" />
+  </Class>
+  <Class Name="Windows.ApplicationModel.Core.CoreApplicationView">
+    <Property Name="CoreWindow" />
+    <Property Name="IsMain" />
+    <Event Name="Activated" />
+  </Class>
+  <Interface Name="Windows.ApplicationModel.Core.IFrameworkViewSource" Implementable="true" InvocationBound="true">
+    <Method Name="CreateView" />
+  </Interface>
+  <Interface Name="Windows.ApplicationModel.Core.IFrameworkView" Implementable="true" InvocationBound="true">
+    <Method Name="Initialize" />
+    <Method Name="SetWindow" />
+    <Method Name="Load" />
+    <Method Name="Run" />
+    <Method Name="Uninitialize" />
+  </Interface>
   <!-- CLR-redirected structs; System.Runtime.WindowsRuntime(.UI.Xaml) forward to them. -->
   <Struct Name="Windows.Foundation.Point" Adapter="Clr" />
   <Struct Name="Windows.Foundation.Size" Adapter="Clr" />
@@ -17,6 +41,7 @@
   </Class>
   <Class Name="Windows.ApplicationModel.PackageId">
     <Property Name="Name" />
+    <Property Name="FamilyName" />
     <Property Name="Publisher" />
     <Property Name="ResourceId" />
     <Property Name="Architecture" />
@@ -445,11 +470,15 @@
   </Class>
   <Class Name="Windows.UI.Core.KeyEventArgs">
     <Property Name="VirtualKey" />
+    <Property Name="KeyStatus" />
     <Property Name="Handled" />
   </Class>
+  <Struct Name="Windows.UI.Core.CorePhysicalKeyStatus" />
   <Class Name="Windows.UI.Input.PointerPoint">
     <Property Name="Position" />
     <Property Name="Properties" />
+    <Property Name="PointerId" />
+    <Property Name="IsInContact" />
   </Class>
   <Class Name="Windows.UI.Input.PointerPointProperties">
     <Property Name="IsLeftButtonPressed" />
@@ -467,15 +496,23 @@
   </Class>
   <Class Name="Windows.UI.Core.CoreWindow">
     <Method Name="GetForCurrentThread" />
+    <Method Name="Activate" />
+    <Property Name="Bounds" />
     <Property Name="Dispatcher" />
+    <Property Name="PointerCursor" />
     <Method Name="GetKeyState" />
+    <Event Name="Activated" />
+    <Event Name="SizeChanged" />
+    <Event Name="VisibilityChanged" />
     <Event Name="KeyDown" />
+    <Event Name="KeyUp" />
     <Event Name="PointerMoved" />
     <Event Name="PointerPressed" />
     <Event Name="PointerReleased" />
   </Class>
   <Class Name="Windows.UI.Core.CoreDispatcher">
     <Method Name="RunAsync" />
+    <Method Name="ProcessEvents" />
     <Property Name="HasThreadAccess" />
     <Event Name="AcceleratorKeyActivated" />
   </Class>
@@ -486,6 +523,35 @@
     <Property Name="Handled" />
   </Class>
   <Enum Name="Windows.UI.Core.CoreDispatcherPriority" />
+  <Enum Name="Windows.UI.Core.CoreProcessEventsOption" />
+  <Enum Name="Windows.UI.Core.CoreCursorType" />
+  <Class Name="Windows.UI.Core.CoreCursor">
+    <Constructor />
+    <Property Name="Id" />
+    <Property Name="Type" />
+  </Class>
+  <Class Name="Windows.Graphics.Display.DisplayProperties">
+    <Property Name="LogicalDpi" />
+    <Property Name="CurrentOrientation" />
+    <Event Name="LogicalDpiChanged" />
+  </Class>
+  <Delegate Name="Windows.Graphics.Display.DisplayPropertiesEventHandler" />
+  <Enum Name="Windows.Graphics.Display.DisplayOrientations" />
+  <Class Name="Windows.Devices.Sensors.Accelerometer">
+    <Method Name="GetDefault" Arities="0" />
+  </Class>
+  <Class Name="Windows.Devices.Input.KeyboardCapabilities">
+    <Constructor />
+    <Property Name="KeyboardPresent" />
+  </Class>
+  <Class Name="Windows.Devices.Input.MouseCapabilities">
+    <Constructor />
+    <Property Name="MousePresent" />
+  </Class>
+  <Class Name="Windows.Devices.Input.TouchCapabilities">
+    <Constructor />
+    <Property Name="TouchPresent" />
+  </Class>
   <Delegate Name="Windows.UI.Core.DispatchedHandler" />
   <Class Name="Windows.Storage.ApplicationData">
     <Property Name="Current" />
@@ -524,6 +590,7 @@
   <Interface Name="Windows.Storage.IStorageItem" Adapter="Storage" />
   <Interface Name="Windows.Storage.IStorageFile" Adapter="Storage" />
   <Class Name="Windows.Storage.FileIO" Adapter="Storage" />
+  <Class Name="Windows.Storage.PathIO" Adapter="Storage" />
   <Enum Name="Windows.Storage.CreationCollisionOption" />
   <Enum Name="Windows.Storage.FileAccessMode" />
   <Class Name="Windows.Storage.Streams.Buffer" Adapter="Storage" />
@@ -621,7 +688,9 @@
     <Method Name="Clear" />
     <Method Name="EnableNotificationQueue" />
     <Method Name="Update" />
+    <Method Name="StartPeriodicUpdate" />
   </Class>
+  <Enum Name="Windows.UI.Notifications.PeriodicUpdateRecurrence" />
   <Class Name="Windows.UI.Notifications.TileNotification">
     <Constructor />
     <Property Name="Content" />
@@ -692,6 +761,7 @@
     <Method Name="GetNamedItem" />
   </Class>
   <Class Name="Windows.ApplicationModel.Activation.SplashScreen">
+    <Property Name="ImageLocation" />
     <Event Name="Dismissed" />
   </Class>
   <Delegate Name="Windows.Foundation.TypedEventHandler`2" Adapter="TypedEvent" />

@@ -54,6 +54,10 @@ internal static partial class WinrtProjectionGenerator
     private const string Interop = "global::AppxPortable.WinRT.Interop.";
     private const string TypeDescriptor = "AppxPortable.WinRT.Interop.ProjectionTypeAttribute";
     private static bool interop;
+    private static readonly System.Collections.Generic.Dictionary<string, string> contractIids = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal);
+    private static readonly string[] sharedContracts = {
+        "Windows.Foundation.IAsyncOperation`1", "Windows.Foundation.AsyncOperationCompletedHandler`1", "Windows.Foundation.Collections.IVectorView`1"
+    };
     private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> external =
         new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
     private static readonly System.Collections.Generic.List<Mono.Cecil.TypeDefinition> providers = new System.Collections.Generic.List<Mono.Cecil.TypeDefinition>();
@@ -81,6 +85,14 @@ internal static partial class WinrtProjectionGenerator
         if (bridge == null || bridge.Version != new System.Version(1, 0, 0, 0) || bridge.PublicKeyToken.Length != 0 || !System.String.IsNullOrEmpty(bridge.Culture) ||
             Attribute(module.Assembly, "AppxPortable.WinRT.Interop.ProjectionProviderAttribute") == null)
             throw new System.NotSupportedException("Reference is not an interop projection: " + path);
+        foreach (var contract in module.Assembly.CustomAttributes.Where(a => a.AttributeType.FullName == "AppxPortable.WinRT.Interop.ProjectionContractAttribute"))
+        {
+            string name = (string)contract.ConstructorArguments[0].Value;
+            System.Guid iid;
+            if (!sharedContracts.Contains(name) || !System.Guid.TryParse((string)contract.ConstructorArguments[1].Value, out iid) || contractIids.ContainsKey(name))
+                throw new System.NotSupportedException("Invalid shared projection contract: " + name);
+            contractIids.Add(name, iid.ToString("D"));
+        }
         foreach (var type in module.Types.Where(t => t.IsPublic))
         {
             referenced.Add(type.FullName);
@@ -127,9 +139,33 @@ internal static partial class WinrtProjectionGenerator
     }
     private static string Wrapped(Mono.Cecil.TypeReference type, string owned)
     {
+        var future = ComponentFuture(type);
+        var view = ComponentView(type);
+        var generic = future ?? view;
+        if (generic != null)
+        {
+            var item = generic.GenericArguments[0];
+            string signature = EventSignature(item);
+            string iid = ParameterizedIid(contractIids[generic.ElementType.FullName], signature);
+            string completed = future == null ? "" : ", new global::System.Guid(\"" + ParameterizedIid(contractIids[sharedContracts[1]], signature) + "\")";
+            return Runtime + "NativeComponentProjection." + (future == null ? "View" : "Operation") + "<" + Name(item) + ">(" + owned +
+                ", new global::System.Guid(\"" + iid + "\")" + completed + ", lease => " + Wrapped(item, Runtime + "NativeObject.FromLease(lease)") + ")";
+        }
         return external.ContainsKey(type.FullName) ? Interop + "ProjectionInterop.Wrap<" + Name(type) + ">(" + owned + ")"
             : Wrapper(type) + ".FromNative(" + owned + ")";
     }
+    private static Mono.Cecil.GenericInstanceType ComponentContract(Mono.Cecil.TypeReference type, string contract)
+    {
+        var generic = type as Mono.Cecil.GenericInstanceType;
+        if (generic == null || generic.ElementType.FullName != contract || generic.GenericArguments.Count != 1 || !contractIids.ContainsKey(contract)) return null;
+        var item = generic.GenericArguments[0];
+        return Available(item.FullName) && !Find(item.FullName).IsValueType && !IsDelegate(Find(item.FullName)) ? generic : null;
+    }
+    private static Mono.Cecil.GenericInstanceType ComponentFuture(Mono.Cecil.TypeReference type)
+    {
+        return contractIids.ContainsKey(sharedContracts[1]) ? ComponentContract(type, sharedContracts[0]) : null;
+    }
+    private static Mono.Cecil.GenericInstanceType ComponentView(Mono.Cecil.TypeReference type) { return ComponentContract(type, sharedContracts[2]); }
     private static void Provider(System.Text.StringBuilder output)
     {
         output.AppendLine("namespace AppxPortable.WinRT.Projected {");

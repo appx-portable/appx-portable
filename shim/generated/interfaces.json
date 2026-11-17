@@ -284,5 +284,9 @@
     "interfaces": [
       "ABI::Windows::UI::Xaml::Media::IVisualTreeHelperStatics"
     ]
+  },
+  "pathio.h": {
+    "header": "windows.storage.h",
+    "interfaces": ["ABI::Windows::Storage::IPathIOStatics"]
   }
 }

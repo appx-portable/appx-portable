@@ -15,7 +15,7 @@ import sys
 
 REPO = Path(__file__).resolve().parents[1]
 WINRT = REPO / "host/winrt"
-GENERATOR = ("generator.cs", "storage_generation.cs", "component_generation.cs", "wpf_generation.cs")
+GENERATOR = ("generator.cs", "storage_generation.cs", "component_generation.cs", "wpf_generation.cs", "mono_generation.cs")
 RUNTIME = ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs", "storage_abi.cs", "array_buffer.cs")
 # WPF backs Windows.UI.Xaml for managed games under Wine; compiled into Windows.dll.
 XAML_ADAPTER = ("xaml/host.cs", "xaml/peers.cs", "xaml/values.cs", "xaml/properties.cs", "xaml/tree.cs", "xaml/events.cs", "xaml/navigation.cs", "xaml/animation.cs", "xaml/loader.cs", "xaml/xbf.cs", "xaml/startup.cs", "xaml/webview.cs", "xaml/states.cs", "xaml/markup.cs", "xaml/controls.cs", "xaml/images.cs", "xaml/input_events.cs", "xaml/layout.cs", "xaml/colors.cs", "xaml/services.cs", "xaml/popup.cs", "xaml/transitions.cs", "xaml/compositor.cs", "xml_dom.cs", "resources.cs")

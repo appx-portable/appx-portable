@@ -7,6 +7,58 @@ using Windows.Storage.Streams;
 [assembly: InternalsVisibleTo("System.Runtime.WindowsRuntime")]
 namespace AppxPortable.WinRT
 {
+#if APPX_PORTABLE_INTEROP
+    // Package projections use the SDK projection's async contracts without
+    // duplicating those types. Every borrowed result is retained by its wrapper.
+    public static class NativeComponentProjection
+    {
+        public static IAsyncOperation<T> Operation<T>(SafeHandle owned, Guid iid, Guid completed, Func<SafeHandle, T> convert) where T : class
+        {
+            if (owned == null) return null;
+            using (owned)
+            {
+                var layout = StorageAbi.FileFuture;
+                var abi = new FutureAbi(iid, completed, Guid.Empty, layout.PutCompleted, layout.GetCompleted, layout.Results);
+                return NativeFuture<T>.FromNative(NativeObject.FromLease(owned), abi, result =>
+                {
+                    using (result) return convert(result);
+                });
+            }
+        }
+        public static global::System.Collections.Generic.IReadOnlyList<T> View<T>(SafeHandle owned, Guid iid, Func<SafeHandle, T> convert) where T : class
+        {
+            if (owned == null) return null;
+            using (owned)
+                return NativeObject.Wrap<global::System.Collections.Generic.IReadOnlyList<T>>(NativeObject.FromLease(owned), iid, value => new ObjectView<T>(value, convert));
+        }
+        private sealed class ObjectView<T> : global::System.Collections.Generic.IReadOnlyList<T>, INativeWrapper where T : class
+        {
+            private readonly NativeObject native;
+            private readonly Func<SafeHandle, T> convert;
+            internal ObjectView(NativeObject native, Func<SafeHandle, T> convert) { this.native = native; this.convert = convert; }
+            NativeObject INativeWrapper.Native { get { return native; } }
+            public int Count { get { return checked((int)native.UInt32(StorageAbi.View_get_Size)); } }
+            public T this[int index]
+            {
+                get
+                {
+                    if (index < 0 || index >= Count) throw new ArgumentOutOfRangeException("index");
+                    IntPtr result;
+                    int hr;
+                    using (var call = new NativeObject.Access(native))
+                        hr = call.Method<StorageCalls.UIntCall>(StorageAbi.View_GetAt)(call.Self, (uint)index, out result);
+                    using (var value = NativeObject.ObjectResult(hr, result)) return convert(value);
+                }
+            }
+            public global::System.Collections.Generic.IEnumerator<T> GetEnumerator()
+            {
+                for (int index = 0; index < Count; ++index) yield return this[index];
+            }
+            global::System.Collections.IEnumerator global::System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+    }
+
+#endif
     internal sealed class FutureAbi
     {
         internal readonly Guid Iid;
@@ -334,8 +386,28 @@ namespace Windows.Storage
                 return NativeFuture<IRandomAccessStreamWithContentType>.FromNative(reference.Object(StorageAbi.FileReference_OpenReadAsync), StorageAbi.StreamFuture, RandomStream.FromContent);
         }
     }
+    public static class PathIO
+    {
+        public static IAsyncOperation<IBuffer> ReadBufferAsync(string absolutePath)
+        {
+            using (var factory = NativeObject.Factory("Windows.Storage.PathIO", StorageAbi.PathIO))
+                return NativeFuture<IBuffer>.FromNative(StorageCalls.Text(factory, StorageAbi.PathIO_ReadBufferAsync, absolutePath), StorageAbi.BufferFuture, Streams.Buffer.FromNative);
+        }
+    }
     public static class FileIO
     {
+        public static IAsyncOperation<IBuffer> ReadBufferAsync(IStorageFile file)
+        {
+            using (var factory = NativeObject.Factory("Windows.Storage.FileIO", StorageAbi.FileIO))
+            using (var argument = file == null ? null : NativeObject.Argument(file, StorageAbi.File))
+            using (var access = new NativeObject.Access(factory))
+            using (var target = argument == null ? null : new NativeObject.Access(argument))
+            {
+                IntPtr result;
+                int hr = access.Method<StorageCalls.ObjectCall>(StorageAbi.FileIO_ReadBufferAsync)(access.Self, target == null ? IntPtr.Zero : target.Self, out result);
+                return NativeFuture<IBuffer>.FromNative(NativeObject.TakeResult(hr, result), StorageAbi.BufferFuture, Streams.Buffer.FromNative);
+            }
+        }
         public static IAsyncOperation<string> ReadTextAsync(IStorageFile file)
         {
             // Null reaches the native call, which fails with E_POINTER as Windows does.
@@ -700,6 +772,28 @@ namespace AppxPortable.WinRT
     {
         private AsyncActionCompletedHandler completed;
         private bool notified;
+        internal static ManagedAction FromTask(global::System.Threading.Tasks.Task task)
+        {
+            if (task == null) throw new ArgumentNullException("task");
+            var action = new ManagedAction();
+            task.ContinueWith(completedTask =>
+            {
+                AsyncStatus final = completedTask.IsCanceled ? AsyncStatus.Canceled : AsyncStatus.Completed;
+                Exception error = null;
+                if (final != AsyncStatus.Canceled)
+                {
+                    try { completedTask.GetAwaiter().GetResult(); }
+                    catch (Exception failure) { final = AsyncStatus.Error; error = failure; }
+                }
+                // Callback failures are separate from the source task's result.
+                // This continuation has no caller to receive them, so report them.
+                try { action.Finish(final, error); }
+                catch (Exception callbackFailure) { Errors.Log(callbackFailure); }
+            }, global::System.Threading.CancellationToken.None,
+                global::System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously,
+                global::System.Threading.Tasks.TaskScheduler.Default);
+            return action;
+        }
         // Runs the work now; a failure becomes the action's error, as awaiting it rethrows.
         internal static ManagedAction Run(Action work)
         {

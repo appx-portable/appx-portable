@@ -17,6 +17,10 @@ namespace System
 {
     public static class WindowsRuntimeSystemExtensions
     {
+        public static IAsyncAction AsAsyncAction(this Task source)
+        {
+            return AppxPortable.WinRT.ManagedAction.FromTask(source);
+        }
         private sealed class Adapter<T>
         {
             private IAsyncInfo source;

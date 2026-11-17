@@ -20,10 +20,11 @@ class XboxProjectionTest
     static void Run(string expectedVersion, bool generic)
     {
         var fields = new XboxFields { CurrentUser = new User(), Profile = null };
-        Check(fields.CurrentUser.Identity == null && fields.Profile == null, "native user is signed out");
-        Check(XboxLIVEService.SignedInUserIdentity == null, "no signed-in identity");
+        var identity = fields.CurrentUser.Identity;
+        Check(identity != null && fields.Profile == null, "native local user identity");
+        Check(ReferenceEquals(identity, XboxLIVEService.SignedInUserIdentity), "shared local identity");
         var client = XboxLIVEService.ServiceClient;
-        Check(client != null && client.Token == "" && client.SignedInUserIdentity == null, "offline native client");
+        Check(client != null && client.Token == "appxportable-offline" && ReferenceEquals(identity, client.SignedInUserIdentity), "offline native client");
         Check(ReferenceEquals(client, XboxLIVEService.ServiceClient), "client wrapper identity");
         // This is supported binding, with no fabricated profile behavior.
         Check(typeof(UserProfile).Assembly.GetName().Name == "Microsoft.Xbox", "profile field binds to replacement assembly");
@@ -34,11 +35,11 @@ class XboxProjectionTest
                 "native version resource must preserve the qualified ABI layout");
         }
         // The install-time generic projection implements profiles; only the curated one stubs them.
-        if (generic) { Console.WriteLine("PASS: generic Xbox projection uses native signed-out user and service client"); return; }
+        if (generic) { Console.WriteLine("PASS: generic Xbox projection uses native local user and service client"); return; }
         var unimplemented = (UserProfile)FormatterServices.GetUninitializedObject(typeof(UserProfile));
         try { string unused = unimplemented.Gamertag; throw new Exception("fabricated profile behavior"); }
         catch (NotImplementedException error) { Check(error.Message == "Microsoft.Xbox.UserProfile.get_Gamertag", "unimplemented profile member names itself"); }
-        Console.WriteLine("PASS: Xbox projection uses native signed-out user and service client");
+        Console.WriteLine("PASS: Xbox projection uses native local user and service client");
     }
     [STAThread]
     static int Main(string[] args)

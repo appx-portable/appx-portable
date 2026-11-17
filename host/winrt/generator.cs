@@ -44,6 +44,8 @@ internal static partial class WinrtProjectionGenerator
         var generic = type as GenericInstanceType;
         if (generic != null)
         {
+            if (ComponentFuture(type) != null) return "global::Windows.Foundation.IAsyncOperation<" + Name(generic.GenericArguments[0]) + ">";
+            if (ComponentView(type) != null) return "global::System.Collections.Generic.IReadOnlyList<" + Name(generic.GenericArguments[0]) + ">";
             // The CLR projects IReference<T> as Nullable<T>; only WPF-backed members
             // use it (native ABI paths still reject it when they look up the type).
             if (generic.ElementType.FullName == "Windows.Foundation.IReference`1" && generic.GenericArguments[0].IsValueType)
@@ -109,8 +111,8 @@ internal static partial class WinrtProjectionGenerator
     private static string Argument(TypeReference type, string value)
     {
         if (type.FullName == "Windows.Foundation.Uri") return Wrapper(type) + ".ToNative(" + value + ")";
-        if (lenient && implementable.Contains(type.FullName))
-            return Runtime + "NativeObject.Implemented(" + value + ", " + ArgumentIid(type) +
+        if (implementable.Contains(type.FullName))
+            return Runtime + "NativeObject." + (interfaces[type.FullName].GetAttribute("InvocationBound") == "true" ? "CallbackArgument" : "Implemented") + "(" + value + ", " + ArgumentIid(type) +
                 ", global::AppxPortable.WinRT.Projected.ComponentInterfaces.Of(" + value + "))";
         RejectWpf(type, "a native argument");
         return Runtime + "NativeObject.Argument(" + value + ", " + ArgumentIid(type) + ")";
@@ -228,6 +230,7 @@ internal static partial class WinrtProjectionGenerator
         // The CLR projects DateTime, FILETIME ticks in UTC, as a local DateTimeOffset.
         if (result.FullName == DateTimeName) return "global::System.DateTimeOffset.FromFileTime(" + receiver + ".Int64(" + number + "))";
         var view = result as GenericInstanceType;
+        if (ComponentView(result) != null) return Wrapped(result, receiver + ".Object(" + number + ")");
         if (view != null && view.ElementType.FullName == VectorName)
             return Runtime + "NativeObjectVector<" + Name(VectorItem(view)) + ">.Wrap(" + receiver + ".Object(" + number + "), " +
                 ObjectVectorAbi(view) + ", v => " + Wrapped(VectorItem(view), "v") + ")";
@@ -236,7 +239,8 @@ internal static partial class WinrtProjectionGenerator
                 StringMapViewAbi(view) + ", v => " + Wrapped(MapViewValue(view), "v") + ")";
         if ((ClrStructFields.ContainsKey(result.FullName) || PlainStruct(result)) && selected.Contains(result.FullName))
         {
-            if (!ClrStructFields.ContainsKey(result.FullName) && !BlittableStruct(Find(result.FullName)))
+            if (!ClrStructFields.ContainsKey(result.FullName) && !Find(result.FullName).Fields.Where(f => !f.IsStatic)
+                .All(f => BlittableField(f) || f.FieldType.FullName == "System.Boolean"))
                 throw new NotSupportedException("Unsupported non-blittable struct value: " + result.FullName);
             return receiver + ".Value<" + Name(result) + ">(" + number + ")";
         }
@@ -479,7 +483,7 @@ internal static partial class WinrtProjectionGenerator
             if (width != "System.Int32" && width != "System.UInt32") throw new NotSupportedException("Unsupported enum return: " + method.ReturnType.FullName);
             resultAbi = width == "System.Int32" ? "int" : "uint";
         }
-        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object") Parameter(method.ReturnType, type.FullName + "." + name);
+        else if (returns && scalarResult == null && !stringResult && method.ReturnType.FullName != "System.Object" && ComponentFuture(method.ReturnType) == null) Parameter(method.ReturnType, type.FullName + "." + name);
         TypeDefinition owner = MemberInterface(type, method);
         int slot = Slot(owner, method);
         string nativeName = name + (overloaded ? "_" + Literal(slot) : "");
@@ -771,10 +775,6 @@ internal static partial class WinrtProjectionGenerator
         if (Scalar(field.FieldType) != null) return name != "System.Boolean" && name != "System.Char";
         return selected.Contains(name) && Find(name).IsEnum;
     }
-    private static bool BlittableStruct(TypeDefinition type)
-    {
-        return type.Fields.Where(f => !f.IsStatic).All(BlittableField);
-    }
     private static void PlainStructContract(StringBuilder output, TypeDefinition type, XmlElement surface)
     {
         if (surface.Name != "Struct" || surface.HasChildNodes || !PlainStruct(type))
@@ -787,6 +787,8 @@ internal static partial class WinrtProjectionGenerator
             string name = field.FieldType.FullName;
             if (!BlittableField(field) && name != "System.String" && name != "System.Boolean")
                 throw new NotSupportedException("Unsupported struct field: " + type.FullName + "." + field.Name);
+            if (name == "System.Boolean")
+                output.AppendLine("        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]");
             output.AppendLine("        public " + Name(field.FieldType) + " " + field.Name + ";");
         }
         output.AppendLine("    }");
@@ -1332,7 +1334,9 @@ namespace AppxPortable.WinRT.Projected
                 throw new InvalidDataException("Duplicate property: " + iface.FullName + "." + member.GetAttribute("Name"));
             members.Add(member.GetAttribute("Name"));
         }
-        if (members.Count == 0 && iface.Methods.Count != 0 && !lenient) throw new InvalidDataException("Empty runtime surface: " + iface.FullName);
+        if (members.Count == 0 && iface.Methods.Count != 0 && !lenient &&
+            !surface.ChildNodes.OfType<XmlElement>().Any(m => m.Name == "Method"))
+            throw new InvalidDataException("Empty runtime surface: " + iface.FullName);
         return members;
     }
 
@@ -1377,7 +1381,11 @@ namespace AppxPortable.WinRT.Projected
 
     private static string Parameterized(TypeDefinition type, params string[] arguments)
     {
-        string signature = "pinterface({" + Iid(type) + "};" + string.Join(";", arguments) + ")";
+        return ParameterizedIid(Iid(type), arguments);
+    }
+    private static string ParameterizedIid(string iid, params string[] arguments)
+    {
+        string signature = "pinterface({" + iid + "};" + string.Join(";", arguments) + ")";
         byte[] space = { 0x11, 0xf4, 0x7a, 0xd5, 0x7b, 0x73, 0x42, 0xc0, 0xab, 0xae, 0x87, 0x8b, 0x1e, 0x16, 0xad, 0xee };
         byte[] bytes;
         using (var hash = SHA1.Create()) bytes = hash.ComputeHash(space.Concat(Encoding.UTF8.GetBytes(signature)).ToArray());
@@ -1572,7 +1580,7 @@ namespace AppxPortable.WinRT.Projected
         // even where a member's call cannot be projected yet.
         foreach (MethodDefinition method in methods)
             output.AppendLine("        " + (lenient ? DeclaredSignature(method)
-                : Name(method.ReturnType) + " " + method.Name + "(" + string.Join(", ", method.Parameters.Select(p => Name(p.ParameterType) + " @" + p.Name)) + ")") + ";");
+                : (method.ReturnType.FullName == "System.Void" ? "void" : Name(method.ReturnType)) + " " + method.Name + "(" + string.Join(", ", method.Parameters.Select(p => Name(p.ParameterType) + " @" + p.Name)) + ")") + ";");
         output.AppendLine("    }");
         output.AppendLine("}");
         output.AppendLine("namespace AppxPortable.WinRT.Projected");
@@ -1603,7 +1611,7 @@ namespace AppxPortable.WinRT.Projected
             if (lenient) Member(output, type, methodSurfaces[index], b => MethodOverload(b, type, method, false, false));
             else MethodOverload(output, type, method, false, false);
         }
-        if (lenient) Implementation(output, type, members);
+        if (implementable.Contains(type.FullName)) Implementation(output, type, members);
         output.AppendLine("    }");
     }
 
@@ -1669,6 +1677,14 @@ namespace AppxPortable.WinRT.Projected
             output.AppendLine("            " + Runtime + "ManagedObject.Call(self, target => { throw " + Runtime + "Errors.Unimplemented(\"" + member + "\"); });");
         }
         else if (write == null) output.AppendLine("            " + Runtime + "ManagedObject.Call(self, target => " + call + ");");
+        else if (implementable.Contains(method.ReturnType.FullName))
+        {
+            output.AppendLine("        {");
+            output.AppendLine("            if (result == global::System.IntPtr.Zero) return unchecked((int)0x80004003);");
+            output.AppendLine("            global::System.Runtime.InteropServices.Marshal.WriteIntPtr(result, global::System.IntPtr.Zero);");
+            output.AppendLine("            return " + Runtime + "ManagedObject.Call(self, target => { " + write + " });");
+            output.AppendLine("        };");
+        }
         else output.AppendLine("            result == global::System.IntPtr.Zero ? unchecked((int)0x80004003) : " + Runtime + "ManagedObject.Call(self, target => { " + write + " });");
         return thunk;
     }
@@ -1741,6 +1757,9 @@ namespace AppxPortable.WinRT.Projected
             case "System.String": return "using (var text = new " + Runtime + "NativeString(" + call + ")) " + marshal + "WriteIntPtr(result, text.Detach());";
         }
         if (Available(type.FullName) && Find(type.FullName).IsEnum) return marshal + "WriteInt32(result, unchecked((int)" + call + "));";
+        if (implementable.Contains(type.FullName))
+            return "var returned = " + call + "; using (var value = " + Argument(type, "returned") + ") " +
+                Runtime + "NativeObject.WriteResult(result, value);";
         return null;
     }
 
@@ -2198,6 +2217,7 @@ namespace AppxPortable.WinRT.Projected
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--normalize-sharpdx") return NormalizeSharpDx(args[1], args[2]);
             if (args.Length < 3) throw new ArgumentException("generator METADATA_DIRECTORY SURFACE_XML OUTPUT_CS | generator --component INPUT_WINMD OUTPUT_CS");
             bool component = args[0] == "--component";
             lenient = component;
@@ -2246,7 +2266,8 @@ namespace AppxPortable.WinRT.Projected
                     throw new NotSupportedException("Unsupported surface kind: " + element.Name);
                 if (!selected.Add(element.GetAttribute("Name"))) throw new InvalidDataException("Duplicate selected type");
                 if (element.Name == "Interface" && element.GetAttribute("Adapter") != "Wpf") interfaces.Add(element.GetAttribute("Name"), element);
-                if (component && element.Name == "Interface" && !element.HasAttribute("Adapter")) implementable.Add(element.GetAttribute("Name"));
+                if (element.Name == "Interface" && !element.HasAttribute("Adapter") &&
+                    (component || element.GetAttribute("Implementable") == "true")) implementable.Add(element.GetAttribute("Name"));
                 if (element.GetAttribute("Adapter") == "Wpf") wpfTypes.Add(element.GetAttribute("Name"));
                 else if (element.Name == "Class") {
                     classes.Add(Find(element.GetAttribute("Name")));
@@ -2260,6 +2281,9 @@ namespace AppxPortable.WinRT.Projected
                 output.AppendLine("// " + module.Name + " SHA256 " + Hash(module.FileName));
             output.AppendLine("[assembly: global::System.Reflection.AssemblyVersion(\"" + (component ? sourceModule.Assembly.Name.Version.ToString() : "255.255.255.255") + "\")]");
             if (interop) output.AppendLine("[assembly: " + Interop + "ProjectionProvider(typeof(global::AppxPortable.WinRT.Projected.CrossAssemblyProvider))]");
+            if (interop && !component)
+                foreach (string contract in sharedContracts)
+                    output.AppendLine("[assembly: " + Interop + "ProjectionContract(\"" + contract + "\", \"" + Iid(Find(contract)) + "\")]");
             foreach (var reference in external.Values.Select(t => t.Module).Distinct()) output.AppendLine("// Reference " + reference.Name + " SHA256 " + Hash(reference.FileName));
             foreach (XmlElement element in elements.OrderBy(e => e.GetAttribute("Name"), StringComparer.Ordinal))
             {

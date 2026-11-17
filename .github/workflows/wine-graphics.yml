@@ -53,7 +53,7 @@ jobs:
                   python3 -I - <<'CHECK'
                   import pathlib, struct, sys
                   for arch, machine in (('x86', 0x14C), ('x64', 0x8664)):
-                      for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll'):
+                      for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'd2d1.dll'):
                           data = pathlib.Path(f'build/wine-{arch}/{name}').read_bytes()
                           offset = struct.unpack_from('<I', data, 0x3C)[0]
                           if data[offset:offset + 4] != b'PE\0\0' or struct.unpack_from('<H', data, offset + 4)[0] != machine:

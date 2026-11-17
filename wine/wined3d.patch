@@ -1,4 +1,4 @@
-Patch for Wine's wined3d.dll and d3d11.dll (Wine 11.18) so that Direct3D 11
+Patch for Wine's wined3d.dll, d3d11.dll and d2d1.dll (Wine 11.18) so that Direct3D 11
 at feature level 9_x runs SM4 shader code on macOS, on the Vulkan renderer
 over MoltenVK or the OpenGL one.
 
@@ -9,7 +9,8 @@ and whose constants the GL backend never receives from D3D11; games render
 black. The SM4 GLSL path also required EXT_shader_integer_mix (GL 4.5), used
 only by ftoi/ftou. d3d11 gives a context state the device's own level when
 none of the requested levels is available: d2d1 asks for 10_0 only, so
-Direct2D games never started.
+Direct2D games never started. The Direct2D factory also retries its WIC/bitmap
+device at 9_3 when 10_0 is unavailable, retaining the actual feature level.
 
 The launcher picks wined3d's Vulkan renderer on macOS, which MoltenVK runs
 on Metal. Metal has no geometry shaders, so that renderer stops at 9_3 too.
@@ -336,3 +337,22 @@ scripts/build-wined3d.sh; see docs/building.md.
      fb_desc.layers = layer_count;
      if ((vr = VK_CALL(vkCreateFramebuffer(device_vk->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
      {
+
+--- a/dlls/d2d1/factory.c
++++ b/dlls/d2d1/factory.c
+@@ -388,3 +388,12 @@
+-    if (!factory->device && FAILED(hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
+-            D3D10_FEATURE_LEVEL_10_0, D3D10_1_SDK_VERSION, &factory->device)))
+-        WARN("Failed to create device, hr %#lx.\n", hr);
++    if (!factory->device)
++    {
++        hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
++                D3D10_FEATURE_LEVEL_10_0, D3D10_1_SDK_VERSION, &factory->device);
++        /* appx-portable: WIC/bitmap text targets also work on the 9_3 device
++         * exposed by MoltenVK. Keep reporting that actual feature level. */
++        if (FAILED(hr))
++            hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
++                    D3D10_FEATURE_LEVEL_9_3, D3D10_1_SDK_VERSION, &factory->device);
++        if (FAILED(hr))
++            WARN("Failed to create device, hr %#lx.\n", hr);
++    }

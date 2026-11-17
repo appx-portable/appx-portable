@@ -225,7 +225,7 @@ jobs:
               run: |
                   # pyappxportable unpacks these under Wine only; see scripts/build-wined3d.sh.
                   foreach ($architecture in @('x86', 'x64')) {
-                    $files = foreach ($name in @('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'wine-graphics.json')) { "build/wine/wine-$architecture/$name" }
+                    $files = foreach ($name in @('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'd2d1.dll', 'wine-graphics.json')) { "build/wine/wine-$architecture/$name" }
                     foreach ($file in $files) {
                       if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing Wine graphics file: $file" }
                     }

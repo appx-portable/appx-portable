@@ -641,7 +641,7 @@ def main():
         copy_owned_file(xbox_projection, xbox_folder / "Microsoft.Xbox.dll")
         resolver = compile_file("resolve-xbox.exe", [repo / "tests/winrt_projection/resolve_references.cs"], ["/r:Mono.Cecil.dll"])
         run("resolve-xbox", [resolver.name, "--assembly", "Microsoft.Xbox", windows(xbox_projection.parent)] + [windows(p) for p in all_consumers], marker="0 unresolved")
-        run("xbox-offline-contract", [xbox_consumer.name, abi_version], cwd=xbox_folder, marker="PASS: Xbox projection uses native signed-out user and service client")
+        run("xbox-offline-contract", [xbox_consumer.name, abi_version], cwd=xbox_folder, marker="PASS: Xbox projection uses native local user and service client")
         # The package's own Microsoft.Xbox.winmd projects generically at install time.
         xbox_bridge = compile_file("xbox-interop/AppxPortable.WinRT.Interop.dll", [repo / "host/winrt/interop.cs"], ["/target:library"])
         xbox_flags = ["/target:library", "/define:APPX_PORTABLE_INTEROP", "/r:" + windows(xbox_bridge)]
@@ -659,13 +659,13 @@ def main():
         for source in (xbox_generic, xbox_windows, xbox_bridge):
             copy_owned_file(source, generic_folder / source.name)
         run("xbox-generic-contract", [xbox_consumer.name, "generic"], cwd=generic_folder,
-            marker="PASS: generic Xbox projection uses native signed-out user and service client")
+            marker="PASS: generic Xbox projection uses native local user and service client")
         run("resolve-xbox-generic", [resolver.name, "--assembly", "Microsoft.Xbox", windows(xbox_generic.parent)] + [windows(p) for p in all_consumers], marker="0 unresolved")
         return xbox_projection
 
     try:
         if args.page_only:
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs", "storage_abi.cs", "array_buffer.cs")]
@@ -673,7 +673,7 @@ def main():
             probe_page(projection)
             return 0
         if args.splash_only:
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs", "storage_abi.cs", "array_buffer.cs")]
@@ -681,7 +681,7 @@ def main():
             probe_splash(projection, generator)
             return 0
         if args.network_only:
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs", "storage_abi.cs", "array_buffer.cs")]
@@ -689,7 +689,7 @@ def main():
             probe_network(projection, generator)
             return 0
         if args.io_only:
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs")]
@@ -699,7 +699,7 @@ def main():
             probe_io(projection, bridge)
             return 0
         if args.async_only:
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             runtime = [repo / "host/winrt" / n for n in ("abi.cs", "ccw.cs", "dispatcher.cs", "property_abi.cs", "collections.cs")]
@@ -708,7 +708,7 @@ def main():
             return 0
         if args.storage_only:
             marker = compile_file("mark-reference.exe", [repo / "tests/winrt_projection/mark_reference.cs"], ["/r:Mono.Cecil.dll"])
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated)])
             check_storage_metadata(generator)
@@ -718,7 +718,7 @@ def main():
             return 0
         if args.surface_only:
             # The release Windows.dll: the interop bootstrap completed against every SDK type.
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Windows.generated.cs"
             run("generate", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(generated), "--interop"])
             bridge = compile_file("interop/AppxPortable.WinRT.Interop.dll", [repo / "host/winrt/interop.cs"], ["/target:library"])
@@ -761,7 +761,7 @@ def main():
             metadata_builder = compile_file("component-metadata.exe", [repo / "tests/winrt_projection/component_metadata.cs"], ["/r:Mono.Cecil.dll"])
             component_metadata = output / "Example.Component.winmd"
             run("component-metadata", [metadata_builder.name, windows(component_metadata)])
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             generated = output / "Component.generated.cs"
             run("generate-component", [generator.name, "--component", windows(component_metadata), windows(generated)],
                 marker="Stubbed Example.Component.Engine.LastForm: Unsupported non-blittable struct value:")
@@ -772,7 +772,7 @@ def main():
             consumer = compile_file("component.exe", [repo / "tests/winrt_projection/component.cs"], ["/r:" + windows(projection)])
             marker = compile_file("mark-component.exe", [repo / "tests/winrt_projection/mark_reference.cs"], ["/r:Mono.Cecil.dll"])
             run("mark-component", [marker.name, consumer.name, "component-winrt.exe", "--assembly", "Example.Component"], marker="flags=WindowsRuntime")
-            host = compile_file("appx-host.exe", [repo / "host/managed.cs", repo / "host/projections.cs"], ["/nowarn:0219", "/r:" + windows(references / "System.Windows.Forms.dll")])
+            host = compile_file("appx-host.exe", [repo / "host/managed.cs", repo / "host/components.cs", repo / "host/projections.cs"], ["/nowarn:0219", "/r:" + windows(references / "System.Windows.Forms.dll")])
             folder = fixture("component-game", consumer.name, "ComponentProjectionTest", "CN=projection")
             manifest = folder / "AppxManifest.xml"
             text = manifest.read_text().replace("</Applications>", '</Applications><Extensions><Extension Category="windows.activatableClass.inProcessServer"><InProcessServer><Path>Example.Component.dll</Path><ActivatableClass ActivatableClassId="Example.Component.Engine" ThreadingModel="both"/><ActivatableClass ActivatableClassId="Example.Component.Gauge" ThreadingModel="both"/><ActivatableClass ActivatableClassId="Example.Component.Printer" ThreadingModel="both"/></InProcessServer></Extension></Extensions>')
@@ -863,7 +863,7 @@ def main():
             return 0
         if args.xbox_only:
             marker = compile_file("mark-reference.exe", [repo / "tests/winrt_projection/mark_reference.cs"], ["/r:Mono.Cecil.dll"])
-            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+            generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
             completer = compile_file("complete.exe", [repo / "host/winrt/complete.cs"], ["/r:Mono.Cecil.dll"])
             probe_xbox(marker, generator, completer)
             return 0
@@ -893,7 +893,7 @@ def main():
         copy_owned_file(reference, folder / "Windows.dll")
         run("unimplemented-contract", [consumer.name], cwd=folder, succeeds=False,
             marker="NotImplementedException: Windows.ApplicationModel.Package.Current")
-        generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs"], ["/r:Mono.Cecil.dll"])
+        generator = compile_file("generator.exe", [repo / "host/winrt/generator.cs", repo / "host/winrt/storage_generation.cs", repo / "host/winrt/component_generation.cs", repo / "host/winrt/wpf_generation.cs", repo / "host/winrt/mono_generation.cs"], ["/r:Mono.Cecil.dll"])
         generated = output / "Windows.generated.cs"
         surface = repo / "host/winrt/bootstrap.xml"
         run("generate", [generator.name, windows(metadata), windows(surface), windows(generated)])

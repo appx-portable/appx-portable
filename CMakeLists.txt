@@ -154,6 +154,10 @@ add_test(NAME proxytest COMMAND proxytest)
 add_executable(gputest tests/gputest.cpp)
 target_link_libraries(gputest PRIVATE runtimeobject ole32 d3d11 dxgi)
 add_test(NAME gputest COMMAND gputest)
+add_executable(wictexttest tests/wictexttest.cpp)
+target_link_libraries(wictexttest PRIVATE d2d1 windowscodecs ole32)
+add_test(NAME wic_text_bitmap COMMAND wictexttest)
+set_tests_properties(wic_text_bitmap PROPERTIES TIMEOUT 60 LABELS gpu)
 add_executable(rendertest tests/rendertest.cpp)
 target_link_libraries(rendertest PRIVATE runtimeobject ole32 d3d11 dxgi d2d1 windowscodecs)
 add_test(NAME rendertest COMMAND rendertest)
@@ -363,8 +367,43 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(APPX_WINRT_METADATA "" CACHE PATH "Directory of SDK contract .winmd files")
   set(APPX_WINRT_CECIL "" CACHE FILEPATH "Mono.Cecil.dll used only at build time")
   set(APPX_XBOX_METADATA "" CACHE FILEPATH "Package Microsoft.Xbox.winmd used only at build time")
+  set(APPX_SHARPDX "" CACHE FILEPATH "Package SharpDX.dll for Mono generic-copy verification")
   if(APPX_WINE AND APPX_WINE_PREFIX AND APPX_WINRT_METADATA AND APPX_WINRT_CECIL)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME winrt_coreapplication_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-coreapplication-projection")
+    set_tests_properties(winrt_coreapplication_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
+    add_test(NAME winrt_storage_buffer_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-storage-buffer-projection" --fixture storage-buffer)
+    set_tests_properties(winrt_storage_buffer_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;storage")
+    add_test(NAME winrt_task_bridge_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-task-bridge-projection" --fixture task-bridge)
+    set_tests_properties(winrt_task_bridge_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;async")
+    if(APPX_SHARPDX)
+      add_test(NAME winrt_sharpdx_mono COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/probe-sharpdx.py"
+        --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}" --cecil "${APPX_WINRT_CECIL}"
+        --source "${APPX_SHARPDX}" --output "${CMAKE_BINARY_DIR}/winrt-sharpdx-mono")
+      set_tests_properties(winrt_sharpdx_mono PROPERTIES TIMEOUT 300 LABELS "managed-clr;mono")
+    endif()
+    if(APPX_XBOX_METADATA)
+      add_test(NAME winrt_xbox_marketplace_projection COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/probe-xbox-marketplace.py"
+        --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+        --sdk-metadata "${APPX_WINRT_METADATA}"
+        --metadata "${APPX_XBOX_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+        --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-xbox-marketplace-projection")
+      set_tests_properties(winrt_xbox_marketplace_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;xbox")
+    endif()
     add_test(NAME winrt_projection COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
       --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"

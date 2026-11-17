@@ -39,7 +39,10 @@ internal static partial class WinrtProjectionGenerator
             "OpenAsync|(Windows.Storage.FileAccessMode)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.Streams.IRandomAccessStream>" });
         StorageInterface(output, "FileIO", "Windows.Storage.IFileIOStatics", new[] {
             "ReadTextAsync|(Windows.Storage.IStorageFile)->Windows.Foundation.IAsyncOperation`1<System.String>",
+            "ReadBufferAsync|(Windows.Storage.IStorageFile)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.Streams.IBuffer>",
             "WriteBufferAsync|(Windows.Storage.IStorageFile,Windows.Storage.Streams.IBuffer)->Windows.Foundation.IAsyncAction" });
+        StorageInterface(output, "PathIO", "Windows.Storage.IPathIOStatics", new[] {
+            "ReadBufferAsync|(System.String)->Windows.Foundation.IAsyncOperation`1<Windows.Storage.Streams.IBuffer>" });
         StorageInterface(output, "FileReference", "Windows.Storage.Streams.IRandomAccessStreamReference", new[] {
             "OpenReadAsync|()->Windows.Foundation.IAsyncOperation`1<Windows.Storage.Streams.IRandomAccessStreamWithContentType>" });
         StorageInterface(output, "Info", "Windows.Foundation.IAsyncInfo", new[] {
@@ -108,6 +111,7 @@ internal static partial class WinrtProjectionGenerator
         StorageFuture(output, "Items", "pinterface({" + Iid(view) + "};{" + Iid(Find("Windows.Storage.IStorageItem")) + "})", false);
         StorageFuture(output, "Read", "Windows.Storage.Streams.IBuffer", true);
         StorageFuture(output, "Text", "System.String", false);
+        StorageFuture(output, "Buffer", "Windows.Storage.Streams.IBuffer", false);
         StorageAction(output);
         output.AppendLine("    }");
     }

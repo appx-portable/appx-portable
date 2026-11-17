@@ -106,6 +106,18 @@ namespace AppxPortable.WinRT
             return new NativeObject(value);
         }
 
+        // A callback result transfers one COM reference to the native caller.
+        internal static void WriteResult(IntPtr destination, NativeObject value)
+        {
+            if (value == null) { Marshal.WriteIntPtr(destination, IntPtr.Zero); return; }
+            using (var held = new Access(value))
+            {
+                Marshal.AddRef(held.Self);
+                try { Marshal.WriteIntPtr(destination, held.Self); }
+                catch { Marshal.Release(held.Self); throw; }
+            }
+        }
+
         internal static NativeObject Factory(string className, Guid iid)
         {
             using (var name = new NativeString(className))
@@ -236,6 +248,18 @@ namespace AppxPortable.WinRT
                 GC.KeepAlive(managed);
                 return identity.QueryInterface(iid);
             }
+        }
+
+        // View lifecycle objects belong to the blocking Run invocation. A fresh
+        // CCW captures its failure scope even when the caller reuses the source.
+        internal static NativeObject CallbackArgument(object value, Guid iid, NativeInterface[] contracts)
+        {
+            if (value == null || value is INativeWrapper) return Argument(value, iid);
+#if APPX_PORTABLE_INTEROP
+            if (value is Interop.INativeObject) return Argument(value, iid);
+#endif
+            using (var held = ManagedObject.HoldCallback(value, contracts))
+            using (var identity = Borrow(held.Pointer)) return identity.QueryInterface(iid);
         }
 
 #if APPX_PORTABLE_INTEROP

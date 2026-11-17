@@ -252,21 +252,49 @@ does not establish Windows or x64 runtime parity.
 
 ## Xbox bootstrap and CoreWindow
 
+`CoreApplication.Run(IFrameworkViewSource)` projects managed view sources and
+their returned `IFrameworkView` objects into the existing native host. SDK IIDs
+and slot order come from metadata. Interfaces selected with `Implementable`
+receive generated COM callback tables; `InvocationBound` creates fresh callback
+identities for the blocking lifecycle call so reused objects cannot retain an
+expired exception scope. Returned view pointers transfer one owned reference.
+The native view thread drives initialization, window assignment, loading,
+activation, running, and uninitialization. Managed callback failures return to
+the original caller, including an uninitialization failure after a successful run.
+
+`scripts/probe-coreapplication.py` and CTest's
+`winrt_coreapplication_projection` verify callback order, STA threading, native
+view/window identity, source reuse, GC ownership, null inputs, callback errors,
+and native window/DPI/cursor/message-pump support. The keyboard fixture checks
+the 12-byte physical-key struct and its one-byte boolean fields. Pass prebuilt
+assemblies with `--runtime`, or build them with `--metadata` and `--cecil`.
+
 `xbox.xml` selects native-backed `Microsoft.Xbox.User` default activation and
 its Identity getter, plus XboxLIVEService.ServiceClient/SignedInUserIdentity
 and ServiceClient.Token/SignedInUserIdentity. IIDs and slots come from the
 package's Microsoft.Xbox.winmd, with independent checks against
-`shim/xbox/xbox_abi.h`. The existing native stand-in supplies an unsigned-in
-user, no signed-in identity, an empty token, and a shared client. The Microsoft
+`shim/xbox/xbox_abi.h`. The existing native stand-in supplies a local user identity, a shared client,
+and an offline token; it does not authenticate to remote Xbox services. The Microsoft
 implementation DLL is neither inspected nor loaded for this projection.
 
 The generator supports static runtime classes and parameterless activation
 when WinMD explicitly advertises it. Completion scopes definitions to the input
 projection assembly, retaining external Windows and System scopes. Xbox members
 outside the selected surface have named NotImplementedException bodies;
-async service calls, profile retrieval, achievements and title storage are
-not yet forwarded to their native offline operations. Referenced type/member
+Package projections can forward methods returning `IAsyncOperation<T>` and
+properties returning `IVectorView<T>` when `T` is a projected runtime class.
+Async properties and vector-returning methods remain unsupported. The SDK artifact records the generic
+contract IIDs from its input metadata; the component generator combines those
+with the package class's metadata signature. A shared SDK adapter handles
+completion, error codes, close, and read-only object views through owned leases.
+Scalar async results and generic action calls outside the selected surface
+retain named stubs. Referenced type/member
 binding is not equivalent to implementing those APIs.
+
+`scripts/probe-xbox-marketplace.py` checks native offline completion and
+`GetResults` errors, plus a configured local offer collection, item metadata,
+collection bounds, and closed-operation behavior. It is also registered as
+`winrt_xbox_marketplace_projection` when `APPX_XBOX_METADATA` is supplied.
 
 `xbox_metadata.cs` verifies IUser's IID and full ordered ABI signatures against
 the supported native layouts, plus the selected service interfaces' IIDs, slots
@@ -278,7 +306,7 @@ SDK product build. Unknown layouts are rejected. The tested package matches
 ABI 1.2; real SDK 1.0/1.1 and Windows/x64 projection controls remain unverified.
 
 The optional `--xbox-metadata` probe builds and completes Microsoft.Xbox.dll,
-checks native activation, signed-out state, wrapper identity, the version
+checks native activation, shared local identity, wrapper identity, the version
 resource after completion, named unimplemented behavior, and reference
 resolution. Mutated IIDs, method order, argument widths, and service slots must
 fail qualification. `--xbox-only` runs this focused fixture. Set
@@ -351,6 +379,43 @@ strong-name binding remains unverified. The bridge is only copied into isolated
 probe games. The selected native async and stream extensions are described below;
 other async result shapes and writable streams remain pending.
 
+`Task.AsAsyncAction()` wraps completed or pending tasks, preserves the original
+fault, and distinguishes cancellation from a faulted `OperationCanceledException`.
+Completion-handler failures are logged separately and cannot replace the task's
+result. `winrt_task_bridge_projection` covers those cases.
+
+## Mono SharpDX compatibility
+
+The three tested Miniclip packages ship a SharpDX generic `cpblk` helper whose
+instruction ordering is rejected by Wine Mono. The generator's
+`--normalize-sharpdx INPUT OUTPUT` mode accepts only the four known Read/Write
+ref/array IL shapes and moves byte-count computation before pointer setup. It
+rejects other shapes instead of rewriting arbitrary code.
+
+From a source checkout, stage the compatible copy with:
+
+```sh
+python3 scripts/normalize-sharpdx.py GAME_DIRECTORY \
+  --wine /absolute/path/to/wine --prefix /absolute/path/to/prefix \
+  --cecil /absolute/path/to/Mono.Cecil.dll
+```
+
+This retains the original DLL and writes a sidecar under
+`appx-projections/runtime-overrides/` with an XML manifest. The host loads it only
+on Mono, after checking both DLL identities and the original/sidecar SHA256
+hashes. `winrt_sharpdx_mono` verifies copies, offsets, pointer advancement,
+idempotency, unchanged originals, and rejection of modified hashes/identities.
+It is enabled by supplying `APPX_SHARPDX` to CMake.
+
+These installs also need the matched graphics stack from
+`scripts/build-wined3d.sh`, including `d2d1.dll`, and the native override
+`d3d11,dxgi,wined3d,d2d1=n`. Direct2D retries WIC target creation at feature level
+9_3 when 10_0 is unavailable. `scripts/probe-wine-render.py --fixture wic-text`
+checks actual text coverage in the WIC bitmap with the Vulkan renderer. Older
+installers that copy only three graphics DLLs need explicit staging and this
+launcher override; they also need the SharpDX normalization step above. The
+retained local test installs include both adjustments.
+
 ## Native file reads and stream adapters
 
 `storage_generation.cs` qualifies the IIDs, consumed method signatures, and slots
@@ -361,6 +426,11 @@ DataReaderLoadOperation. Generated values are independently
 checked against SDK ABI headers. Negative metadata fixtures reject changed
 64-bit sizes/read counts, changed reader factory/load signatures and reordered
 buffer/async slots.
+
+PathIO.ReadBufferAsync and FileIO.ReadBufferAsync return owned native buffers,
+including empty files, and preserve native file errors.
+`winrt_storage_buffer_projection` checks byte content, Unicode paths, empty files,
+missing files, and invalid arguments.
 
 ApplicationData.LocalFolder, StorageFolder.Path/Name/GetFileAsync, and
 StorageFile.GetFileFromPathAsync/Path/Name/OpenReadAsync and OpenAsync(Read)

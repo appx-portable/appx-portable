@@ -38,9 +38,14 @@ namespace AppxPortable.WinRT
         {
             private readonly object gate = new object();
             private readonly Scope previous;
+            private readonly ConditionalWeakTable<object, ManagedObject> callbacks = new ConditionalWeakTable<object, ManagedObject>();
             private Failure pending;
             private bool active = true;
             internal Scope() { previous = current; current = this; }
+            internal ManagedObject Callback(object target, Func<object, ManagedObject> create)
+            {
+                return callbacks.GetValue(target, key => create(key));
+            }
             // False when the invocation has ended, so no caller will rethrow the error.
             internal bool Report(int hr, Exception error)
             {
@@ -247,6 +252,16 @@ namespace AppxPortable.WinRT
             // Each passed callback gets its own invocation context, even when
             // callers reuse the same managed delegate concurrently.
             ManagedObject managed = new ManagedObject(target, contracts, true);
+            managed.Reference(1);
+            return new Held(managed);
+        }
+
+        internal static Held HoldCallback(object target, params NativeInterface[] contracts)
+        {
+            if (target == null) return new Held(null);
+            var scope = Errors.Current;
+            ManagedObject managed = scope == null ? new ManagedObject(target, contracts, true)
+                : scope.Callback(target, key => new ManagedObject(key, contracts, true));
             managed.Reference(1);
             return new Held(managed);
         }

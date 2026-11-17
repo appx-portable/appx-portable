@@ -6,6 +6,8 @@
 #include "com/completed_operation.h"
 #include "com/factory.h"
 #include "com/failed_operation.h"
+#include "generated/pathio.h"
+#include "buffer.h"
 #include "log.h"
 #include "registry.h"
 #include <windows.storage.h>
@@ -34,25 +36,72 @@ HRESULT FilePath(IStorageFile* file, std::wstring& path) {
     if (SUCCEEDED(hr)) path = text.GetRawBuffer(nullptr);
     return hr;
 }
-HRESULT ReadBytes(IStorageFile* file, std::wstring& path, std::vector<BYTE>& bytes) {
-    auto hr = FilePath(file, path);
-    if (FAILED(hr)) return hr;
+HRESULT ReadBytes(const std::wstring& path, std::vector<BYTE>& bytes) {
     HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                 nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
     LARGE_INTEGER size{};
-    hr = GetFileSizeEx(handle, &size) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    auto hr = GetFileSizeEx(handle, &size) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
     // An HSTRING holds at most UINT32 characters; larger text cannot be returned.
     if (SUCCEEDED(hr) && size.QuadPart > 0x7fffffff) hr = E_OUTOFMEMORY;
     if (SUCCEEDED(hr)) {
-        bytes.resize(static_cast<size_t>(size.QuadPart));
+        try {
+            bytes.resize(static_cast<size_t>(size.QuadPart));
+        } catch (const std::bad_alloc&) {
+            CloseHandle(handle);
+            return E_OUTOFMEMORY;
+        }
         DWORD read = 0;
-        if (!bytes.empty() &&
-            (!ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) || read != bytes.size()))
-            hr = HRESULT_FROM_WIN32(GetLastError() ? GetLastError() : ERROR_HANDLE_EOF);
+        if (!bytes.empty()) {
+            if (!ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr))
+                hr = HRESULT_FROM_WIN32(GetLastError());
+            else if (read != bytes.size())
+                hr = HRESULT_FROM_WIN32(ERROR_HANDLE_EOF);
+        }
     }
     CloseHandle(handle);
     return hr;
+}
+HRESULT ReadBytes(IStorageFile* file, std::wstring& path, std::vector<BYTE>& bytes) {
+    const auto hr = FilePath(file, path);
+    return FAILED(hr) ? hr : ReadBytes(path, bytes);
+}
+using BufferOperation = __FIAsyncOperation_1_Windows__CStorage__CStreams__CIBuffer;
+HRESULT ReadBufferPath(const std::wstring& path, BufferOperation** operation) {
+    if (!operation) return E_POINTER;
+    *operation = nullptr;
+    std::vector<BYTE> bytes;
+    auto error = ReadBytes(path, bytes);
+    ComPtr<IBuffer> buffer;
+    if (SUCCEEDED(error)) error = CopyToBuffer(bytes.data(), static_cast<UINT32>(bytes.size()), &buffer);
+    if (FAILED(error)) {
+        ComPtr<IInspectable> failed;
+        auto hr = MakeFailedOperation(__uuidof(BufferOperation), error, sizeof(IBuffer*), &failed);
+        return SUCCEEDED(hr) ? failed.CopyTo(operation) : hr;
+    }
+    auto completed = Make<CompletedOperation<IBuffer*>>(
+        [buffer](IBuffer** value) { return buffer.CopyTo(value); }, true);
+    return completed ? completed.CopyTo(operation) : E_OUTOFMEMORY;
+}
+class PathIOFactory final : public Factory<DefaultIPathIOStatics> {
+public:
+    PathIOFactory() : Factory(L"Windows.Storage.PathIO") {}
+    HRESULT STDMETHODCALLTYPE ReadBufferAsync(HSTRING path, BufferOperation** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        UINT32 length = 0;
+        const wchar_t* text = WindowsGetStringRawBuffer(path, &length);
+        if (!length || wcsnlen(text, length) != length) return E_INVALIDARG;
+        try {
+            return ReadBufferPath(std::wstring(text, length), operation);
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        }
+    }
+};
+HRESULT MakePathIOFactory(IActivationFactory** value) {
+    auto factory = Make<PathIOFactory>();
+    return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
 HRESULT Decode(const std::vector<BYTE>& bytes, UnicodeEncoding encoding, bool detect, std::wstring& text) {
     size_t start = 0;
@@ -177,9 +226,17 @@ public:
                                                            IAsyncAction**) override {
         return Unsupported("AppendLinesWithEncodingAsync");
     }
-    HRESULT STDMETHODCALLTYPE ReadBufferAsync(IStorageFile*,
-                                              __FIAsyncOperation_1_Windows__CStorage__CStreams__CIBuffer**) override {
-        return Unsupported("ReadBufferAsync");
+    HRESULT STDMETHODCALLTYPE ReadBufferAsync(IStorageFile* file, BufferOperation** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        if (!file) return E_POINTER;
+        try {
+            std::wstring path;
+            auto hr = FilePath(file, path);
+            return FAILED(hr) ? hr : ReadBufferPath(path, operation);
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        }
     }
     HRESULT STDMETHODCALLTYPE WriteBufferAsync(IStorageFile* file, IBuffer* buffer, IAsyncAction** operation) override {
         if (!operation) return E_POINTER;
@@ -207,4 +264,5 @@ HRESULT MakeFileIOFactory(IActivationFactory** value) {
 }
 }
 const ShimClass fileIOClass{L"Windows.Storage.FileIO", MakeFileIOFactory, ShimPolicy::FillMissing};
+const ShimClass pathIOClass{L"Windows.Storage.PathIO", MakePathIOFactory, ShimPolicy::FillMissing};
 }

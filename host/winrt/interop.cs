@@ -23,6 +23,13 @@ namespace AppxPortable.WinRT.Interop
         public Type Provider { get; private set; }
         public ProjectionProviderAttribute(Type provider) { Provider = provider; }
     }
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class ProjectionContractAttribute : Attribute
+    {
+        public string Name { get; private set; }
+        public string InterfaceId { get; private set; }
+        public ProjectionContractAttribute(string name, string interfaceId) { Name = name; InterfaceId = interfaceId; }
+    }
     public interface IProjectionProvider
     {
         // The lease is borrowed for this call only. The provider retains its own reference.
