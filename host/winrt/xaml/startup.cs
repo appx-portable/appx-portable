@@ -37,6 +37,14 @@ namespace AppxPortable.WinRT.Xaml
     }
     public sealed class SearchBoxPeer : TextBox
     {
+        static SearchBoxPeer()
+        {
+            MinHeightProperty.OverrideMetadata(typeof(SearchBoxPeer), new FrameworkPropertyMetadata(32.0));
+            FontSizeProperty.OverrideMetadata(typeof(SearchBoxPeer), new FrameworkPropertyMetadata(15.0));
+            FontFamilyProperty.OverrideMetadata(typeof(SearchBoxPeer), new FrameworkPropertyMetadata(new System.Windows.Media.FontFamily("Segoe UI, Arial, Global User Interface")));
+            PaddingProperty.OverrideMetadata(typeof(SearchBoxPeer), new FrameworkPropertyMetadata(new Thickness(8, 4, 8, 4)));
+            VerticalContentAlignmentProperty.OverrideMetadata(typeof(SearchBoxPeer), new FrameworkPropertyMetadata(VerticalAlignment.Center));
+        }
         public static readonly DependencyProperty SearchHistoryEnabledProperty = DependencyProperty.Register("SearchHistoryEnabled", typeof(bool), typeof(SearchBoxPeer),
             new PropertyMetadata(true, (d, e) => { if ((bool)e.NewValue) throw Errors.Unimplemented("Windows.UI.Xaml.Controls.SearchBox.SearchHistoryEnabled"); }));
         public bool SearchHistoryEnabled { get { return (bool)GetValue(SearchHistoryEnabledProperty); } set { SetValue(SearchHistoryEnabledProperty, value); } }

@@ -447,6 +447,15 @@ static bool trackingLeave = false;
 static void XamlInputMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (!xamlInput) return;
     switch (message) {
+    case WM_KEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+    case WM_CHAR:
+    case WM_DEADCHAR:
+    case WM_SYSCHAR:
+    case WM_SYSDEADCHAR:
+        break;
     case WM_MOUSEMOVE:
         if (!trackingLeave && IsWindowEnabled(HostWindow())) {
             TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, HostWindow(), 0};
@@ -485,7 +494,7 @@ void CoreInputMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_CHAR && TextInputCharacter(wparam)) return;
     if (message == WM_KEYDOWN && TextInputKey(wparam)) return;
     const bool keyboard = message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN ||
-                          message == WM_SYSKEYUP || message == WM_CHAR;
+                          message == WM_SYSKEYUP || message == WM_CHAR || message == WM_SYSCHAR;
     // Accelerator keys come first, as on Windows; a handled one goes no further.
     if (keyboard && !IslandsMode() && AcceleratorKeyMessage(message, wparam, lparam)) return;
     if ((coreInput || keyboard || !ElementPointerHandlers()) && coreWindow)
@@ -517,7 +526,7 @@ HRESULT MakeCoreWindowFactory(IActivationFactory** value) {
 }
 const ShimClass coreWindowClass{L"Windows.UI.Core.CoreWindow", MakeCoreWindowFactory};
 }
-// The managed XAML host's receiver for host mouse messages and the off-screen
+// The managed XAML host's receiver for host input messages and the off-screen
 // window its tree lives in; a null handler stops forwarding.
 extern "C" HRESULT __cdecl ShimSetXamlInputHandler(HWND source, appx::XamlInputHandler handler) noexcept {
     if (handler && (!source || !IsWindow(source))) return E_INVALIDARG;

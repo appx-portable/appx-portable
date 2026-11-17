@@ -116,13 +116,18 @@ namespace AppxPortable.WinRT.Xaml
             Errors.Check(ShimSetXamlInputHandler(presentation.Handle, input));
         }
 
-        // A host mouse message in client pixels, which are XAML's DIPs (the tree
-        // renders at the client size); WPF reads the position in its own device pixels.
+        // Keyboard payloads pass through unchanged. Mouse positions are client
+        // DIPs; WPF reads the position in its own device pixels.
         private static void OnInput(uint message, IntPtr wparam, IntPtr lparam)
         {
             try
             {
                 if (presentation == null || presentation.IsDisposed || presentation.CompositionTarget == null) return;
+                if (message >= 0x0100 && message <= 0x0107)
+                {
+                    SendMessageW(presentation.Handle, message, wparam, lparam);
+                    return;
+                }
                 if (message == MouseLeave)
                 {
                     // The forwarded-input provider ignores leave: move its pointer off

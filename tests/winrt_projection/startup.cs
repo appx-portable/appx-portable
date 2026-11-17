@@ -33,12 +33,78 @@ class StartupApp : Application
     static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     static extern uint ShimXamlFrameCount();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern IntPtr SendMessageW(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool PostMessageW(IntPtr window, uint message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern IntPtr GetFocus();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool GetKeyboardState(byte[] keys);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool SetKeyboardState(byte[] keys);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern uint MapVirtualKeyW(uint code, uint kind);
+    [StructLayout(LayoutKind.Sequential)]
+    struct NativeRect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool GetClientRect(IntPtr window, out NativeRect rect);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     static object Peer(DependencyObject value)
     {
         return typeof(Application).Assembly.GetType("AppxPortable.WinRT.Xaml.Values").GetMethod("Dependency", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { value });
     }
     static object Call(object value, string method, params object[] args) { return value.GetType().GetMethod(method).Invoke(value, args); }
+    static void ClickHost(IntPtr host, int x, int y)
+    {
+        var keys = new byte[256]; Check(GetKeyboardState(keys), "read thread keyboard state");
+        byte previous = keys[1];
+        try
+        {
+            foreach (uint message in new uint[] { 0x0200, 0x0201, 0x0202 })
+            {
+                if (message == 0x0201) keys[1] = 0x80;
+                if (message == 0x0202) keys[1] = 0;
+                Check(SetKeyboardState(keys), "set scripted button state");
+                SendMessageW(host, message, (keys[1] & 0x80) != 0 ? new IntPtr(1) : IntPtr.Zero, new IntPtr((y << 16) | x));
+                var turn = new DispatcherFrame();
+                Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => turn.Continue = false));
+                Dispatcher.PushFrame(turn);
+            }
+        }
+        finally { keys[1] = previous; SetKeyboardState(keys); }
+    }
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    static extern bool SetForegroundWindow(IntPtr window);
+    static void PressHostKey(IntPtr host, int key, bool extended)
+    {
+        Check(SetForegroundWindow(host), "activate physical keyboard target");
+        keybd_event((byte)key, (byte)MapVirtualKeyW((uint)key, 0), extended ? 1U : 0U, UIntPtr.Zero);
+        keybd_event((byte)key, (byte)MapVirtualKeyW((uint)key, 0), (extended ? 1U : 0U) | 2U, UIntPtr.Zero);
+        for (int i = 0; i < 10; ++i)
+        {
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => frame.Continue = false));
+            Dispatcher.PushFrame(frame);
+            System.Threading.Thread.Sleep(10);
+        }
+    }
+    static T Visual<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject
+    {
+        var match = root as T; if (match != null) return match;
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); ++i)
+        {
+            match = Visual<T>(System.Windows.Media.VisualTreeHelper.GetChild(root, i));
+            if (match != null) return match;
+        }
+        return null;
+    }
     static void Pump(Func<bool> ready)
     {
         var start = DateTime.UtcNow;
@@ -56,7 +122,41 @@ class StartupApp : Application
         try
         {
             string mode = Environment.GetCommandLineArgs()[1];
-            if (mode == "grid")
+            if (mode == "index-recycle")
+            {
+                var list = new ListBox();
+                var peer = (System.Windows.Controls.ListBox)Peer(list); peer.Width = 240; peer.Height = 480;
+                var labels = new string[2046]; for (int i = 0; i < labels.Length; ++i) labels[i] = "Index " + i;
+                var text = new System.Windows.FrameworkElementFactory(typeof(System.Windows.Controls.TextBlock));
+                text.SetValue(System.Windows.FrameworkElement.HeightProperty, 60.0);
+                text.SetBinding(System.Windows.Controls.TextBlock.TextProperty, new System.Windows.Data.Binding());
+                peer.ItemTemplate = new System.Windows.DataTemplate { VisualTree = text }; peer.ItemsSource = labels;
+                Window.Current.Content = list; Window.Current.Activate();
+                Pump(() => peer.ItemContainerGenerator.ContainerFromIndex(0) != null);
+                var visited = new System.Collections.Generic.Dictionary<System.Windows.FrameworkElement, object>(); int reused = 0;
+                var panel = Visual<System.Windows.Controls.VirtualizingStackPanel>(peer);
+                Check(panel != null && panel.Children.Count < 50, "index list virtualizes offscreen entries");
+                foreach (System.Windows.FrameworkElement child in panel.Children) visited[child] = child.DataContext;
+                foreach (int index in new[] { 200, 600, 1200 })
+                {
+                    peer.ScrollIntoView(labels[index]); peer.UpdateLayout();
+                    Pump(() => peer.ItemContainerGenerator.ContainerFromIndex(index) != null);
+                    var idle = new DispatcherFrame();
+                    Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.SystemIdle, new Action(() => idle.Continue = false));
+                    Dispatcher.PushFrame(idle);
+                    foreach (System.Windows.FrameworkElement child in panel.Children)
+                    {
+                        object previous;
+                        if (visited.TryGetValue(child, out previous) && !Equals(previous, child.DataContext)) reused++;
+                        visited[child] = child.DataContext;
+                    }
+                    var item = (System.Windows.Controls.ListBoxItem)peer.ItemContainerGenerator.ContainerFromIndex(index);
+                    Check(Equals(item.DataContext, labels[index]) && Visual<System.Windows.Controls.TextBlock>(item).Text == labels[index], "reused index rows display the new entry");
+                }
+                Console.WriteLine("INDEX: mode=" + System.Windows.Controls.VirtualizingPanel.GetVirtualizationMode(peer) + " created=" + visited.Count + " reused=" + reused);
+                Check(reused > 0, "scrolling distant index entries recycles row containers instead of rebuilding every template");
+            }
+            else if (mode == "grid")
             {
                 var facade = Assembly.Load("System.Runtime.WindowsRuntime.UI.Xaml");
                 var length = facade.GetType("Windows.UI.Xaml.GridLength", true);
@@ -150,9 +250,62 @@ class StartupApp : Application
                 var pageRoot = (System.Windows.Controls.Panel)System.Windows.Media.VisualTreeHelper.GetChild(pagePeer, 0);
                 Check(ReferenceEquals(pageRoot.Background, pagePeer.Background), "AppBar page template retains its background");
             }
+            else if (mode == "search-input")
+            {
+                var search = new SearchBox(); var second = new SearchBox();
+                var browser = new WebView(); browser.NavigateToString("<html><body>Keyboard companion</body></html>");
+                var grid = new Grid(); grid.Children.Add(search); grid.Children.Add(second); grid.Children.Add(browser);
+                var browserPeer = (System.Windows.FrameworkElement)Peer(browser); browserPeer.Height = 100; browserPeer.VerticalAlignment = System.Windows.VerticalAlignment.Bottom;
+                var text = (System.Windows.Controls.TextBox)Peer(search);
+                var other = (System.Windows.Controls.TextBox)Peer(second);
+                foreach (var input in new[] { text, other }) { input.Width = 280; input.Height = 40; input.HorizontalAlignment = System.Windows.HorizontalAlignment.Left; input.VerticalAlignment = System.Windows.VerticalAlignment.Top; }
+                text.Margin = new System.Windows.Thickness(20, 20, 0, 0); other.Margin = new System.Windows.Thickness(20, 100, 0, 0);
+                int changed = 0; search.add_QueryChanged((s, e) => changed++);
+                Window.Current.Content = grid; Window.Current.Activate();
+                Pump(() => text.IsLoaded && text.IsArrangeValid);
+                var host = ShimGetHostWindow();
+                ClickHost(host, 35, 35);
+                Console.WriteLine("FOCUS: host="+host+" native=" + GetFocus() + " WPF=" + System.Windows.Input.Keyboard.FocusedElement + " keyboard=" + text.IsKeyboardFocused);
+                foreach (char value in "Oxford café") Check(PostMessageW(host, 0x0102, new IntPtr(value), new IntPtr(1)), "queue host character");
+                Pump(() => text.Text == "Oxford café");
+                Check(text.Text == "Oxford café" && (string)Call(search, "get_QueryText") == text.Text && changed > 0, "host character messages update the clicked search box and QueryChanged");
+                Console.WriteLine("TYPED: " + Uri.EscapeDataString(text.Text));
+                text.PreviewKeyDown += (s, e) => Console.WriteLine("KEY: " + e.Key + " handled=" + e.Handled);
+                int caret = text.CaretIndex;
+                PressHostKey(host, 0x25, true);
+                Console.WriteLine("LEFT: " + caret + " -> " + text.CaretIndex);
+                Check(text.CaretIndex == caret - 1, "physical Left moves the caret");
+                PressHostKey(host, 0x27, true);
+                Check(text.CaretIndex == caret, "physical Right moves the caret");
+                PressHostKey(host, 8, false);
+                Console.WriteLine("EDITED: " + Uri.EscapeDataString(text.Text));
+                Check(text.Text == "Oxford caf", "physical Backspace edits text");
+                PressHostKey(host, 0x24, true);
+                Check(text.CaretIndex == 0, "physical Home moves to the start");
+                PressHostKey(host, 0x2e, true);
+                Check(text.Text == "xford caf", "physical Delete removes the next character");
+                PressHostKey(host, 0x23, true);
+                Check(text.CaretIndex == text.Text.Length, "physical End moves to the end");
+                ClickHost(host, 35, 115);
+                Console.WriteLine("SECOND FOCUS: " + other.IsKeyboardFocused + " over=" + System.Windows.Input.Mouse.DirectlyOver + " capture=" + System.Windows.Input.Mouse.Captured);
+                SendMessageW(host, 0x0102, new IntPtr('Z'), new IntPtr(1));
+                Console.WriteLine("SECOND TEXT: " + other.Text + " first=" + text.Text);
+                Pump(() => other.Text == "Z");
+                Check(text.Text == "xford caf", "typing follows focus without changing the previous search box");
+                var dispatcher = Windows.UI.Core.CoreWindow.GetForCurrentThread().Dispatcher;
+                int intercepted = 0;
+                var accelerator = dispatcher.add_AcceleratorKeyActivated((s, e) => { intercepted++; e.Handled = true; });
+                SendMessageW(host, 0x0102, new IntPtr('X'), new IntPtr(1));
+                SendMessageW(host, 0x0106, new IntPtr('X'), new IntPtr(0x20000001));
+                Check(intercepted == 2 && other.Text == "Z", "handled character accelerators are not forwarded to the text field");
+                dispatcher.remove_AcceleratorKeyActivated(accelerator);
+            }
             else if (mode == "search")
             {
                 var search = new SearchBox(); int changed = 0;
+                var searchPeer = (System.Windows.Controls.TextBox)Peer(search);
+                searchPeer.Measure(new System.Windows.Size(300, double.PositiveInfinity));
+                Check(searchPeer.DesiredSize.Height >= 32 && searchPeer.FontSize >= 14, "search input has a readable default size rather than stock WPF's 15-pixel line");
                 var token = search.add_QueryChanged((s, e) => { Check(ReferenceEquals(s, search) && (string)Call(e, "get_QueryText") == "Oxford", "search event arguments"); changed++; });
                 ((System.Windows.Controls.TextBox)Peer(search)).Text = "Oxford";
                 Check(changed == 1 && (string)Call(search, "get_QueryText") == "Oxford", "search text and event");
@@ -229,6 +382,70 @@ class StartupApp : Application
                 AppxPortable.WinRT.Xaml.ScrollProperties.SetIsHorizontalRailEnabled(input, false);
                 AppxPortable.WinRT.Xaml.ScrollProperties.SetIsVerticalRailEnabled(input, true);
                 Check(input.PanningMode == System.Windows.Controls.PanningMode.VerticalFirst, "vertical rail maps to WPF panning");
+            }
+            else if (mode == "webview-layout" || mode == "webview-resize" || mode == "webview-unicode" || mode == "webview-fonts")
+            {
+                var web = new WebView(); web.Width = 610; web.Height = 510;
+                web.Margin = new Thickness(20, 30, 0, 0);
+                var grid = new Grid(); grid.Children.Add(web);
+                var element = (System.Windows.FrameworkElement)Peer(web);
+                element.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                element.VerticalAlignment = System.Windows.VerticalAlignment.Top;
+                Window.Current.Content = grid; Window.Current.Activate();
+                string unicode = "déjà – naïve … →";
+                web.NavigateToString("<html style='width:100%;height:100%'><head><title>Geometry</title></head><body style='width:100%;height:100%;margin:0;background:#1482c8'>" + (mode == "webview-unicode" ? unicode : "browser geometry") + "</body></html>");
+                if (mode == "webview-fonts")
+                    web.NavigateToString("<!DOCTYPE html><html><head><title>Geometry</title></head><body>" +
+                        "<span id='requested' style='display:inline-block;font-family:Segoe UI;font-size:24px'>iiiiWWWWmmmm123456789</span>" +
+                        "<span id='fallback' style='display:inline-block;font-family:system-ui,-apple-system,BlinkMacSystemFont,Arial,sans-serif;font-size:24px'>iiiiWWWWmmmm123456789</span>" +
+                        "<span id='requestedItalic' style='display:inline-block;font-family:Segoe UI;font-size:24px;font-style:italic'>iiiiWWWWmmmm123456789</span>" +
+                        "<span id='fallbackItalic' style='display:inline-block;font-family:system-ui,-apple-system,BlinkMacSystemFont,Arial,sans-serif;font-size:24px;font-style:italic'>iiiiWWWWmmmm123456789</span></body></html>");
+                System.Windows.Forms.WebBrowser browser = null;
+                Pump(() => { browser = (System.Windows.Forms.WebBrowser)Peer(web).GetType().GetProperty("Browser", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Peer(web), null); return browser != null && browser.Document != null && browser.Document.Body != null && browser.DocumentTitle == "Geometry"; });
+                var transform = System.Windows.PresentationSource.FromVisual(element).CompositionTarget.TransformToDevice;
+                int width = (int)Math.Round(element.ActualWidth * transform.M11), height = (int)Math.Round(element.ActualHeight * transform.M22);
+                NativeRect bounds; GetClientRect(browser.Handle, out bounds);
+                Console.WriteLine("GEOMETRY: WPF=" + width + "x" + height + " HWND=" + (bounds.Right - bounds.Left) + "x" + (bounds.Bottom - bounds.Top) + " Forms=" + browser.ClientSize);
+                if (mode == "webview-fonts")
+                {
+                    bool segoe = false;
+                    using (var fonts = new System.Drawing.Text.InstalledFontCollection()) foreach (var font in fonts.Families) if (font.Name.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase)) segoe = true;
+                    if (!segoe)
+                    {
+                        string family = browser.Document.GetElementById("requested").Style;
+                        Check(family.IndexOf("Arial", StringComparison.OrdinalIgnoreCase) >= 0 && family.IndexOf("system-ui", StringComparison.OrdinalIgnoreCase) >= 0, "missing Segoe UI uses the Arial/system UI font stack");
+                    }
+                    if (!segoe)
+                        foreach (var suffix in new[] { "", "Italic" })
+                        {
+                            int requested = browser.Document.GetElementById("requested" + suffix).OffsetRectangle.Width;
+                            int fallback = browser.Document.GetElementById("fallback" + suffix).OffsetRectangle.Width;
+                            Console.WriteLine("FONT METRICS: " + suffix + " requested=" + requested + " fallback=" + fallback);
+                            Check(Math.Abs(requested - fallback) <= 1, "missing Segoe UI uses the installed outline UI font with its regular/italic styling");
+                        }
+                }
+                else if (mode == "webview-unicode")
+                {
+                    string actual = browser.Document.Body.InnerText.Trim();
+                    Console.WriteLine("HTML TEXT: " + Uri.EscapeDataString(actual));
+                    Check(actual == unicode, "NavigateToString preserves Unicode without requiring a charset declaration");
+                }
+                else if (mode == "webview-layout")
+                {
+                    Console.WriteLine("HTML VIEWPORT: " + browser.Document.Window.Size);
+                    Check(browser.Document.Window.Size.Width >= width - 20 && browser.Document.Window.Size.Height >= height - 20, "embedded HTML viewport follows its native outer browser beyond the default 250 pixels");
+                }
+                else
+                {
+                    var host = ShimGetHostWindow(); NativeRect before, window;
+                    GetClientRect(host, out before); GetWindowRect(host, out window);
+                    SetWindowPos(host, IntPtr.Zero, 0, 0, window.Right - window.Left + 100, window.Bottom - window.Top + 80, 0x0016);
+                    Pump(() => { NativeRect now; GetClientRect(host, out now); return now.Right != before.Right; });
+                    element.UpdateLayout();
+                    GetClientRect(browser.Handle, out bounds);
+                    Console.WriteLine("RESIZED: HWND=" + (bounds.Right - bounds.Left) + "x" + (bounds.Bottom - bounds.Top));
+                    Check(bounds.Right - bounds.Left == width && bounds.Bottom - bounds.Top == height, "host resize preserves the HTML view's independently arranged bounds");
+                }
             }
             else if (mode == "webview-loaded" || mode == "mainloop")
             {

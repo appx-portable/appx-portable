@@ -1079,11 +1079,21 @@ XAML fallback. Native window airspace still prevents WPF overlays from covering
 the browser, and ancestor clipping is not fully reproduced. Offscreen XAML
 captures do not contain the browser's pixels.
 
+HTML control bounds also update the embedded document viewport; native host
+resizing leaves these independently arranged children alone. HTML strings that
+request Segoe UI use an Arial/system UI/sans-serif fallback stack when Segoe UI is absent.
+This is a fallback, not an exact Segoe UI reproduction. SearchBox supplies readable
+size/padding defaults, and ListBox recycles its virtualized row containers.
+
 Once managed XAML creates its presentation source, the host runs WPF's dispatcher
 loop on the view thread. The framework owns its message filters and rendering
 lifecycle, while native host window messages continue through the same HWND.
 The startup probe checks first-frame presentation after `OnLaunched` returns,
 both with an opaque control and with HTML views navigating from Loaded handlers.
+Host keyboard and character messages also reach the focused WPF control, with
+their original key payloads. Handled CoreDispatcher accelerators retain priority.
+The input probe clicks between search fields and checks queued Unicode text,
+editing keys, QueryChanged and accelerator interception.
 
 `scripts/probe-package-markup.py` tests a prebuilt runtime using independent PRI
 and XBF fixtures and startup consumers. It requires `--wine`, `--prefix`,

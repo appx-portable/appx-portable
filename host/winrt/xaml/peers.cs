@@ -23,6 +23,7 @@ namespace AppxPortable.WinRT.Xaml
             Stock(typeof(global::Windows.UI.Xaml.Controls.ScrollViewer), typeof(System.Windows.Controls.ScrollViewer));
             Stock(typeof(global::Windows.UI.Xaml.Controls.ItemsPresenter), typeof(System.Windows.Controls.ItemsPresenter));
             Stock(typeof(global::Windows.UI.Xaml.Controls.ListView), typeof(System.Windows.Controls.ListView));
+            Stock(typeof(global::Windows.UI.Xaml.Controls.ListBox), typeof(System.Windows.Controls.ListBox));
             Overrides.Register();
         }
 

@@ -25,6 +25,34 @@ namespace AppxPortable.WinRT.Xaml
         private Uri source;
         private Rect lastBounds = Rect.Empty;
         private bool visible;
+        private static readonly bool useUiFontFallback = MissingUiFont();
+        private static bool MissingUiFont()
+        {
+            using (var fonts = new System.Drawing.Text.InstalledFontCollection())
+                foreach (var font in fonts.Families)
+                    if (font.Name.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+        private static string CssWithFonts(string css)
+        {
+            // Preserve package font-face definitions and existing fallback lists.
+            const string pattern = @"(?<face>@font-face\s*\{[^}]*\})|(?<prefix>\bfont-family\s*:\s*)(?<quote>['""]?)Segoe UI\k<quote>(?=\s*(?:[;}]|$))";
+            return System.Text.RegularExpressions.Regex.Replace(css, pattern,
+                match => match.Groups["face"].Success ? match.Value : match.Groups["prefix"].Value +
+                    "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Arial, sans-serif",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        }
+        private static string HtmlWithFonts(string text)
+        {
+            if (!useUiFontFallback || text.IndexOf("Segoe UI", StringComparison.OrdinalIgnoreCase) < 0) return text;
+            var flags = System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant;
+            text = System.Text.RegularExpressions.Regex.Replace(text,
+                @"(?<open><style\b[^>]*>)(?<css>[\s\S]*?)(?<close></style\s*>)",
+                match => match.Groups["open"].Value + CssWithFonts(match.Groups["css"].Value) + match.Groups["close"].Value, flags);
+            return System.Text.RegularExpressions.Regex.Replace(text,
+                @"(?<open>\sstyle\s*=\s*)(?<quote>['""])(?<css>.*?)\k<quote>",
+                match => match.Groups["open"].Value + match.Groups["quote"].Value + CssWithFonts(match.Groups["css"].Value) + match.Groups["quote"].Value, flags);
+        }
         internal Forms.WebBrowser Browser { get { return browser; } }
         internal event Action<string> ScriptNotify;
         public WebViewPeer()
@@ -63,9 +91,9 @@ namespace AppxPortable.WinRT.Xaml
             VerifyAccess();
             if (value == null) throw new ArgumentNullException("text");
             var previous = browser;
-            html = value; source = null;
+            html = HtmlWithFonts(value); source = null;
             CreateBrowser();
-            if (browser != null && ReferenceEquals(previous, browser)) browser.DocumentText = value;
+            if (browser != null && ReferenceEquals(previous, browser)) browser.DocumentText = html;
         }
         internal void Navigate(Uri value)
         {
@@ -91,6 +119,11 @@ namespace AppxPortable.WinRT.Xaml
             }
             if (bounds == lastBounds && show == visible) return;
             lastBounds = bounds; visible = show;
+            // ActiveX sizes its document from the control's managed Bounds.
+            // Resizing only the HWND leaves the HTML viewport at its default size.
+            if (show)
+                browser.Bounds = new System.Drawing.Rectangle((int)Math.Round(bounds.X), (int)Math.Round(bounds.Y),
+                    Math.Max(1, (int)Math.Round(bounds.Width)), Math.Max(1, (int)Math.Round(bounds.Height)));
             SetWindowPos(browser.Handle, IntPtr.Zero, show ? (int)Math.Round(bounds.X) : 0, show ? (int)Math.Round(bounds.Y) : 0,
                 show ? Math.Max(1, (int)Math.Round(bounds.Width)) : 0, show ? Math.Max(1, (int)Math.Round(bounds.Height)) : 0,
                 0x0004 | 0x0010 | (show ? 0x0040U : 0x0080U)); // NOZORDER | NOACTIVATE | SHOW/HIDE

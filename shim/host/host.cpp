@@ -356,9 +356,15 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
             ResizeIslandView(LOWORD(lparam), HIWORD(lparam));
         } else {
             // Surfaces fill the client area; DXGI stretches each buffer to its window.
-            for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
+            // Other children, such as managed HTML views, have their own layout.
+            for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+                wchar_t name[64]{};
+                if (child != xamlFallback &&
+                    (!GetClassNameW(child, name, ARRAYSIZE(name)) || wcscmp(name, SurfaceClass) != 0))
+                    continue;
                 SetWindowPos(child, nullptr, 0, 0, LOWORD(lparam), HIWORD(lparam),
                              SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
         }
     }
     if (message == WM_ACTIVATE) {

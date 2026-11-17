@@ -9,6 +9,16 @@ namespace AppxPortable.WinRT.Xaml
 {
     public sealed class ToggleSwitchPeer : CheckBox { }
 
+    public sealed class ListBoxPeer : ListBox
+    {
+        static ListBoxPeer()
+        {
+            // Keep the row template and rebind it as entries leave the viewport.
+            VirtualizingPanel.VirtualizationModeProperty.OverrideMetadata(typeof(ListBoxPeer),
+                new FrameworkPropertyMetadata(VirtualizationMode.Recycling));
+        }
+    }
+
     // WPF does not provide swipe selection or zoom. Their disabled states are
     // supported; enabling them remains an explicitly named completion failure.
     public sealed class ListViewPeer : ListView

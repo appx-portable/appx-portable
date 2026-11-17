@@ -288,7 +288,7 @@
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.ItemContainerGenerator" Adapter="Wpf" />
   <Class Name="Windows.UI.Xaml.Controls.Primitives.Selector" Adapter="Wpf" Peer="System.Windows.Controls.Primitives.Selector" />
-  <Class Name="Windows.UI.Xaml.Controls.ListBox" Adapter="Wpf" Peer="System.Windows.Controls.ListBox">
+  <Class Name="Windows.UI.Xaml.Controls.ListBox" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.ListBoxPeer">
     <Constructor />
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.SelectionChangedEventArgs" Adapter="Wpf" />
