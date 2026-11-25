@@ -298,7 +298,12 @@ collection bounds, and closed-operation behavior. It also checks
 `LeaderboardService.PostResultAsync` completion and callbacks, 64-bit score
 arguments, Task awaiting, and signed-out errors with local sign-out/sign-in.
 Score posts keep the native shim's existing local-only behavior; they are not
-sent to Xbox servers. The SDK advertises action support through its
+sent to Xbox servers. The purchase regression checks `ShowPurchaseAsync`
+GUID-by-value arguments against an asymmetric configured offer ID, then verifies
+asset grants and receipt GUID getters/lookup. GUID inputs use `System.Guid`'s
+16-byte ABI value layout; property getters receive a native GUID through the
+existing typed out-value adapter. Purchase errors and the opt-in native stub-IAP
+policy remain unchanged. The SDK advertises action support through its
 metadata-derived `ProjectionContract` marker, so older SDK references retain
 named stubs instead of generating calls to a missing adapter. It is also registered as
 `winrt_xbox_marketplace_projection` when `APPX_XBOX_METADATA` is supplied.

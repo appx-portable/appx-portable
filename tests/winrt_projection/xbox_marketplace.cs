@@ -10,7 +10,7 @@ internal static class MarketplaceProjectionTest
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     private static void CheckAction(IAsyncAction action, AsyncStatus expected)
     {
-        Check(action != null && action.Status == expected, "native leaderboard action status");
+        Check(action != null && action.Status == expected, "native action status");
         int completed = 0;
         action.Completed = (sender, status) =>
         {
@@ -62,12 +62,43 @@ internal static class MarketplaceProjectionTest
         finally { CheckAction(client.SignInAsync(), AsyncStatus.Completed); }
         Check(Microsoft.Xbox.XboxLIVEService.SignedInUserIdentity != null, "native sign-in reached");
     }
+    private static void CheckPurchaseActions(bool local)
+    {
+        var offer = new Guid("01234567-89ab-cdef-0123-456789abcdef");
+        CheckAction(MarketplaceService.ShowPurchaseAsync(offer), local ? AsyncStatus.Completed : AsyncStatus.Error);
+        CheckActionTask(MarketplaceService.ShowPurchaseAsync(offer), !local);
+        if (!local) return;
+        var balanceOperation = MarketplaceService.GetAssetsAsync(0, 0, 0, null);
+        try
+        {
+            var balances = (IReadOnlyList<AssetBalance>)typeof(AssetBalanceCollection).GetProperty("Items").GetValue(balanceOperation.GetResults(), null);
+            Check(balances.Count == 1 && balances[0].Json.Contains("\"id\":17") && balances[0].Json.Contains("\"quantity\":14"),
+                "exact 16-byte offer GUID must match the configured native asset grant");
+        }
+        finally { balanceOperation.Close(); }
+        var receiptOperation = MarketplaceService.GetReceiptsAsync(0, 0, 0, null);
+        try
+        {
+            var receipts = (IReadOnlyList<Receipt>)typeof(ReceiptCollection).GetProperty("Items").GetValue(receiptOperation.GetResults(), null);
+            Check(receipts.Count == 2 && receipts[0].Json.IndexOf(offer.ToString(), StringComparison.OrdinalIgnoreCase) >= 0,
+                "native receipts must retain the offer GUID");
+            Check((Guid)typeof(Receipt).GetMethod("get_OfferId").Invoke(receipts[0], null) == offer,
+                "receipt GUID property must retain all 16 bytes");
+            var transaction = (Guid)typeof(Receipt).GetMethod("get_TransactionId").Invoke(receipts[0], null);
+            Check(transaction != Guid.Empty, "native transaction GUID");
+            var lookup = MarketplaceService.GetReceiptAsync(0, offer);
+            try { Check((Guid)typeof(Receipt).GetMethod("get_OfferId").Invoke(lookup.GetResults(), null) == offer, "GUID receipt lookup"); }
+            finally { lookup.Close(); }
+        }
+        finally { receiptOperation.Close(); }
+    }
     private static int Main(string[] args)
     {
         bool local = args.Length != 0 && args[0] == "local";
         try
         {
             CheckLeaderboardActions();
+            CheckPurchaseActions(local);
             var operation = MarketplaceService.EnumerateOffersAsync(0, 0, 100, (ItemType)0, 0, (OrderingOption)0, true);
             Check(operation != null, "native marketplace operation");
             try

@@ -59,6 +59,7 @@ internal static partial class WinrtProjectionGenerator
         }
         if (type.FullName == "System.Boolean") return "bool";
         if (type.FullName == "System.String") return "string";
+        if (type.FullName == "System.Guid") return "global::System.Guid";
         if (type.FullName == "System.Object") return "object";
         if (type.FullName == "Windows.Foundation.Uri") return "global::System.Uri";
         if (type.FullName == "Windows.UI.Xaml.Interop.TypeName") return "global::System.Type";
@@ -235,6 +236,7 @@ internal static partial class WinrtProjectionGenerator
             case "System.Double": return "global::System.BitConverter.Int64BitsToDouble(" + receiver + ".Int64(" + number + "))";
             case "System.Single": return "global::System.BitConverter.ToSingle(global::System.BitConverter.GetBytes(" + receiver + ".UInt32(" + number + ")), 0)";
         }
+        if (result.FullName == "System.Guid") return receiver + ".Value<global::System.Guid>(" + number + ")";
         if (result.FullName == "System.Object") return Inspectable(receiver + ".Object(" + number + ")");
         if (result.FullName == "Windows.Foundation.TimeSpan") return "new global::System.TimeSpan(" + receiver + ".Int64(" + number + "))";
         // The CLR projects DateTime, FILETIME ticks in UTC, as a local DateTimeOffset.
@@ -388,6 +390,14 @@ internal static partial class WinrtProjectionGenerator
             // A fill array is [out] but passed by value; a receive array is by reference.
             if ((parameter.IsOut && !(parameter.ParameterType is ArrayType)) || parameter.ParameterType.IsByReference || parameter.ParameterType.IsPointer)
                 throw new NotSupportedException("Unsupported parameter: " + method.FullName + " " + parameter.Name);
+            // WinRT GUID inputs are a 16-byte value, not an interface pointer
+            // or a ref GUID. System.Guid has the matching blittable ABI layout.
+            if (full == "System.Guid")
+            {
+                abi.Add("global::System.Guid " + local);
+                arguments.Add(value);
+                continue;
+            }
             if (full == DateTimeName)
             {
                 abi.Add("long " + local);
