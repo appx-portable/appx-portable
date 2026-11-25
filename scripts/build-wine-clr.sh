@@ -43,12 +43,15 @@ if [[ ! -f Makefile ]]; then
 fi
 ${host[@]+"${host[@]}"} make -j"$(getconf _NPROCESSORS_ONLN)" \
   dlls/wow64cpu/x86_64-windows/wow64cpu.dll \
+  dlls/mf/i386-windows/mf.dll \
+  dlls/mf/x86_64-windows/mf.dll \
   dlls/mfmediaengine/i386-windows/mfmediaengine.dll \
   dlls/mfmediaengine/x86_64-windows/mfmediaengine.dll > make.log 2>&1 \
   || { tail -20 make.log >&2; exit 1; }
 # This is an engine builtin, so retain its Wine builtin marker.
 cp dlls/wow64cpu/x86_64-windows/wow64cpu.dll "$output/wow64cpu.dll"
 for arch in i386-windows x86_64-windows; do
+  cp "dlls/mf/$arch/mf.dll" "$output/mf-$arch.dll"
   cp "dlls/mfmediaengine/$arch/mfmediaengine.dll" "$output/mfmediaengine-$arch.dll"
 done
 cp "$root/wine/mfmediaengine.patch" "$output/"

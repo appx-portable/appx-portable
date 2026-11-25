@@ -98,6 +98,7 @@ class MonoNxCompatTests(unittest.TestCase):
             struct.pack_into("<H", data, 0x84, machine)
             media[arch] = bytes(data)
             (build / ("mfmediaengine-" + arch + ".dll")).write_bytes(data)
+            (build / ("mf-" + arch + ".dll")).write_bytes(data + b"session")
         (build / "mfmediaengine.patch").write_bytes(b"media patch")
         base = io.BytesIO()
         with tarfile.open(fileobj=base, mode="w:xz") as archive:
@@ -119,6 +120,7 @@ class MonoNxCompatTests(unittest.TestCase):
                 target = build / "runtime/Wine Devel.app/Contents/Resources/wine/lib/wine" / arch / "mfmediaengine.dll"
                 self.assertTrue(target.is_file(), "patched media engine must be staged before signing")
                 self.assertEqual(target.read_bytes(), data)
+                self.assertEqual(target.with_name("mf.dll").read_bytes(), data + b"session")
             signed.append(command)
 
         with patch.object(package, "WINE_DEVEL", ("https://example.invalid/pinned.tar.xz", digest(base.getvalue()))), \
@@ -133,6 +135,9 @@ class MonoNxCompatTests(unittest.TestCase):
         self.assertEqual(manifest["media_engine"], {
             arch: {"path": "Contents/Resources/wine/lib/wine/" + arch + "/mfmediaengine.dll", "sha256": digest(data)}
             for arch, data in media.items()})
+        self.assertEqual(manifest["media_session"], {
+            arch: {"path": "Contents/Resources/wine/lib/wine/" + arch + "/mf.dll", "sha256": digest(data + b"session")}
+            for arch, data in media.items()})
         self.assertEqual(manifest["media_engine_patch_sha256"], digest(b"media patch"))
         self.assertEqual(manifest["mono_nx_compat"], dict(path=ASSEMBLY, original_sha256=digest(self.original), sha256=digest(self.corrected)))
         with tarfile.open(build / "appx-portable-wine-clr-macos.tar.xz") as archive:
@@ -140,6 +145,7 @@ class MonoNxCompatTests(unittest.TestCase):
             self.assertEqual(json.load(archive.extractfile("wine-clr.json")), manifest)
             for arch, data in media.items():
                 self.assertEqual(archive.extractfile("Wine Devel.app/Contents/Resources/wine/lib/wine/" + arch + "/mfmediaengine.dll").read(), data)
+                self.assertEqual(archive.extractfile("Wine Devel.app/Contents/Resources/wine/lib/wine/" + arch + "/mf.dll").read(), data + b"session")
         with tarfile.open(build / "appx-portable-wine-clr-sources.tar.xz") as archive:
             self.assertEqual(archive.extractfile("scripts/package-wine-clr.py").read(), (ROOT / "scripts/package-wine-clr.py").read_bytes())
             self.assertEqual(archive.extractfile("mfmediaengine.patch").read(), b"media patch")

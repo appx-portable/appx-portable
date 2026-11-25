@@ -101,14 +101,15 @@ def main():
             or data[0x40:0x50] != b"Wine builtin DLL"):
         raise SystemExit("wow64cpu.dll must be a Wine x64 builtin")
     media = {}
-    for arch, machine in (("i386-windows", 0x14c), ("x86_64-windows", 0x8664)):
-        source = build / ("mfmediaengine-" + arch + ".dll")
-        media_data = source.read_bytes()
-        offset = struct.unpack_from("<I", media_data, 0x3c)[0]
-        if (media_data[offset:offset + 4] != b"PE\0\0" or struct.unpack_from("<H", media_data, offset + 4)[0] != machine
-                or media_data[0x40:0x50] != b"Wine builtin DLL"):
-            raise SystemExit("mfmediaengine.dll must be a Wine builtin for " + arch)
-        media[arch] = (source, media_data)
+    for module in ("mfmediaengine", "mf"):
+        for arch, machine in (("i386-windows", 0x14c), ("x86_64-windows", 0x8664)):
+            source = build / (module + "-" + arch + ".dll")
+            media_data = source.read_bytes()
+            offset = struct.unpack_from("<I", media_data, 0x3c)[0]
+            if (media_data[offset:offset + 4] != b"PE\0\0" or struct.unpack_from("<H", media_data, offset + 4)[0] != machine
+                    or media_data[0x40:0x50] != b"Wine builtin DLL"):
+                raise SystemExit(module + ".dll must be a Wine builtin for " + arch)
+            media[(module, arch)] = (source, media_data)
     url, expected = WINE_DEVEL
     if args.base_archive:
         archive = args.base_archive.read_bytes()
@@ -131,12 +132,14 @@ def main():
     menu_target = app / "Contents/Resources/wine/lib/wine/x86_64-unix/appxmenu.so"
     shutil.copyfile(menu, menu_target)
     media_manifest = {}
-    for arch, (source, media_data) in media.items():
-        relative = "Contents/Resources/wine/lib/wine/" + arch + "/mfmediaengine.dll"
+    session_manifest = {}
+    for (module, arch), (source, media_data) in media.items():
+        relative = "Contents/Resources/wine/lib/wine/" + arch + "/" + module + ".dll"
         target = app / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-        media_manifest[arch] = dict(path=relative, sha256=hashlib.sha256(media_data).hexdigest())
+        module_manifest = media_manifest if module == "mfmediaengine" else session_manifest
+        module_manifest[arch] = dict(path=relative, sha256=hashlib.sha256(media_data).hexdigest())
     mono_nx_compat = patch_mono_nx_compat(app)
     # Replacing a sealed resource invalidates the upstream app signature.
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-",
@@ -144,7 +147,7 @@ def main():
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
     manifest = dict(schema=1, wine_version="11.18", cpu_sha256=hashlib.sha256(data).hexdigest(),
                     menu_sha256=hashlib.sha256(menu_target.read_bytes()).hexdigest(),
-                    mono_nx_compat=mono_nx_compat, media_engine=media_manifest,
+                    mono_nx_compat=mono_nx_compat, media_engine=media_manifest, media_session=session_manifest,
                     media_engine_patch_sha256=hashlib.sha256((build / "mfmediaengine.patch").read_bytes()).hexdigest(),
                     base_url=url, base_sha256=expected,
                     patch_sha256=hashlib.sha256((build / "wow64cpu.patch").read_bytes()).hexdigest(),

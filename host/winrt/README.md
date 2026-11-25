@@ -420,10 +420,19 @@ implicit Close, pending/closed errors, concurrent-show rejection and cancellatio
 The packaged Wine runtime also includes `wine/mfmediaengine.patch` for both PE
 architectures. It implements `IMFMediaEngine.Load` using the engine's existing
 source-resolution path; the original CommonDX music wrapper calls Source, Load,
-then Play. `scripts/probe-common-music.py` exercises the original game wrapper
-and a supplied music asset, checking audio-stream detection, advancing playback,
-pause/resume, stop and shutdown behavior without modifying game assemblies.
-Pass `--asset Content/TMP_ambient.mp3` to check Monster Island's ambient track.
+then Play. Source changes also reset the engine's waiting gate and stop/reset
+an immediately replaced media session so its next Start actually starts the new
+sources. Both `mfmediaengine.dll` and `mf.dll` are packaged for x86 and x64 with
+hashes recorded in `wine-clr.json`.
+
+`scripts/probe-common-music.py` exercises the original game wrapper and supplied
+music assets, checking audio-stream detection, advancing playback, pause/resume,
+stop and shutdown behavior without modifying game assemblies. Pass
+`--asset Content/MonsterIslandMenu.mp3 --next-asset Content/TMP_ambient.mp3` to
+check Monster Island's uninterrupted menu-to-level transition; add `--delayed-play`
+to resolve the first source before playback and cover preload timing. Clock
+checks require new progress after each source resolves, rather than accepting
+a nonzero position left by the previous track.
 These checks establish playback progress, not speaker audibility.
 
 ## Mono SharpDX compatibility

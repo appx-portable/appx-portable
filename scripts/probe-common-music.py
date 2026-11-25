@@ -20,11 +20,18 @@ def main():
     for name in ('wine', 'prefix', 'game', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--asset', default='Content/MonsterIslandMenu.mp3', help='game-relative audio file')
+    parser.add_argument('--next-asset', help='second game-relative track for an uninterrupted menu-to-level transition')
+    parser.add_argument('--delayed-play', action='store_true', help='force audio-only preload to resolve before the first Play; requires --next-asset')
     args = parser.parse_args()
     wine, prefix, game, output = (getattr(args, name).resolve() for name in ('wine', 'prefix', 'game', 'output'))
     asset = Path(args.asset)
     if asset.is_absolute() or '..' in asset.parts or not (game / asset).is_file():
         parser.error('--asset must name an existing game-relative file')
+    next_asset = Path(args.next_asset) if args.next_asset else None
+    if next_asset is not None and (next_asset.is_absolute() or '..' in next_asset.parts or not (game / next_asset).is_file()):
+        parser.error('--next-asset must name an existing game-relative file')
+    if args.delayed_play and next_asset is None:
+        parser.error('--delayed-play requires --next-asset')
     if output.exists():
         parser.error('output folder already exists; choose a fresh one')
     output.mkdir(parents=True)
@@ -49,8 +56,11 @@ def main():
             shutil.copyfile(compatible, output / 'SharpDX.dll')
     (output / asset).parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(game / asset, output / asset)
+    if next_asset is not None:
+        (output / next_asset).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(game / next_asset, output / next_asset)
     (output / 'AppxManifest.xml').write_text('<Package><Identity Name="Fixture.CommonMusic" Version="1.0.0.0" ProcessorArchitecture="x86" Publisher="CN=Fixture"/><Applications><Application Id="App" Executable="music.exe" EntryPoint="Fixture.Entry"/></Applications></Package>')
-    env = dict(os.environ, WINEPREFIX=str(prefix), WINEDEBUG='-all', MVK_CONFIG_LOG_LEVEL='0', APPX_PORTABLE_LOG='1')
+    env = dict(os.environ, WINEPREFIX=str(prefix), WINEDEBUG=os.environ.get('WINEDEBUG', '-all'), MVK_CONFIG_LOG_LEVEL='0', APPX_PORTABLE_LOG='1')
     for name in ('MONO_PATH', 'MONO_ENV_OPTIONS', 'WINE_MONO_AOT', 'WINEDLLOVERRIDES'):
         env.pop(name, None)
     references = [output / name for name in ('Windows.dll', 'CommonDX.dll', 'SharpDX.dll', 'SharpDX.MediaFoundation.dll')]
@@ -60,15 +70,18 @@ def main():
         result = subprocess.run(command, env=env, cwd=output, stdout=log, stderr=subprocess.STDOUT, timeout=60)
     if result.returncode:
         raise SystemExit((output / 'compile.log').read_text(errors='replace'))
+    assets = [str(asset).replace('/', '\\')] + ([str(next_asset).replace('/', '\\')] if next_asset is not None else [])
+    if args.delayed_play:
+        assets.append('delayed')
     with (output / 'music.log').open('w') as log:
-        result = subprocess.run(toolchain.tool(output / 'music.exe') + [str(asset).replace('/', '\\')], env=env, cwd=output,
-                                stdout=log, stderr=subprocess.STDOUT, timeout=30)
+        result = subprocess.run(toolchain.tool(output / 'music.exe') + assets, env=env, cwd=output,
+                                stdout=log, stderr=subprocess.STDOUT, timeout=90)
     text = (output / 'music.log').read_text(errors='replace')
     unchanged = all(digest(game / name) == value for name, value in before.items())
     passed = result.returncode == 0 and 'PASS:' in text and unchanged
     report = dict(passed=passed, exit=result.returncode, original_assemblies_unchanged=unchanged,
                   common_dx_sha256=before['CommonDX.dll'], asset=args.asset, asset_sha256=digest(game / asset),
-                  speaker_audibility_verified=False)
+                  next_asset=args.next_asset, next_asset_sha256=digest(game / next_asset) if next_asset is not None else None, delayed_play=args.delayed_play, speaker_audibility_verified=False)
     (output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
     if not passed:
