@@ -422,6 +422,17 @@ internal static partial class WinrtProjectionGenerator
                 arguments.Add(local + ".Length"); arguments.Add(local + ".Pointer");
                 continue;
             }
+            var view = ComponentView(parameter.ParameterType);
+            if (view != null)
+            {
+                var item = view.GenericArguments[0];
+                string iid = ParameterizedIid(contractIids[view.ElementType.FullName], EventSignature(item));
+                abi.Add("global::System.IntPtr " + local);
+                setup.Add("                using (var " + local + " = " + Runtime + "ObjectViewArgument.Hold<" + Name(item) + ">(" + value +
+                    ", new global::System.Guid(\"" + iid + "\"), " + ArgumentIid(item) + "))");
+                arguments.Add(local + ".Pointer");
+                continue;
+            }
             string native = "global::System.IntPtr";
             if (full == "System.String") prepare = "new " + Runtime + "NativeString(" + value + ")";
             else if (full == "Windows.UI.Xaml.Interop.TypeName")

@@ -5,6 +5,103 @@ using System.Runtime.InteropServices;
 
 namespace AppxPortable.WinRT
 {
+    // Snapshot an object-list argument as its metadata-derived IVectorView<T>.
+    // Delegates remain outside generic types for Wine Mono's unmanaged marshaler.
+    internal sealed class ObjectViewArgument
+    {
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int GetAtCall(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int SizeCall(IntPtr self, out uint count);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int IndexOfCall(IntPtr self, IntPtr value, out uint index, out byte found);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int GetManyCall(IntPtr self, uint start, uint capacity, IntPtr values, out uint count);
+        private static readonly Dictionary<Guid, NativeInterface> contracts = new Dictionary<Guid, NativeInterface>();
+        private readonly object[] items;
+        private readonly Guid itemIid;
+        private ObjectViewArgument(object[] items, Guid itemIid) { this.items = items; this.itemIid = itemIid; }
+        internal static ManagedObject.Held Hold<T>(IReadOnlyList<T> values, Guid iid, Guid itemIid) where T : class
+        {
+            if (values == null) return ManagedObject.Hold(null);
+            var items = new object[values.Count];
+            for (int i = 0; i < items.Length; ++i) items[i] = values[i];
+            NativeInterface contract;
+            lock (contracts)
+            {
+                if (!contracts.TryGetValue(iid, out contract))
+                {
+                    contract = new NativeInterface(iid, true, new GetAtCall(GetAt), new SizeCall(Size), new IndexOfCall(IndexOf), new GetManyCall(GetMany));
+                    contracts.Add(iid, contract);
+                }
+            }
+            return ManagedObject.Hold(new ObjectViewArgument(items, itemIid), contract);
+        }
+        private IntPtr Item(uint index)
+        {
+            if (index >= items.Length) throw new COMException("Vector index out of bounds", unchecked((int)0x8000000b));
+            using (var value = NativeObject.Argument(items[index], itemIid))
+            {
+                if (value == null) return IntPtr.Zero;
+                IntPtr result = value.DangerousGetHandle();
+                Marshal.AddRef(result);
+                return result;
+            }
+        }
+        private static int GetAt(IntPtr self, uint index, out IntPtr value)
+        {
+            IntPtr result = IntPtr.Zero;
+            int hr = ManagedObject.Call(self, target => result = ((ObjectViewArgument)target).Item(index));
+            value = result; return hr;
+        }
+        private static int Size(IntPtr self, out uint count)
+        {
+            uint result = 0;
+            int hr = ManagedObject.Call(self, target => result = checked((uint)((ObjectViewArgument)target).items.Length));
+            count = result; return hr;
+        }
+        private static int IndexOf(IntPtr self, IntPtr value, out uint index, out byte found)
+        {
+            uint result = 0; byte matched = 0;
+            int hr = ManagedObject.Call(self, target =>
+            {
+                var view = (ObjectViewArgument)target;
+                using (var candidate = NativeObject.Borrow(value))
+                {
+                    for (uint i = 0; i < view.items.Length; ++i)
+                    using (var item = NativeObject.Argument(view.items[i], view.itemIid))
+                        if (item == null ? candidate == null : candidate != null && item.Identity() == candidate.Identity())
+                        { result = i; matched = 1; break; }
+                }
+            });
+            index = result; found = matched; return hr;
+        }
+        private static int GetMany(IntPtr self, uint start, uint capacity, IntPtr values, out uint count)
+        {
+            uint copied = 0;
+            int hr = ManagedObject.Call(self, target =>
+            {
+                var view = (ObjectViewArgument)target;
+                if (start > view.items.Length) throw new COMException("Vector index out of bounds", unchecked((int)0x8000000b));
+                uint length = Math.Min(capacity, checked((uint)view.items.Length) - start);
+                if (length != 0 && values == IntPtr.Zero) throw new COMException("Null vector buffer", unchecked((int)0x80004003));
+                try
+                {
+                    for (; copied < length; ++copied)
+                        Marshal.WriteIntPtr(values, checked((int)copied * IntPtr.Size), view.Item(start + copied));
+                }
+                catch
+                {
+                    for (uint i = 0; i < copied; ++i)
+                    {
+                        int offset = checked((int)i * IntPtr.Size);
+                        IntPtr item = Marshal.ReadIntPtr(values, offset);
+                        if (item != IntPtr.Zero) Marshal.Release(item);
+                        Marshal.WriteIntPtr(values, offset, IntPtr.Zero);
+                    }
+                    copied = 0; throw;
+                }
+            });
+            count = copied; return hr;
+        }
+    }
+
     // A native IVector<String> or IVectorView<String> argument to a managed callee,
     // copied when the call arrives: later changes on either side are not shared.
     internal static class NativeStrings

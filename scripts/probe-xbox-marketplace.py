@@ -69,7 +69,9 @@ def main():
                          'private delegate int Native_PostResultAsync(global::System.IntPtr self, uint argument0, int argument1, long argument2, out global::System.IntPtr result);',
                          '5fb27d3f-f307-4dcc-b8c1-588adce62fbd',
                          '// Microsoft.Xbox.Marketplace.IMarketplaceStatics::ShowPurchaseAsync, slot 8',
-                         'private delegate int Native_ShowPurchaseAsync(global::System.IntPtr self, global::System.Guid argument0, out global::System.IntPtr result);'):
+                         'private delegate int Native_ShowPurchaseAsync(global::System.IntPtr self, global::System.Guid argument0, out global::System.IntPtr result);',
+                         '// Microsoft.Xbox.Marketplace.IMarketplaceStatics::ConsumeAssetsAsync, slot 13',
+                         '47f16fe9-252a-5aa6-b2e2-343fa27fdecb'):
             if expected not in generated:
                 raise SystemExit('Xbox projection differs from native ABI: ' + expected)
         sources = [repo / 'host/winrt' / name for name in ('abi.cs', 'ccw.cs', 'dispatcher.cs', 'property_abi.cs', 'collections.cs')] + [output / 'Microsoft.Xbox.generated.cs']

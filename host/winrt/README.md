@@ -303,7 +303,20 @@ GUID-by-value arguments against an asymmetric configured offer ID, then verifies
 asset grants and receipt GUID getters/lookup. GUID inputs use `System.Guid`'s
 16-byte ABI value layout; property getters receive a native GUID through the
 existing typed out-value adapter. Purchase errors and the opt-in native stub-IAP
-policy remain unchanged. The SDK advertises action support through its
+policy remain unchanged. `ConsumeAssetsAsync` accepts managed read-only lists
+through a snapshot exposing the metadata-derived `IVectorView<T>` ABI. Tests
+cover native consumption, duplicate IDs, insufficient balances, null inputs,
+retained view lifetime, identity lookup, bounds and bulk outputs.
+
+`StubIap=1` completes purchases locally. Xbox consumables also require a
+`StubXboxProducts=offer-guid:asset-id:quantity,...` mapping in `[options]`;
+without one, a successful purchase creates a receipt without granting assets.
+Derive these values from the package's catalog and code. For example, the tested
+Monster Island 1.0.2.3 package maps `coinpack4` to offer
+`e6ecee00-0000-4000-8000-0000394e07d4`, asset 1 and 20,000 coins. Restart the
+game after changing its settings. The shim's asset balances remain process-local.
+
+The SDK advertises action support through its
 metadata-derived `ProjectionContract` marker, so older SDK references retain
 named stubs instead of generating calls to a missing adapter. It is also registered as
 `winrt_xbox_marketplace_projection` when `APPX_XBOX_METADATA` is supplied.
