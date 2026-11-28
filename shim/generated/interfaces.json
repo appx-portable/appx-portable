@@ -273,6 +273,13 @@
       "ABI::Windows::Devices::Enumeration::IDeviceWatcher"
     ]
   },
+  "device_enumeration_pnp.h": {
+    "header": "windows.devices.enumeration.pnp.h",
+    "interfaces": [
+      "ABI::Windows::Devices::Enumeration::Pnp::IPnpObjectStatics",
+      "ABI::Windows::Devices::Enumeration::Pnp::IPnpObjectWatcher"
+    ]
+  },
   "text.h": {
     "header": "windows.ui.xaml.controls.h",
     "interfaces": [
