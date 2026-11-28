@@ -10,6 +10,7 @@ EXPORTS
   ShimReportUnimplemented
   ShimReportException
   ShimCreateXamlService
+  ShimSetXamlKeyTarget
   ShimSubmitXamlFrame
   ShimSetXamlInputHandler
   ShimCaptureXamlWindow

@@ -107,6 +107,7 @@ namespace AppxPortable.WinRT.Xaml
         internal static void SetContent(global::Windows.UI.Xaml.UIElement content)
         {
             Content = content;
+            global::Windows.UI.Xaml.Controls.Control.RefreshKeyTarget();
             ShowContent((System.Windows.UIElement)Peers.Of(content));
             EnsurePresentation();
         }

@@ -1,6 +1,8 @@
 // Independent native ABI contract for the generated synthetic WinMD.
 #include <windows.h>
 #include <roapi.h>
+#include <windows.ui.xaml.h>
+#include <windows.ui.xaml.input.h>
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <vector>
@@ -335,4 +337,35 @@ extern "C" HRESULT WINAPI DllGetActivationFactory(HSTRING name, IActivationFacto
     if (wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"Example.Component.Engine") != 0)
         return CLASS_E_CLASSNOTAVAILABLE;
     return Make<EngineFactory>().CopyTo(factory);
+}
+extern "C" HRESULT __cdecl ProbeKeyboardControl(IUnknown* control, HWND window, int expectedEvents) {
+    using namespace ABI::Windows::UI::Xaml;
+    using namespace ABI::Windows::UI::Xaml::Input;
+    if (!control || !window) return E_INVALIDARG;
+    ComPtr<IUIElement> element;
+    auto hr = control->QueryInterface(IID_PPV_ARGS(&element));
+    if (FAILED(hr)) return hr;
+    int down = 0, up = 0;
+    auto pressed = Callback<IKeyEventHandler>([&](IInspectable*, IKeyRoutedEventArgs* args) -> HRESULT {
+        ABI::Windows::System::VirtualKey key{};
+        if (SUCCEEDED(args->get_Key(&key)) && key == static_cast<ABI::Windows::System::VirtualKey>('K')) ++down;
+        return S_OK;
+    });
+    auto released = Callback<IKeyEventHandler>([&](IInspectable*, IKeyRoutedEventArgs* args) -> HRESULT {
+        ABI::Windows::System::VirtualKey key{};
+        if (SUCCEEDED(args->get_Key(&key)) && key == static_cast<ABI::Windows::System::VirtualKey>('K')) ++up;
+        return S_OK;
+    });
+    EventRegistrationToken downToken{}, upToken{};
+    hr = element->add_KeyDown(pressed.Get(), &downToken);
+    if (FAILED(hr)) return hr;
+    hr = element->add_KeyUp(released.Get(), &upToken);
+    if (SUCCEEDED(hr)) {
+        SendMessageW(window, WM_KEYDOWN, 'K', 1);
+        SendMessageW(window, WM_KEYUP, 'K', 0xc0000001);
+        element->remove_KeyUp(upToken);
+    }
+    element->remove_KeyDown(downToken);
+    if (FAILED(hr)) return hr;
+    return down == expectedEvents / 2 && up == expectedEvents / 2 ? S_OK : E_FAIL;
 }

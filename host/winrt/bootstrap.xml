@@ -433,7 +433,7 @@
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.NotifyEventArgs" Adapter="Wpf" />
   <Delegate Name="Windows.UI.Xaml.Controls.NotifyEventHandler" Adapter="Wpf" />
-  <Class Name="Windows.UI.Xaml.Controls.Control" Adapter="Wpf" Peer="System.Windows.Controls.Control">
+  <Class Name="Windows.UI.Xaml.Controls.Control" Adapter="Wpf" Peer="System.Windows.Controls.Control" NativeService="true">
     <Constructor />
     <Property Name="IsEnabled" Wpf="System.Windows.UIElement.IsEnabledProperty" />
     <Property Name="TabNavigation" Wpf="System.Windows.Input.KeyboardNavigation.TabNavigationProperty" />

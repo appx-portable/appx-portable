@@ -843,6 +843,13 @@ def main():
             for source in (host, panel, windows_interop, bridge):
                 copy_owned_file(source, panel_fixture / source.name)
             run("swap-chain-panel", [host.name, "--log"], cwd=panel_fixture, marker="PASS: SwapChainPanel markup binds the native panel")
+            keyboard = compile_file("keyboard-control.exe", [repo / "tests/winrt_projection/keyboard_control.cs"],
+                                    ["/r:" + windows(windows_interop), "/r:" + windows(bridge)])
+            keyboard_fixture = fixture("keyboard-control", keyboard.name, "KeyboardControlProjectionTest", "CN=projection")
+            for source in (host, keyboard, windows_interop, bridge, native, dependency):
+                copy_owned_file(source, keyboard_fixture / source.name)
+            run("keyboard-control", [host.name, "--log"], cwd=keyboard_fixture,
+                marker="PASS: native keyboard events follow the managed XAML page")
 
             external_projection = compile_file("external-projection/Example.External.dll", runtime + [output / "External.generated.cs"], interop_flags)
             cross_metadata = output / "cross/Example.Component.winmd"

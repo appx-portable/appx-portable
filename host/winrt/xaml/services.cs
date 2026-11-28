@@ -4,6 +4,43 @@ using AppxPortable.WinRT;
 
 namespace Windows.UI.Xaml.Controls
 {
+    public partial class Control
+#if APPX_PORTABLE_INTEROP
+        : AppxPortable.WinRT.Interop.INativeObject
+#endif
+    {
+        private NativeObject nativeControl;
+
+        internal static void RefreshKeyTarget()
+        {
+            var root = AppxPortable.WinRT.Xaml.Host.Content as Control;
+            AppxPortable.WinRT.Xaml.NativeServices.SetKeyTarget(root == null ? null : root.nativeControl);
+        }
+
+#if APPX_PORTABLE_INTEROP
+        SafeHandle AppxPortable.WinRT.Interop.INativeObject.AcquireInterface(Guid iid)
+        {
+            CheckThread();
+            if (nativeControl == null)
+            {
+                if (!(this is Page)) throw Errors.Unimplemented("Native IControl for " + GetType().FullName);
+                nativeControl = AppxPortable.WinRT.Xaml.NativeServices.Create("Windows.UI.Xaml.Controls.Page");
+                NativeObject.Remember(this, nativeControl);
+                RefreshKeyTarget();
+            }
+            return nativeControl.QueryInterface(iid);
+        }
+
+        internal static Control FromNative(NativeObject value)
+        {
+            return NativeObject.Wrap<Control>(value, NativeServiceIid, _ =>
+            {
+                throw Errors.Unimplemented("Control from an unassociated native object");
+            });
+        }
+#endif
+    }
+
     public partial class SwapChainPanel : INativeWrapper
 #if APPX_PORTABLE_INTEROP
         , AppxPortable.WinRT.Interop.INativeObject
@@ -70,6 +107,17 @@ namespace AppxPortable.WinRT.Xaml
 {
     internal static class NativeServices
     {
+        [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        private static extern void ShimSetXamlKeyTarget(IntPtr value);
+        private static NativeObject keyTarget;
+
+        internal static void SetKeyTarget(NativeObject target)
+        {
+            if (ReferenceEquals(keyTarget, target)) return;
+            ShimSetXamlKeyTarget(target == null ? IntPtr.Zero : target.DangerousGetHandle());
+            keyTarget = target;
+        }
+
         [DllImport("appxportable.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode, ExactSpelling = true)]
         private static extern int ShimCreateXamlService(string name, out IntPtr value);
 
