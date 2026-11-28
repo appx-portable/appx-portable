@@ -356,3 +356,69 @@ scripts/build-wined3d.sh; see docs/building.md.
 +        if (FAILED(hr))
 +            WARN("Failed to create device, hr %#lx.\n", hr);
 +    }
+
+--- a/dlls/d2d1/d2d1_private.h
++++ b/dlls/d2d1/d2d1_private.h
+@@ -760,0 +761,2 @@
++    ID3D10Blob *shape_vs[D2D_SHAPE_TYPE_COUNT];
++    ID3D10Blob *shape_ps;
+
+--- a/dlls/d2d1/factory.c
++++ b/dlls/d2d1/factory.c
+@@ -154,0 +155,7 @@
++        for (unsigned int i = 0; i < D2D_SHAPE_TYPE_COUNT; ++i)
++        {
++            if (factory->shape_vs[i])
++                ID3D10Blob_Release(factory->shape_vs[i]);
++        }
++        if (factory->shape_ps)
++            ID3D10Blob_Release(factory->shape_ps);
+
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -4810,2 +4810,2 @@
+-    HRESULT hr;
+-    ID3D10Blob *compiled;
++    struct d2d_factory *factory_impl = unsafe_impl_from_ID2D1Factory((ID2D1Factory *)factory);
++    HRESULT hr = S_OK;
+@@ -4820,0 +4821,3 @@
++    /* WIC render targets construct a device for each bitmap. Reuse the
++     * immutable bytecode per factory, while keeping GPU objects per context. */
++    EnterCriticalSection(&factory_impl->cs);
+@@ -4824,3 +4827,4 @@
+-
+-        if (FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
+-                "main", "vs_4_0", 0, 0, &compiled, NULL)))
++        ID3D10Blob **shader = &factory_impl->shape_vs[i];
++
++        if (!*shader && FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
++                "main", "vs_4_0", 0, 0, shader, NULL)))
+@@ -4829 +4833 @@
+-            return hr;
++            goto done;
+@@ -4831,5 +4835,6 @@
+-        device->precompiled_shape_vs[i] = compiled;
+-    }
+-
+-    if (FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1, "ps", NULL, NULL,
+-            "main", "ps_4_0", 0, 0, &compiled, NULL)))
++        device->precompiled_shape_vs[i] = *shader;
++        ID3D10Blob_AddRef(*shader);
++    }
++
++    if (!factory_impl->shape_ps && FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1,
++            "ps", NULL, NULL, "main", "ps_4_0", 0, 0, &factory_impl->shape_ps, NULL)))
+@@ -4838,5 +4843,8 @@
+-        return hr;
+-    }
+-    device->precompiled_shape_ps = compiled;
+-
+-    return S_OK;
++        goto done;
++    }
++    device->precompiled_shape_ps = factory_impl->shape_ps;
++    ID3D10Blob_AddRef(device->precompiled_shape_ps);
++
++done:
++    LeaveCriticalSection(&factory_impl->cs);
++    return hr;
