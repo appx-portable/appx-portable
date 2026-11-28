@@ -734,6 +734,10 @@
     <Property Name="Attributes" />
     <Method Name="AppendChild" />
   </Interface>
+  <Interface Name="Windows.Data.Xml.Dom.IXmlNodeSerializer">
+    <Property Name="InnerText" />
+    <Method Name="GetXml" />
+  </Interface>
   <Class Name="Windows.Data.Xml.Dom.XmlDocument">
     <Property Name="DocumentElement" />
     <Property Name="FirstChild" />
@@ -760,10 +764,12 @@
   </Class>
   <Class Name="Windows.Data.Xml.Dom.XmlText">
     <Property Name="Data" />
+    <Method Name="GetXml" />
     <Method Name="AppendChild" />
   </Class>
   <Class Name="Windows.Data.Xml.Dom.XmlAttribute">
     <Property Name="Name" />
+    <Method Name="GetXml" />
     <Property Name="Value" />
     <Method Name="AppendChild" />
   </Class>

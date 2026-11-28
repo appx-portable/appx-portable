@@ -9,15 +9,22 @@ using UnixCall = LONG(WINAPI*)(uint64_t, unsigned int, void*);
 static UnixCall call;
 static uint64_t functions;
 static UINT_PTR timer;
-static bool ready;
-static void CALLBACK PollMenu(HWND, UINT, UINT_PTR, DWORD) {
+enum MenuState : uint32_t { MenuReady = 1, SettingsRequested = 2, QuitRequested = 4 };
+static bool ready, quitPosted;
+static void CALLBACK PollMenu(HWND window, UINT, UINT_PTR, DWORD) {
     uint32_t state = 0;
     if (call(functions, 1, &state) < 0) return;
-    if ((state & 1) && !ready) {
+    if ((state & MenuReady) && !ready) {
         ready = true;
         Log("INFO", "macOS Game Menu ready");
     }
-    if (state & 2) ShowGameSettings();
+    if (quitPosted) return;
+    if (state & QuitRequested) {
+        quitPosted = PostMessageW(window, WM_CLOSE, 0, 0) != FALSE;
+        if (quitPosted) Log("INFO", "macOS Quit requested host close");
+        return;
+    }
+    if (state & SettingsRequested) ShowGameSettings();
 }
 
 void InitializeMacGameMenu(HWND window) {
@@ -45,8 +52,11 @@ void InitializeMacGameMenu(HWND window) {
     }
     call = *dispatcher;
     functions = handles[1];
-    uint32_t version = 1;
-    if (call(functions, 0, &version) < 0) return;
+    uint32_t version = 2;
+    if (call(functions, 0, &version) < 0) {
+        version = 1;
+        if (call(functions, 0, &version) < 0) return;
+    }
     timer = SetTimer(window, 0, 100, PollMenu);
     if (!timer) call(functions, 2, nullptr);
     // Keep the Unix library loaded: Cocoa blocks and action targets may still
@@ -59,6 +69,6 @@ void ShutdownMacGameMenu(HWND window) {
         timer = 0;
         call(functions, 2, nullptr);
     }
-    ready = false;
+    ready = quitPosted = false;
 }
 }

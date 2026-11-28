@@ -24,6 +24,11 @@ int main(int argc, char **argv) {
         NSMenu *appMenu = [NSMenu new];
         NSMenuItem *preferences = [[NSMenuItem alloc] initWithTitle:@"Preferences…" action:NULL keyEquivalent:@","];
         [appMenu addItem:preferences];
+        NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Localized Quit"
+                                                   action:@selector(terminate:) keyEquivalent:@"q"];
+        quit.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
+        quit.target = NSApp;
+        [appMenu addItem:quit];
         app.submenu = appMenu;
         [main addItem:app];
         NSApp.mainMenu = main;
@@ -33,7 +38,7 @@ int main(int argc, char **argv) {
         CHECK(library);
         Entry *entries = dlsym(library, "__wine_unix_call_funcs");
         CHECK(entries);
-        uint32_t version = 1, state = 0;
+        uint32_t version = 2, state = 0;
         CHECK(entries[0](&version) == 0);
         drain();
         CHECK(entries[1](&state) == 0 && state == 0);
@@ -50,6 +55,12 @@ int main(int argc, char **argv) {
         CHECK([NSApp sendAction:open.action to:open.target from:open]);
         CHECK(entries[1](&state) == 0 && state == 3);
         CHECK(entries[1](&state) == 0 && state == 1);
+        CHECK(quit.action != @selector(terminate:));
+        CHECK([quit.keyEquivalent isEqualToString:@"q"]);
+        CHECK(quit.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagOption));
+        CHECK([NSApp sendAction:quit.action to:quit.target from:quit]);
+        CHECK(entries[1](&state) == 0 && state == 5);
+        CHECK(entries[1](&state) == 0 && state == 1);
         CHECK(entries[0](&version) == 0);
         drain();
         CHECK(main.numberOfItems == 2);
@@ -57,7 +68,14 @@ int main(int argc, char **argv) {
         drain();
         CHECK(main.numberOfItems == 1);
         CHECK(entries[1](&state) == 0 && state == 0);
-        puts("PASS: native Game Menu lifecycle, action dispatch, and Command+, preservation");
+        CHECK(quit.action == @selector(terminate:) && quit.target == NSApp);
+        version = 1;
+        CHECK(entries[0](&version) == 0);
+        drain();
+        CHECK(quit.action == @selector(terminate:) && quit.target == NSApp);
+        CHECK(entries[2](NULL) == 0);
+        drain();
+        puts("PASS: native Game Menu lifecycle, Quit routing, and legacy compatibility");
     }
     return 0;
 }

@@ -435,7 +435,17 @@ class PageApp : Application, Windows.UI.Xaml.Markup.IXamlMetadataProvider
         // TileNotificationController.CreateMultiTextImageNotification, as the game writes it.
         var content = global::Windows.UI.Notifications.TileUpdateManager.GetTemplateContent(global::Windows.UI.Notifications.TileTemplateType.TileWideImageAndText01);
         var texts = System.Linq.Enumerable.ToArray<global::Windows.Data.Xml.Dom.IXmlNode>(content.GetElementsByTagName("text"));
-        texts[0].AppendChild(content.CreateTextNode("Best 1,000"));
+        var originalText = content.CreateTextNode("previous");
+        texts[0].AppendChild(originalText);
+        var serializer = (global::Windows.Data.Xml.Dom.IXmlNodeSerializer)texts[0];
+        serializer.InnerText = "Best & <1,000>";
+        Check(serializer.InnerText == "Best & <1,000>" &&
+              serializer.GetXml() == "<text id=\"1\">Best &amp; &lt;1,000&gt;</text>" &&
+              ((global::Windows.Data.Xml.Dom.IXmlNode)originalText).ParentNode == null,
+              "WinRT XML serializer replaces children and escapes text");
+        serializer.InnerText = "";
+        Check(texts[0].FirstChild == null, "empty InnerText removes previous content");
+        serializer.InnerText = "Best 1,000";
         foreach (global::Windows.Data.Xml.Dom.IXmlNode image in System.Linq.Enumerable.ToArray<global::Windows.Data.Xml.Dom.IXmlNode>(content.GetElementsByTagName("image")))
             foreach (global::Windows.Data.Xml.Dom.IXmlNode node in image.Attributes)
             {

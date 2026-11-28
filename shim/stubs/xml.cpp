@@ -300,6 +300,24 @@ class Element final : public NodeBase<Element, DefaultIXmlElement> {
     APPX_LOG_MISSING_INTERFACES("Element")
 public:
     explicit Element(std::wstring name) : NodeBase(NodeType_ElementNode, std::move(name)) {}
+    HRESULT STDMETHODCALLTYPE put_InnerText(HSTRING value) override {
+        try {
+            std::vector<ComPtr<IXmlNode>> replacement;
+            auto text = Text(value);
+            if (!text.empty()) {
+                auto child = Make<TextNode>(std::move(text));
+                if (!child) return E_OUTOFMEMORY;
+                replacement.emplace_back(child);
+                child->parent_ = this;
+            }
+            for (auto& child : children_)
+                Node::From(child.Get())->parent_ = nullptr;
+            children_.swap(replacement);
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            return E_OUTOFMEMORY;
+        }
+    }
     HRESULT STDMETHODCALLTYPE get_TagName(HSTRING* value) override { return Copy(name_, value); }
     HRESULT STDMETHODCALLTYPE GetAttribute(HSTRING name, HSTRING* value) override {
         if (!value) return E_POINTER;

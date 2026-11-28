@@ -485,8 +485,15 @@ namespace Windows.ApplicationModel.Store
 }
 namespace Windows.Data.Xml.Dom
 {
+    public interface IXmlNodeSerializer
+    {
+        string GetXml();
+        string InnerText { get; set; }
+    }
     public interface IXmlNode
     {
+        IXmlNode ParentNode { get; }
+        IXmlNode FirstChild { get; }
         XmlNamedNodeMap Attributes { get; }
         IXmlNode AppendChild(IXmlNode newChild);
     }
@@ -514,6 +521,8 @@ namespace Windows.Data.Xml.Dom
     public sealed class XmlText : IXmlNode
     {
         internal XmlText() { }
+        public IXmlNode ParentNode { get { throw new global::System.NotImplementedException(); } }
+        public IXmlNode FirstChild { get { throw new global::System.NotImplementedException(); } }
         public XmlNamedNodeMap Attributes { get { throw new global::System.NotImplementedException(); } }
         public IXmlNode AppendChild(IXmlNode newChild) { throw new global::System.NotImplementedException(); }
     }
@@ -522,6 +531,8 @@ namespace Windows.Data.Xml.Dom
         internal XmlAttribute() { }
         public string Name { get { throw new global::System.NotImplementedException(); } }
         public string Value { get { throw new global::System.NotImplementedException(); } set { throw new global::System.NotImplementedException(); } }
+        public IXmlNode ParentNode { get { throw new global::System.NotImplementedException(); } }
+        public IXmlNode FirstChild { get { throw new global::System.NotImplementedException(); } }
         public XmlNamedNodeMap Attributes { get { throw new global::System.NotImplementedException(); } }
         public IXmlNode AppendChild(IXmlNode newChild) { throw new global::System.NotImplementedException(); }
     }
@@ -530,6 +541,8 @@ namespace Windows.Data.Xml.Dom
         internal XmlElement() { }
         public string GetAttribute(string attributeName) { throw new global::System.NotImplementedException(); }
         public void SetAttribute(string attributeName, string attributeValue) { throw new global::System.NotImplementedException(); }
+        public IXmlNode ParentNode { get { throw new global::System.NotImplementedException(); } }
+        public IXmlNode FirstChild { get { throw new global::System.NotImplementedException(); } }
         public XmlNamedNodeMap Attributes { get { throw new global::System.NotImplementedException(); } }
         public IXmlNode AppendChild(IXmlNode newChild) { throw new global::System.NotImplementedException(); }
     }
@@ -540,6 +553,8 @@ namespace Windows.Data.Xml.Dom
         public XmlText CreateTextNode(string data) { throw new global::System.NotImplementedException(); }
         public IXmlNode SelectSingleNode(string xpath) { throw new global::System.NotImplementedException(); }
         public string GetXml() { throw new global::System.NotImplementedException(); }
+        public IXmlNode ParentNode { get { throw new global::System.NotImplementedException(); } }
+        public IXmlNode FirstChild { get { throw new global::System.NotImplementedException(); } }
         public XmlNamedNodeMap Attributes { get { throw new global::System.NotImplementedException(); } }
         public IXmlNode AppendChild(IXmlNode newChild) { throw new global::System.NotImplementedException(); }
     }
