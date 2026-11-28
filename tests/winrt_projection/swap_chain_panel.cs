@@ -18,6 +18,12 @@ class SwapChainPanelApp : Application
         Application.LoadComponent(page, new Uri("ms-appx:///panel.xaml"));
         var panel = page.FindName("unityPanel") as SwapChainPanel;
         if (panel == null || !ReferenceEquals(page.Content, panel)) throw new Exception("XAML did not bind the swap chain panel");
+        var background = new Windows.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 20, 40, 60));
+        panel.Background = background;
+        if (!ReferenceEquals(panel.Background, background))
+            throw new Exception("Swap chain panel lost its background brush");
+        panel.Background = null;
+        if (panel.Background != null) throw new Exception("Swap chain panel did not clear its background");
         var native = (INativeObject)panel;
         using (var lease = native.AcquireInterface(new Guid("c589644f-eba8-427a-b75a-9f1f93a11ae9")))
             if (!ReferenceEquals(ProjectionInterop.Wrap<SwapChainPanel>(lease), panel))

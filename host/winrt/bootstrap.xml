@@ -131,6 +131,7 @@
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.Panel" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.PanelPeer">
     <Constructor />
+    <Property Name="Background" Wpf="System.Windows.Controls.Panel.BackgroundProperty" />
     <Property Name="ChildrenTransitions" Wpf="AppxPortable.WinRT.Xaml.CompatibilityProperties.ChildrenTransitionsProperty" />
   </Class>
   <Class Name="Windows.UI.Xaml.Controls.UIElementCollection" Adapter="Wpf" />
