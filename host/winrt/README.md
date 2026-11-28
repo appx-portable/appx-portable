@@ -480,6 +480,43 @@ installers that copy only three graphics DLLs need explicit staging and this
 launcher override; they also need the SharpDX normalization step above. The
 retained local test installs include both adjustments.
 
+## Mono C# components and Unity type tables
+
+C# Windows Runtime components are `.winmd` files with code, served on Windows
+by `CLRHost.dll` (Unity's `WinRTBridge`, analytics SDKs such as
+`FlurryWin8SDK`). Mono cannot load them: winmdexp declares every public
+runtime class twice, a bodiless WinRT declaration and a hidden `<CLR>` class
+with the code, and only the desktop CLR swaps them at load. The generator's
+`--managed-winmd INPUT OUTPUT` mode writes the assembly the desktop CLR would
+see: each declaration is removed, every reference moves to its `<CLR>` class,
+which takes the declaration's name and visibility, WinRT signature names become
+their CLR projections (`IVector<T>` as `IList<T>`), and the WinRT flags are
+cleared. Identity and method bodies stay as they were, and a final pass fails if
+anything still names a removed declaration. Stage the output as
+`appx-projections/<Name>.dll`, where the host's resolver finds it under the
+identity the game was compiled against. Inputs without `<CLR>` classes are
+rejected.
+
+Unity 5's Store `UnityEngine.dll` fills a reflection table
+(`BootstrapHelpers.FillTypeMaps`) with raw WinMD type tokens that only the
+desktop CLR projects. `--normalize-unity-type-map INPUT OUTPUT` rebinds just
+those `ldtoken` operands to their CLR types and leaves every other instruction
+and signature alone. Libraries without the table (Unity 4) or without WinMD
+tokens in it print `UNCHANGED:` and write nothing. Stage the result as a runtime
+override like SharpDX's:
+
+```sh
+python3 scripts/normalize-unity-type-map.py GAME_DIRECTORY \
+  --wine /absolute/path/to/wine --prefix /absolute/path/to/prefix \
+  --cecil /absolute/path/to/Mono.Cecil.dll
+```
+
+`winrt_component_projection` converts a fixture component whose synthesized
+interface names its declaration and `IVector<int>`, and calls it through that
+interface; it runs a normalized fixture type table on Mono and checks the
+unchanged case. Hitman GO and Lara Croft GO need both steps (Lara for the type
+table); with them, both start the Unity engine.
+
 ## Native file reads and stream adapters
 
 `storage_generation.cs` qualifies the IIDs, consumed method signatures, and slots

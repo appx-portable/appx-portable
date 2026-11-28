@@ -887,6 +887,31 @@ def main():
             copy_owned_file(wrong_cross, target / cross.name)
             run("reject-external-iid", [host.name, "--log", "reject-iid"], cwd=folder, marker="PASS: external IID rejection", evidence=folder / "managed.log")
             copy_owned_file(cross, target / cross.name)
+            # C# components (CLRHost.dll servers) load as converted assemblies.
+            managed_fixture = compile_file("managed-winmd-fixture.exe", [repo / "tests/winrt_projection/managed_winmd_fixture.cs"], ["/r:Mono.Cecil.dll"])
+            run("managed-winmd-metadata", [managed_fixture.name, windows(output / "ManagedFixture.winmd")])
+            (output / "managed-winmd").mkdir(exist_ok=True)
+            run("convert-managed-winmd", [generator.name, "--managed-winmd", windows(output / "ManagedFixture.winmd"), windows(output / "managed-winmd/ManagedFixture.dll")],
+                marker="CONVERTED:ManagedFixture, Version=1.2.3.4")
+            managed_consumer = compile_file("managed-winmd.exe", [repo / "tests/winrt_projection/managed_winmd.cs"])
+            run("managed-winmd", [managed_consumer.name, windows(output / "managed-winmd/ManagedFixture.dll")], marker="PASS: managed WinMD")
+            run("reject-native-winmd", [generator.name, "--managed-winmd", windows(component_metadata), windows(output / "managed-winmd/Native.dll")],
+                succeeds=False, marker="No CLR implementation")
+            require(not (output / "managed-winmd/Native.dll").exists(), "a native component WinMD was converted")
+            # Unity 5's type table names WinMD tokens; Unity 4's has none to rebind.
+            unity_fixture = compile_file("unity-type-map-fixture.exe", [repo / "tests/winrt_projection/unity_type_map_fixture.cs"], ["/r:Mono.Cecil.dll"])
+            (output / "unity").mkdir(exist_ok=True)
+            run("unity-type-map-metadata", [unity_fixture.name, windows(output / "unity/UnityEngine.dll")])
+            (output / "unity/normalized").mkdir(exist_ok=True)
+            run("normalize-unity-type-map", [generator.name, "--normalize-unity-type-map", windows(output / "unity/UnityEngine.dll"), windows(output / "unity/normalized/UnityEngine.dll")],
+                marker="Rebound 4 Unity WinRT type tokens")
+            unity_consumer = compile_file("unity-type-map.exe", [repo / "tests/winrt_projection/unity_type_map.cs"])
+            run("unity-type-map", [unity_consumer.name, windows(output / "unity/normalized/UnityEngine.dll")], marker="PASS: Unity type table")
+            (output / "unity-plain").mkdir(exist_ok=True)
+            run("unity-plain-metadata", [unity_fixture.name, windows(output / "unity-plain/UnityEngine.dll"), "plain"])
+            run("unity-plain-unchanged", [generator.name, "--normalize-unity-type-map", windows(output / "unity-plain/UnityEngine.dll"), windows(output / "unity-plain/Normalized.dll")],
+                marker="UNCHANGED:no legacy Unity type table")
+            require(not (output / "unity-plain/Normalized.dll").exists(), "a Unity library without a type table was rewritten")
             if args.component_metadata:
                 source = args.component_metadata.resolve()
                 real_generated = output / "PackageComponent.generated.cs"

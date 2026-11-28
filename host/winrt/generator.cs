@@ -2286,6 +2286,8 @@ namespace AppxPortable.WinRT.Projected
         try
         {
             if (args.Length == 3 && args[0] == "--normalize-sharpdx") return NormalizeSharpDx(args[1], args[2]);
+            if (args.Length == 3 && args[0] == "--normalize-unity-type-map") return NormalizeUnityTypeMap(args[1], args[2]);
+            if (args.Length == 3 && args[0] == "--managed-winmd") return ConvertManagedWinmd(args[1], args[2]);
             if (args.Length < 3) throw new ArgumentException("generator METADATA_DIRECTORY SURFACE_XML OUTPUT_CS | generator --component INPUT_WINMD OUTPUT_CS");
             bool component = args[0] == "--component";
             lenient = component;
