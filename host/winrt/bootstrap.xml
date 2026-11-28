@@ -79,6 +79,7 @@
   <Class Name="Windows.UI.Xaml.Window">
     <Property Name="Current" />
     <Property Name="Bounds" />
+    <Property Name="Dispatcher" />
     <Property Name="CoreWindow" />
     <Method Name="Activate" />
     <Event Name="SizeChanged" />

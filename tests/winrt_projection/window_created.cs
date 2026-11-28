@@ -13,6 +13,9 @@ class WindowCreatedApp : Application
     protected override void OnLaunched(Windows.ApplicationModel.Activation.LaunchActivatedEventArgs args)
     {
         if (!created) throw new Exception("Launch preceded WindowCreated");
+        var window = Window.Current;
+        if (window.Dispatcher == null || !ReferenceEquals(window.Dispatcher, window.CoreWindow.Dispatcher))
+            throw new Exception("Window and CoreWindow must share the view dispatcher");
         Console.WriteLine("PASS: window created before launch");
         Exit();
     }
