@@ -5,6 +5,7 @@ on:
         paths:
             - 'wine/wow64cpu.patch'
             - 'wine/mfmediaengine.patch'
+            - 'wine/dwrite.patch'
             - 'wine/game_menu.m'
             - 'scripts/build-macos-menu.sh'
             - 'tests/macos/**'

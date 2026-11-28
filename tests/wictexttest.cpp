@@ -5,6 +5,7 @@
 #include <wincodec.h>
 #include <wrl.h>
 #include <cstdio>
+#include <cmath>
 using Microsoft::WRL::ComPtr;
 static bool Check(HRESULT hr, const char* name) {
     if (SUCCEEDED(hr)) return true;
@@ -45,6 +46,23 @@ int main() {
     unsigned coverage = 0;
     for (UINT y = 0; y < 48; ++y) for (UINT x = 0; x < 160; ++x) if (pixels[y * stride + x * 4 + 3]) ++coverage;
     if (coverage < 20) { printf("wictexttest: empty text bitmap coverage=%u\n", coverage); return 1; }
+    // Cocos2D measures the label in a large layout, then fits the layout
+    // to a bitmap sized from metrics excluding trailing padding.
+    if (!Check(format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER), "paragraph alignment")) return 1;
+    for (const auto* text : {L"  Back  ", L"  PLAY  "}) {
+        ComPtr<IDWriteTextLayout> layout;
+        DWRITE_TEXT_METRICS original{}, fitted{};
+        if (!Check(write->CreateTextLayout(text, 8, format.Get(), 4096, 4096, &layout), "padded label layout") ||
+            !Check(layout->GetMetrics(&original), "original metrics") ||
+            !Check(layout->SetMaxWidth(std::ceil(original.width)), "fitted width") ||
+            !Check(layout->SetMaxHeight(std::ceil(original.height)), "fitted height") ||
+            !Check(layout->GetMetrics(&fitted), "fitted metrics")) return 1;
+        if (fitted.lineCount != 1 || fitted.height != original.height ||
+            fitted.widthIncludingTrailingWhitespace != original.widthIncludingTrailingWhitespace) {
+            printf("wictexttest: %ls wraps to %u lines in a one-line bitmap\n", text, fitted.lineCount);
+            return 1;
+        }
+    }
     printf("PASS: WIC render target draws text into bitmap coverage=%u\n", coverage);
     return 0;
 }

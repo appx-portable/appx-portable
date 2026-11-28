@@ -21,6 +21,7 @@ rm -rf "$source"
 tar xf "$archive" -C "$work"
 patch -d "$source" -p1 < "$root/wine/wow64cpu.patch"
 patch -d "$source" -p1 < "$root/wine/mfmediaengine.patch"
+patch -d "$source" -p1 < "$root/wine/dwrite.patch"
 if [[ $(uname) == Darwin ]]; then
   export PATH="$(brew --prefix bison)/bin:$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
   host=(arch -x86_64)
@@ -43,6 +44,8 @@ if [[ ! -f Makefile ]]; then
 fi
 ${host[@]+"${host[@]}"} make -j"$(getconf _NPROCESSORS_ONLN)" \
   dlls/wow64cpu/x86_64-windows/wow64cpu.dll \
+  dlls/dwrite/i386-windows/dwrite.dll \
+  dlls/dwrite/x86_64-windows/dwrite.dll \
   dlls/mf/i386-windows/mf.dll \
   dlls/mf/x86_64-windows/mf.dll \
   dlls/mfmediaengine/i386-windows/mfmediaengine.dll \
@@ -51,10 +54,11 @@ ${host[@]+"${host[@]}"} make -j"$(getconf _NPROCESSORS_ONLN)" \
 # This is an engine builtin, so retain its Wine builtin marker.
 cp dlls/wow64cpu/x86_64-windows/wow64cpu.dll "$output/wow64cpu.dll"
 for arch in i386-windows x86_64-windows; do
+  cp "dlls/dwrite/$arch/dwrite.dll" "$output/dwrite-$arch.dll"
   cp "dlls/mf/$arch/mf.dll" "$output/mf-$arch.dll"
   cp "dlls/mfmediaengine/$arch/mfmediaengine.dll" "$output/mfmediaengine-$arch.dll"
 done
-cp "$root/wine/mfmediaengine.patch" "$output/"
+cp "$root/wine/mfmediaengine.patch" "$root/wine/dwrite.patch" "$output/"
 cp "$archive" "$output/wine-$version.tar.xz"
 cp "$root/wine/wow64cpu.patch" "$root/scripts/build-wine-clr.sh" "$output/"
 if [[ $(uname) == Darwin ]]; then

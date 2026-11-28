@@ -99,6 +99,8 @@ class MonoNxCompatTests(unittest.TestCase):
             media[arch] = bytes(data)
             (build / ("mfmediaengine-" + arch + ".dll")).write_bytes(data)
             (build / ("mf-" + arch + ".dll")).write_bytes(data + b"session")
+            (build / ("dwrite-" + arch + ".dll")).write_bytes(data + b"text")
+        (build / "dwrite.patch").write_bytes(b"text patch")
         (build / "mfmediaengine.patch").write_bytes(b"media patch")
         base = io.BytesIO()
         with tarfile.open(fileobj=base, mode="w:xz") as archive:
@@ -121,6 +123,7 @@ class MonoNxCompatTests(unittest.TestCase):
                 self.assertTrue(target.is_file(), "patched media engine must be staged before signing")
                 self.assertEqual(target.read_bytes(), data)
                 self.assertEqual(target.with_name("mf.dll").read_bytes(), data + b"session")
+                self.assertEqual(target.with_name("dwrite.dll").read_bytes(), data + b"text")
             signed.append(command)
 
         with patch.object(package, "WINE_DEVEL", ("https://example.invalid/pinned.tar.xz", digest(base.getvalue()))), \
@@ -138,6 +141,10 @@ class MonoNxCompatTests(unittest.TestCase):
         self.assertEqual(manifest["media_session"], {
             arch: {"path": "Contents/Resources/wine/lib/wine/" + arch + "/mf.dll", "sha256": digest(data + b"session")}
             for arch, data in media.items()})
+        self.assertEqual(manifest["directwrite"], {
+            arch: {"path": "Contents/Resources/wine/lib/wine/" + arch + "/dwrite.dll", "sha256": digest(data + b"text")}
+            for arch, data in media.items()})
+        self.assertEqual(manifest["directwrite_patch_sha256"], digest(b"text patch"))
         self.assertEqual(manifest["media_engine_patch_sha256"], digest(b"media patch"))
         self.assertEqual(manifest["mono_nx_compat"], dict(path=ASSEMBLY, original_sha256=digest(self.original), sha256=digest(self.corrected)))
         with tarfile.open(build / "appx-portable-wine-clr-macos.tar.xz") as archive:
@@ -146,8 +153,10 @@ class MonoNxCompatTests(unittest.TestCase):
             for arch, data in media.items():
                 self.assertEqual(archive.extractfile("Wine Devel.app/Contents/Resources/wine/lib/wine/" + arch + "/mfmediaengine.dll").read(), data)
                 self.assertEqual(archive.extractfile("Wine Devel.app/Contents/Resources/wine/lib/wine/" + arch + "/mf.dll").read(), data + b"session")
+                self.assertEqual(archive.extractfile("Wine Devel.app/Contents/Resources/wine/lib/wine/" + arch + "/dwrite.dll").read(), data + b"text")
         with tarfile.open(build / "appx-portable-wine-clr-sources.tar.xz") as archive:
             self.assertEqual(archive.extractfile("scripts/package-wine-clr.py").read(), (ROOT / "scripts/package-wine-clr.py").read_bytes())
+            self.assertEqual(archive.extractfile("dwrite.patch").read(), b"text patch")
             self.assertEqual(archive.extractfile("mfmediaengine.patch").read(), b"media patch")
             self.assertEqual(json.load(archive.extractfile("wine-clr.json")), manifest)
 
