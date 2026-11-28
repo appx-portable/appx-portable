@@ -8,6 +8,7 @@
 #include <wrl/event.h>
 #include "host/dispatcher.h"
 #include "xaml/key.h"
+#include "xaml/focus.h"
 #include <windows.ui.xaml.controls.h>
 #include <vector>
 using namespace Microsoft::WRL;
@@ -164,6 +165,14 @@ HRESULT DeliverWindowLoaded() {
 }
 void XamlHostMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (xamlWindow) xamlWindow->OnMessage(message, wparam, lparam);
+    if (message == WM_ACTIVATE) {
+        auto* target = CurrentPointerTarget();
+        ComPtr<IXamlFocusTarget> focus;
+        if (target && SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&focus)))) {
+            const auto hr = focus->RaiseFocus(LOWORD(wparam) != WA_INACTIVE);
+            if (FAILED(hr)) Log("FAIL", "XAML focus handler hr=%08lx", hr);
+        }
+    }
 }
 class WindowFactory final : public Factory<DefaultIWindowStatics> {
 

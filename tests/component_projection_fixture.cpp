@@ -3,6 +3,7 @@
 #include <roapi.h>
 #include <windows.ui.xaml.h>
 #include <windows.ui.xaml.input.h>
+#include "../shim/xaml/focus.h"
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <vector>
@@ -368,4 +369,45 @@ extern "C" HRESULT __cdecl ProbeKeyboardControl(IUnknown* control, HWND window, 
     element->remove_KeyDown(downToken);
     if (FAILED(hr)) return hr;
     return down == expectedEvents / 2 && up == expectedEvents / 2 ? S_OK : E_FAIL;
+}
+
+extern "C" HRESULT __cdecl ProbeFocusEvents(IUnknown* object) {
+    using namespace ABI::Windows::UI::Xaml;
+    if (!object) return E_INVALIDARG;
+    ComPtr<IUIElement> element;
+    ComPtr<appx::IXamlFocusTarget> target;
+    HRESULT hr = object->QueryInterface(IID_PPV_ARGS(&element));
+    if (SUCCEEDED(hr)) hr = object->QueryInterface(IID_PPV_ARGS(&target));
+    if (FAILED(hr)) return hr;
+    int got = 0, lost = 0;
+    auto record = [object](IInspectable* sender, IRoutedEventArgs* args, int& count) -> HRESULT {
+        ComPtr<IInspectable> source;
+        ComPtr<IUnknown> senderId, sourceId;
+        if (!sender || !args || FAILED(args->get_OriginalSource(&source)) ||
+            FAILED(sender->QueryInterface(IID_PPV_ARGS(&senderId))) || FAILED(source.As(&sourceId)) ||
+            senderId.Get() != object || sourceId.Get() != object)
+            return E_FAIL;
+        ++count;
+        return S_OK;
+    };
+    auto gotHandler = Callback<IRoutedEventHandler>(
+        [&](IInspectable* sender, IRoutedEventArgs* args) { return record(sender, args, got); });
+    auto lostHandler = Callback<IRoutedEventHandler>(
+        [&](IInspectable* sender, IRoutedEventArgs* args) { return record(sender, args, lost); });
+    EventRegistrationToken gotToken{}, lostToken{};
+    hr = element->add_GotFocus(gotHandler.Get(), &gotToken);
+    if (FAILED(hr)) return hr;
+    hr = element->add_LostFocus(lostHandler.Get(), &lostToken);
+    if (SUCCEEDED(hr)) {
+        for (boolean state : {true, true, false, false}) {
+            hr = target->RaiseFocus(state);
+            if (FAILED(hr)) break;
+        }
+        element->remove_LostFocus(lostToken);
+    }
+    element->remove_GotFocus(gotToken);
+    if (FAILED(hr) || got != 1 || lost != 1) return E_FAIL;
+    hr = target->RaiseFocus(true);
+    if (SUCCEEDED(hr)) hr = target->RaiseFocus(false);
+    return SUCCEEDED(hr) && got == 1 && lost == 1 ? S_OK : E_FAIL;
 }

@@ -9,6 +9,7 @@
 #include "host/pointer.h"
 #include "host/dispatcher.h"
 #include "xaml/key.h"
+#include "xaml/focus.h"
 #include "compat/win10/xaml.h"
 #include <wrl.h>
 #include <wrl/event.h>
@@ -102,13 +103,16 @@ class Element
     : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                         ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
                         IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement, IXamlKeyTarget,
+                        IXamlFocusTarget,
                         Interfaces...> {
     using Base = Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                             ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
                             IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement,
-                            IXamlKeyTarget, Interfaces...>;
+                            IXamlKeyTarget, IXamlFocusTarget, Interfaces...>;
     XamlKeyEventSource keyDown_, keyUp_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_, unloaded_;
+    Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> gotFocus_, lostFocus_;
+    bool focused_ = false;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
     Microsoft::WRL::ComPtr<IInspectable> panel_, backgroundPanel_, grid_, media_;
     Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::Media::IRectangleGeometry> clip_;
@@ -236,6 +240,24 @@ public:
         return keyUp_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_KeyUp(EventRegistrationToken token) override { return keyUp_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE RaiseFocus(boolean focused) override {
+        if (focused_ == (focused != 0)) return S_OK;
+        auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+        auto args = Microsoft::WRL::Make<RoutedArgs>(source);
+        if (!args) return E_OUTOFMEMORY;
+        focused_ = focused != 0;
+        return (focused_ ? gotFocus_ : lostFocus_).InvokeAll(source, args.Get());
+    }
+    HRESULT STDMETHODCALLTYPE add_GotFocus(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler,
+                                            EventRegistrationToken* token) override {
+        return gotFocus_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_GotFocus(EventRegistrationToken token) override { return gotFocus_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE add_LostFocus(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler,
+                                             EventRegistrationToken* token) override {
+        return lostFocus_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_LostFocus(EventRegistrationToken token) override { return lostFocus_.Remove(token); }
     HRESULT STDMETHODCALLTYPE get_Resources(ABI::Windows::UI::Xaml::IResourceDictionary** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;

@@ -12,6 +12,9 @@ class KeyboardControlApp : Application
     [DllImport("component_projection_fixture.dll", CallingConvention = CallingConvention.Cdecl)]
     static extern int ProbeKeyboardControl(SafeHandle control, IntPtr window, int expectedEvents);
 
+    [DllImport("component_projection_fixture.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern int ProbeFocusEvents(IntPtr identity);
+
     protected override void OnLaunched(Windows.ApplicationModel.Activation.LaunchActivatedEventArgs args)
     {
         var page = new Page();
@@ -26,6 +29,11 @@ class KeyboardControlApp : Application
             Window.Current.Content = new Page();
             Marshal.ThrowExceptionForHR(ProbeKeyboardControl(lease, ShimGetHostWindow(), 0));
         }
+        // Unity subscribes to focus events on its native swap chain panel.
+        var panel = (INativeObject)new SwapChainPanel();
+        using (var identity = panel.AcquireInterface(new Guid("00000000-0000-0000-c000-000000000046")))
+            Marshal.ThrowExceptionForHR(ProbeFocusEvents(identity.DangerousGetHandle()));
+        Console.WriteLine("PASS: native panel focus events retain identity and remove handlers");
         Console.WriteLine("PASS: native keyboard events follow the managed XAML page");
         Exit();
     }
