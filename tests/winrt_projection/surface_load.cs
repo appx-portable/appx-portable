@@ -98,8 +98,17 @@ class SurfaceLoadTest
             foreach (string failure in failures) Console.Error.WriteLine(failure);
             foreach (KeyValuePair<string, int> pair in deferred) Console.WriteLine("deferred: " + pair.Value + " signature types in " + pair.Key);
             var names = new HashSet<string>(types.Select(t => t.FullName));
-            foreach (string required in new[] { "Windows.Security.Cryptography.CryptographicBuffer", "Windows.Devices.Geolocation.Geolocator" })
+            foreach (string required in new[] {
+                "Windows.Security.Cryptography.CryptographicBuffer", "Windows.Devices.Geolocation.Geolocator",
+                "Windows.ApplicationModel.DataTransfer.IDataPackage", "Windows.Networking.Sockets.IStreamSocket"
+            })
                 if (!names.Contains(required)) { Console.Error.WriteLine("missing surface type " + required); return 1; }
+            var dataPackage = surface.GetType("Windows.ApplicationModel.DataTransfer.IDataPackage");
+            if (!dataPackage.IsInterface || dataPackage.GetMethod("SetText", new[] { typeof(string) }) == null)
+            {
+                Console.Error.WriteLine("IDataPackage lost its interface signature");
+                return 1;
+            }
             if (types.Length < 5000) { Console.Error.WriteLine("surface has only " + types.Length + " types"); return 1; }
             if (failures.Count != 0) return 1;
             Console.WriteLine("PASS: surface loads " + types.Length + " types");

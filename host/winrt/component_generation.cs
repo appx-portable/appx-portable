@@ -57,7 +57,7 @@ internal static partial class WinrtProjectionGenerator
     private static readonly System.Collections.Generic.Dictionary<string, string> contractIids = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal);
     private static readonly string[] sharedContracts = {
         "Windows.Foundation.IAsyncOperation`1", "Windows.Foundation.AsyncOperationCompletedHandler`1", "Windows.Foundation.Collections.IVectorView`1",
-        "Windows.Foundation.IAsyncAction"
+        "Windows.Foundation.IAsyncAction", EventHandlerName
     };
     private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> external =
         new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);

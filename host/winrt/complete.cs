@@ -80,6 +80,7 @@ internal static class WinrtProjectionCompleter
         if (!metadata.TryGetValue(name, out source)) throw new InvalidDataException("Metadata type not found: " + name);
         var type = new TypeDefinition(source.Namespace, source.Name,
             source.Attributes & ~(TypeAttributes.WindowsRuntime | TypeAttributes.Import));
+        if (ExclusiveInterface(source)) type.IsPublic = true;
         foreach (GenericParameter parameter in source.GenericParameters)
             type.GenericParameters.Add(new GenericParameter(parameter.Name, type));
         projection.Types.Add(type);
@@ -307,6 +308,12 @@ internal static class WinrtProjectionCompleter
         ++completed;
     }
 
+    private static bool ExclusiveInterface(TypeDefinition type)
+    {
+        return type.IsInterface && type.CustomAttributes.Any(a =>
+            a.AttributeType.FullName == "Windows.Foundation.Metadata.ExclusiveToAttribute");
+    }
+
     // Every public type and member of the contracts, read in their CLR-projected
     // form. A shape the projection cannot express is reported, not fatal.
     private static void CompleteSurface(TextWriter report)
@@ -314,8 +321,11 @@ internal static class WinrtProjectionCompleter
         // Interfaces the projection already defines keep their shape: managed types
         // implement them, and an added abstract member would leave those unloadable.
         var implemented = new HashSet<string>(projection.Types.Where(t => t.IsInterface).Select(t => t.FullName), StringComparer.Ordinal);
-        foreach (TypeDefinition type in projected.Values.OrderBy(t => t.FullName, StringComparer.Ordinal).Where(t => t.IsPublic &&
-            !redirected.Contains(t.FullName) && !t.CustomAttributes.Any(a => a.AttributeType.FullName == "Windows.Foundation.Metadata.ExclusiveToAttribute")))
+        // Older Unity type tables name exclusive interfaces directly, even
+        // though both the SDK metadata and the CLR projection hide them.
+        foreach (TypeDefinition type in projected.Values.OrderBy(t => t.FullName, StringComparer.Ordinal).Where(t =>
+            (t.IsPublic || ExclusiveInterface(t)) &&
+            !redirected.Contains(t.FullName)))
         {
             TypeDefinition owner;
             try { owner = Ensure(type.FullName); }

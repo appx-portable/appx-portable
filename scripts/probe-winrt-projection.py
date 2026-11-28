@@ -660,6 +660,11 @@ def main():
             copy_owned_file(source, generic_folder / source.name)
         run("xbox-generic-contract", [xbox_consumer.name, "generic"], cwd=generic_folder,
             marker="PASS: generic Xbox projection uses native local user and service client")
+        signed_out = compile_file("xbox-signed-out.exe", [repo / "tests/winrt_projection/xbox_signed_out.cs"],
+                                  ["/r:" + windows(p) for p in (xbox_generic, xbox_windows, xbox_bridge)])
+        copy_owned_file(signed_out, generic_folder / signed_out.name)
+        run("xbox-signed-out", [signed_out.name], cwd=generic_folder,
+            marker="PASS: generic Xbox SignedOut subscription and removal")
         run("resolve-xbox-generic", [resolver.name, "--assembly", "Microsoft.Xbox", windows(xbox_generic.parent)] + [windows(p) for p in all_consumers], marker="0 unresolved")
         return xbox_projection
 

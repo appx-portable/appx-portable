@@ -46,6 +46,9 @@ internal static partial class WinrtProjectionGenerator
         {
             if (ComponentFuture(type) != null) return "global::Windows.Foundation.IAsyncOperation<" + Name(generic.GenericArguments[0]) + ">";
             if (ComponentView(type) != null) return "global::System.Collections.Generic.IReadOnlyList<" + Name(generic.GenericArguments[0]) + ">";
+            if (generic.ElementType.FullName == EventHandlerName && generic.GenericArguments.Count == 1 &&
+                contractIids.ContainsKey(EventHandlerName))
+                return "global::System.EventHandler<" + Name(generic.GenericArguments[0]) + ">";
             // The CLR projects IReference<T> as Nullable<T>; only WPF-backed members
             // use it (native ABI paths still reject it when they look up the type).
             if (generic.ElementType.FullName == "Windows.Foundation.IReference`1" && generic.GenericArguments[0].IsValueType)
@@ -607,11 +610,18 @@ internal static partial class WinrtProjectionGenerator
     // EventHandler<T> has an IInspectable sender and a T argument.
     private static string EventHandlerCallback(StringBuilder output, GenericInstanceType handler, string eventName)
     {
-        TypeDefinition definition = Find(handler.ElementType.FullName);
-        ValidateEventHandler(definition);
-        if (!selected.Contains(definition.FullName) || handler.GenericArguments.Count != 1)
+        if (handler.GenericArguments.Count != 1)
             throw new NotSupportedException("Unselected event handler: " + handler.FullName);
-        string iid = Parameterized(definition, EventSignature(handler.GenericArguments[0]));
+        string genericIid;
+        if (selected.Contains(EventHandlerName))
+        {
+            var definition = Find(EventHandlerName);
+            ValidateEventHandler(definition);
+            genericIid = Iid(definition);
+        }
+        else if (!contractIids.TryGetValue(EventHandlerName, out genericIid))
+            throw new NotSupportedException("Unselected event handler: " + handler.FullName);
+        string iid = ParameterizedIid(genericIid, EventSignature(handler.GenericArguments[0]));
         string helper = "Native_" + eventName + "_Handler";
         output.AppendLine("        private static class " + helper);
         output.AppendLine("        {");
@@ -650,11 +660,15 @@ internal static partial class WinrtProjectionGenerator
         if (definition == null || definition.AddMethod == null || definition.RemoveMethod == null)
             throw new NotSupportedException("Unsupported event: " + type.FullName + "." + name);
         var closed = definition.EventType as GenericInstanceType;
-        TypeDefinition handler = Find(definition.EventType.GetElementType().FullName);
-        if (!IsDelegate(handler) || !selected.Contains(handler.FullName))
-            throw new NotSupportedException("Unsupported event handler: " + type.FullName + "." + name);
-        string callback = closed == null ? Projected(handler)
-            : handler.FullName == EventHandlerName ? EventHandlerCallback(output, closed, name) : TypedEventCallback(output, closed, name);
+        string callback;
+        if (closed != null && closed.ElementType.FullName == EventHandlerName) callback = EventHandlerCallback(output, closed, name);
+        else
+        {
+            TypeDefinition handler = Find(definition.EventType.GetElementType().FullName);
+            if (!IsDelegate(handler) || !selected.Contains(handler.FullName))
+                throw new NotSupportedException("Unsupported event handler: " + type.FullName + "." + name);
+            callback = closed == null ? Projected(handler) : TypedEventCallback(output, closed, name);
+        }
         const string Token = "global::System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken";
         foreach (MethodDefinition accessor in new[] { definition.AddMethod, definition.RemoveMethod })
         {
@@ -2341,7 +2355,7 @@ namespace AppxPortable.WinRT.Projected
             output.AppendLine("[assembly: global::System.Reflection.AssemblyVersion(\"" + (component ? sourceModule.Assembly.Name.Version.ToString() : "255.255.255.255") + "\")]");
             if (interop) output.AppendLine("[assembly: " + Interop + "ProjectionProvider(typeof(global::AppxPortable.WinRT.Projected.CrossAssemblyProvider))]");
             if (interop && !component)
-                foreach (string contract in sharedContracts.Where(c => c != "Windows.Foundation.IAsyncAction" || selected.Contains(c)))
+                foreach (string contract in sharedContracts.Where(selected.Contains))
                     output.AppendLine("[assembly: " + Interop + "ProjectionContract(\"" + contract + "\", \"" + Iid(Find(contract)) + "\")]");
             foreach (var reference in external.Values.Select(t => t.Module).Distinct()) output.AppendLine("// Reference " + reference.Name + " SHA256 " + Hash(reference.FileName));
             foreach (XmlElement element in elements.OrderBy(e => e.GetAttribute("Name"), StringComparer.Ordinal))
