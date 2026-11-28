@@ -5,6 +5,10 @@ using Example.Component;
 using Example.External;
 class ExternalComponentTest
 {
+    sealed class ManagedNode : INode
+    {
+        public int Read() { return -42; }
+    }
     static void Check(bool value, string name) { if (!value) throw new Exception(name); }
     [MethodImpl(MethodImplOptions.NoInlining)]
     static WeakReference Store(Engine engine)
@@ -31,6 +35,8 @@ class ExternalComponentTest
             Console.WriteLine("PASS: external IID rejection"); return 0;
         }
         Check(engine.GetNode() == null, "null external result");
+        Check(engine.ReadExternalNode(new ManagedNode()) == -42, "native calls a managed interface from a different projection");
+        Check(engine.ReadExternalNode(new Node()) == 73, "native interface argument from a different projection");
         var weak = Store(engine);
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         Check(!weak.IsAlive, "native retention does not root external wrapper");

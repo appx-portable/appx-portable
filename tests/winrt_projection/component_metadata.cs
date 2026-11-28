@@ -39,7 +39,7 @@ class ComponentMetadata
         {
             module = assembly.MainModule; space = "Example.External";
             var ts = module.TypeSystem;
-            var iface = Type("INode", TypeAttributes.Interface | TypeAttributes.Abstract | TypeAttributes.NotPublic, null);
+            var iface = Type("INode", TypeAttributes.Interface | TypeAttributes.Abstract | TypeAttributes.Public, null);
             Attribute(iface, "Guid", ts.String, "239635fc-88f0-4fd6-80b1-b21ac63c939a");
             Method(iface, "Read", ts.Int32);
             var node = Type("Node", TypeAttributes.Public | TypeAttributes.Sealed, ts.Object);
@@ -97,7 +97,14 @@ class ComponentMetadata
             var ts = module.TypeSystem;
             var handler = Type("Changed", TypeAttributes.Public | TypeAttributes.Sealed, module.ImportReference(typeof(MulticastDelegate)));
             Attribute(handler, "Guid", ts.String, "723d9b38-bb73-463e-adc8-25b46f56121a");
-            Method(handler, "Invoke", ts.String, ts.Int32, ts.Boolean, ts.String);
+            var point = Type("Position", TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout, module.ImportReference(typeof(ValueType)));
+            point.Fields.Add(new FieldDefinition("X", FieldAttributes.Public, ts.Single));
+            point.Fields.Add(new FieldDefinition("Y", FieldAttributes.Public, ts.Single));
+            var invoke = Method(handler, "Invoke", ts.String, ts.Int32, point, ts.Boolean, ts.String);
+            invoke.Parameters[0].Name = "target";
+            invoke.Parameters[1].Name = "value";
+            invoke.Parameters[2].Name = "result";
+            invoke.Parameters[3].Name = "self";
             var iface = Type("IEngine", TypeAttributes.NotPublic | TypeAttributes.Interface | TypeAttributes.Abstract, null);
             Attribute(iface, "Guid", ts.String, "2fc62e47-e1ce-471d-9098-014b39ca938e");
             var token = new TypeReference("Windows.Foundation", "EventRegistrationToken", module, ts.CoreLibrary, true);
@@ -138,8 +145,10 @@ class ComponentMetadata
                 var externalAdd = Method(iface, "add_ExternalChanged", token, externalHandler);
                 var externalRemove = Method(iface, "remove_ExternalChanged", ts.Void, token);
                 Method(iface, "RaiseExternal", ts.Void);
+                Method(iface, "ReadExternalNode", ts.Int32, new TypeReference("Example.External", "INode", module, reference));
                 iface.Events.Add(new EventDefinition("ExternalChanged", EventAttributes.None, externalHandler) { AddMethod = externalAdd, RemoveMethod = externalRemove });
             }
+            Method(iface, "GetChanged", handler);
             // A struct with HSTRING and boolean fields, as Practical English Usage's EngineWrapper.WDerivedForm.
             var form = Type("Form", TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout, module.ImportReference(typeof(ValueType)));
             form.Fields.Add(new FieldDefinition("Word", FieldAttributes.Public, ts.String));

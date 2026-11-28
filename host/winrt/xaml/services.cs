@@ -4,6 +4,43 @@ using AppxPortable.WinRT;
 
 namespace Windows.UI.Xaml.Controls
 {
+    public partial class SwapChainPanel : INativeWrapper
+#if APPX_PORTABLE_INTEROP
+        , AppxPortable.WinRT.Interop.INativeObject
+#endif
+    {
+        private NativeObject native;
+
+        NativeObject INativeWrapper.Native
+        {
+            get
+            {
+                CheckThread();
+                if (native == null)
+                {
+                    native = AppxPortable.WinRT.Xaml.NativeServices.Create("Windows.UI.Xaml.Controls.SwapChainPanel");
+                    NativeObject.Remember(this, native);
+                }
+                return native;
+            }
+        }
+
+#if APPX_PORTABLE_INTEROP
+        SafeHandle AppxPortable.WinRT.Interop.INativeObject.AcquireInterface(Guid iid)
+        {
+            return NativeObject.Argument(this, iid);
+        }
+
+        internal static SwapChainPanel FromNative(NativeObject value)
+        {
+            return NativeObject.Wrap<SwapChainPanel>(value, NativeServiceIid, _ =>
+            {
+                throw Errors.Unimplemented("SwapChainPanel from an unassociated native object");
+            });
+        }
+#endif
+    }
+
     // The board's swap chain stays a shim service: the WPF peer holds the panel's
     // place in the tree, and native code that receives the panel (a game's
     // ISwapChainBackgroundPanelNative::SetSwapChain) gets the shim's own panel.

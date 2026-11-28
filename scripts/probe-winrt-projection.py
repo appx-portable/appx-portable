@@ -832,6 +832,12 @@ def main():
             for source in (host, created, windows_interop, bridge):
                 copy_owned_file(source, window_fixture / source.name)
             run("window-created", [host.name, "--log"], cwd=window_fixture, marker="PASS: window created before launch")
+            panel = compile_file("swap-chain-panel.exe", [repo / "tests/winrt_projection/swap_chain_panel.cs"],
+                                 ["/r:" + windows(windows_interop), "/r:" + windows(bridge)])
+            panel_fixture = fixture("swap-chain-panel", panel.name, "SwapChainPanelProjectionTest", "CN=projection")
+            for source in (host, panel, windows_interop, bridge):
+                copy_owned_file(source, panel_fixture / source.name)
+            run("swap-chain-panel", [host.name, "--log"], cwd=panel_fixture, marker="PASS: SwapChainPanel markup binds the native panel")
 
             external_projection = compile_file("external-projection/Example.External.dll", runtime + [output / "External.generated.cs"], interop_flags)
             cross_metadata = output / "cross/Example.Component.winmd"

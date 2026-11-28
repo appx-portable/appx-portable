@@ -263,6 +263,11 @@ namespace AppxPortable.WinRT
         }
 
 #if APPX_PORTABLE_INTEROP
+        internal static NativeObject ExternalArgument<T>(T value, Guid iid) where T : class
+        {
+            using (var lease = Interop.ProjectionInterop.AcquireArgument(value, iid)) return FromLease(lease);
+        }
+
         internal static NativeObject FromLease(SafeHandle borrowed)
         {
             if (borrowed == null) return null;

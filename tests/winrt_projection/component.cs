@@ -28,7 +28,10 @@ class ComponentTest
     static WeakReference Subscribe(Engine engine, out System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken token)
     {
         var expected = new[] { -42 };
-        Changed handler = (count, active, text) => { Require(count == expected[0] && active && text == "đá\0💎", "callback ABI"); return text + count; };
+        Changed handler = (count, point, active, text) => {
+            Require(count == expected[0] && point.X == 1.5f && point.Y == -3.25f && active && text == "đá\0💎", "callback ABI");
+            return text + count;
+        };
         token = engine.add_Changed(handler); return new WeakReference(handler);
     }
     [MTAThread]
@@ -59,7 +62,7 @@ class ComponentTest
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         Require(!weak.IsAlive, "removed delegate collectable");
         var failure = new InvalidOperationException("component callback failure");
-        token = engine.add_Changed((count, active, text) => { throw failure; });
+        token = engine.add_Changed((count, point, active, text) => { throw failure; });
         try { engine.Raise(1, false, ""); throw new Exception("callback exception lost"); }
         catch (InvalidOperationException ex) { Require(ex.HResult == failure.HResult, "callback HRESULT"); }
         engine.remove_Changed(token);
@@ -88,6 +91,8 @@ class ComponentTest
         Require(engine.References() == references, "owned outputs released on success and failure");
         // Non-blittable structs are declared with their metadata fields; members passing them by value are named stubs.
         var form = new Form { Word = "đá 💎", Primary = true, Rank = -3 };
+        try { engine.GetChanged(); throw new Exception("delegate-returning stub returned"); }
+        catch (NotImplementedException ex) { Require(ex.Message.Contains("Example.Component.Engine.GetChanged"), "delegate result stub names itself"); }
         Require(form.Word == "đá 💎" && form.Primary && form.Rank == -3, "struct string, boolean and scalar fields");
         try { engine.GetForm("word"); throw new Exception("struct-returning stub returned"); }
         catch (NotImplementedException ex) { Require(ex.Message.Contains("Example.Component.Engine.GetForm"), "struct method stub names itself"); }

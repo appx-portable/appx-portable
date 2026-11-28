@@ -125,6 +125,8 @@ internal static partial class WinrtProjectionGenerator
         if (implementable.Contains(type.FullName))
             return Runtime + "NativeObject." + (interfaces[type.FullName].GetAttribute("InvocationBound") == "true" ? "CallbackArgument" : "Implemented") + "(" + value + ", " + ArgumentIid(type) +
                 ", global::AppxPortable.WinRT.Projected.ComponentInterfaces.Of(" + value + "))";
+        if (external.ContainsKey(type.FullName) && Find(type.FullName).IsInterface)
+            return Runtime + "NativeObject.ExternalArgument<" + Name(type) + ">(" + value + ", " + ArgumentIid(type) + ")";
         RejectWpf(type, "a native argument");
         return Runtime + "NativeObject.Argument(" + value + ", " + ArgumentIid(type) + ")";
     }
@@ -312,7 +314,8 @@ internal static partial class WinrtProjectionGenerator
         foreach (ParameterDefinition parameter in parameters)
         {
             string full = parameter.ParameterType.FullName;
-            if (Scalar(parameter.ParameterType) != null || full == "System.String" || full == "System.Object") continue;
+            if (Scalar(parameter.ParameterType) != null || BlittableStruct(parameter.ParameterType) ||
+                full == "System.String" || full == "System.Object") continue;
             if (IsDelegate(Parameter(parameter.ParameterType, type.FullName)))
                 throw new NotSupportedException("Unsupported delegate parameter: " + type.FullName);
         }
@@ -329,7 +332,8 @@ internal static partial class WinrtProjectionGenerator
         output.AppendLine("    // " + type.FullName + " as a native callback; delegates are IUnknown-based.");
         output.AppendLine("    internal static class " + type.FullName.Replace('.', '_'));
         output.AppendLine("    {");
-        string signature = "global::System.IntPtr self" + string.Concat(parameters.Select(p => ", " + (Scalar(p.ParameterType) ?? "global::System.IntPtr") + " @" + p.Name)) +
+        string signature = "global::System.IntPtr self" + string.Concat(parameters.Select(p => ", " +
+            (Scalar(p.ParameterType) ?? (BlittableStruct(p.ParameterType) ? Name(p.ParameterType) : "global::System.IntPtr")) + " arg" + Literal(p.Index))) +
             (returns ? ", out " + resultAbi + " result" : "");
         output.AppendLine("        " + StdCall);
         output.AppendLine("        private delegate int InvokeCall(" + signature + ");");
@@ -340,10 +344,14 @@ internal static partial class WinrtProjectionGenerator
         output.AppendLine("            int hr = " + Runtime + "ManagedObject.Call(self, target =>");
         output.AppendLine("            {");
         string call = "((global::" + type.FullName + ")target)(" + string.Join(", ", parameters.Select(p =>
-            p.ParameterType.FullName == "System.Boolean" ? "@" + p.Name + " != 0" :
-            p.ParameterType.FullName == "System.Char" ? "(char)@" + p.Name :
-            Scalar(p.ParameterType) != null ? "@" + p.Name :
-            p.ParameterType.FullName == "System.String" ? Runtime + "NativeString.Read(@" + p.Name + ")" : Unwrap(p.ParameterType, "@" + p.Name))) + ")";
+        {
+            string argument = "arg" + Literal(p.Index);
+            if (p.ParameterType.FullName == "System.Boolean") return argument + " != 0";
+            if (p.ParameterType.FullName == "System.Char") return "(char)" + argument;
+            if (Scalar(p.ParameterType) != null || BlittableStruct(p.ParameterType)) return argument;
+            if (p.ParameterType.FullName == "System.String") return Runtime + "NativeString.Read(" + argument + ")";
+            return Unwrap(p.ParameterType, argument);
+        })) + ")";
         if (text) output.AppendLine("                using (var resultString = new " + Runtime + "NativeString(" + call + ")) value = resultString.Detach();");
         else if (returns) output.AppendLine("                value = " + (invoke.ReturnType.FullName == "System.Boolean" ? call + " ? (byte)1 : (byte)0" : invoke.ReturnType.FullName == "System.Char" ? "(ushort)" + call : call) + ";");
         else output.AppendLine("                " + call + ";");
@@ -805,6 +813,13 @@ internal static partial class WinrtProjectionGenerator
         string name = field.FieldType.FullName;
         if (Scalar(field.FieldType) != null) return name != "System.Boolean" && name != "System.Char";
         return selected.Contains(name) && Find(name).IsEnum;
+    }
+    private static bool BlittableStruct(TypeReference type)
+    {
+        if (!selected.Contains(type.FullName) || !PlainStruct(type)) return false;
+        var definition = Find(type.FullName);
+        return definition.IsSequentialLayout && definition.PackingSize <= 0 && definition.ClassSize <= 0 &&
+            definition.Fields.Where(f => !f.IsStatic).All(BlittableField);
     }
     private static void PlainStructContract(StringBuilder output, TypeDefinition type, XmlElement surface)
     {
@@ -1606,6 +1621,11 @@ namespace AppxPortable.WinRT.Projected
             if (found.Count != 1) throw new NotSupportedException("Unsupported interface method: " + type.FullName + "." + m.GetAttribute("Name"));
             return found[0];
         }).ToList();
+        if (interop && lenient)
+        {
+            providers.Add(type);
+            output.AppendLine("    [" + Interop + "ProjectionType(\"" + Iid(type) + "\")]");
+        }
         output.AppendLine("    public interface " + type.Name);
         output.AppendLine("    {");
         foreach (string name in members) output.AppendLine("        " + Name(Getter(type, name).GetMethod.ReturnType) + " " + name + " { get; " + (Getter(type, name).SetMethod != null ? "set; " : "") + "}");
@@ -1743,6 +1763,7 @@ namespace AppxPortable.WinRT.Projected
         else if (full == "System.Boolean") { abiType = "byte"; converted = name + " != 0"; }
         else if (full == "System.Char") { abiType = "ushort"; converted = "(char)" + name; }
         else if (Scalar(type) != null) { abiType = Scalar(type); converted = name; }
+        else if (BlittableStruct(type)) { abiType = Name(type); converted = name; }
         else if (full == "System.String") converted = Runtime + "NativeString.Read(" + name + ")";
         else if (full == "System.Object") converted = Unwrap(type, name);
         else if (full == DateTimeName) { abiType = "long"; converted = "global::System.DateTimeOffset.FromFileTime(" + name + ")"; }

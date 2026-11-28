@@ -89,9 +89,18 @@ internal static partial class WinrtProjectionGenerator
         if (peer.Length != 0 && (!dependency || peer.IndexOf('.') < 0))
             throw new NotSupportedException("Unsupported WPF peer: " + type.FullName + " -> " + peer);
         if (peer.Length != 0) wpfPeers.Add(new KeyValuePair<TypeDefinition, string>(type, peer));
+        bool nativeService = interop && surface.GetAttribute("NativeService") == "true";
+        var nativeInterface = nativeService ? DefaultInterface(type) : null;
+        if (nativeService)
+        {
+            providers.Add(type);
+            output.AppendLine("    [" + Interop + "ProjectionType(\"" + Iid(nativeInterface) + "\")]");
+        }
         output.AppendLine("    public " + (isStatic ? "static " : type.IsSealed ? "sealed " : "") + "partial class " + type.Name +
             (baseClass == null ? "" : " : global::" + baseClass.FullName));
         output.AppendLine("    {");
+        if (nativeService)
+            output.AppendLine("        private static readonly global::System.Guid NativeServiceIid = " + Guid(nativeInterface) + ";");
         if (dependency && baseClass == null)
         {
             output.AppendLine("        internal readonly object peer;");

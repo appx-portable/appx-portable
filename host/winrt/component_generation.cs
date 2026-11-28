@@ -106,7 +106,7 @@ internal static partial class WinrtProjectionGenerator
             if (descriptor == null) continue;
             string iid = (string)descriptor.ConstructorArguments.Single().Value;
             System.Guid parsed;
-            if (type.HasGenericParameters || (type.IsEnum ? iid != "" : type.IsInterface || type.IsValueType || !System.Guid.TryParse(iid, out parsed)))
+            if (type.HasGenericParameters || (type.IsEnum ? iid != "" : type.IsValueType || !System.Guid.TryParse(iid, out parsed)))
                 throw new System.NotSupportedException("Invalid external projection type: " + type.FullName);
             if (types.ContainsKey(type.FullName)) throw new System.IO.InvalidDataException("Conflicting external projection type: " + type.FullName);
             external.Add(type.FullName, type); types.Add(type.FullName, type);
@@ -184,6 +184,9 @@ internal static partial class WinrtProjectionGenerator
     }
     private static string Wrapped(Mono.Cecil.TypeReference type, string owned)
     {
+        Mono.Cecil.TypeDefinition definition;
+        if (types.TryGetValue(type.FullName, out definition) && IsDelegate(definition))
+            throw new System.NotSupportedException("Unsupported native delegate result: " + type.FullName);
         if (ComponentAction(type)) return Runtime + "NativeComponentProjection.Action(" + owned + ")";
         var sdkFuture = SdkFuture(type);
         if (sdkFuture != null)
@@ -229,16 +232,28 @@ internal static partial class WinrtProjectionGenerator
     private static Mono.Cecil.GenericInstanceType ComponentView(Mono.Cecil.TypeReference type) { return ComponentContract(type, sharedContracts[2]); }
     private static void Provider(System.Text.StringBuilder output)
     {
+        var contracts = providers.Where(type => type.IsInterface).ToArray();
         output.AppendLine("namespace AppxPortable.WinRT.Projected {");
-        output.AppendLine("    internal sealed class CrossAssemblyProvider : " + Interop + "IProjectionProvider {");
+        output.AppendLine("    internal sealed class CrossAssemblyProvider : " + Interop + "IProjectionProvider" +
+            (contracts.Length == 0 ? "" : ", " + Interop + "IProjectionArgumentProvider") + " {");
         output.AppendLine("        public CrossAssemblyProvider() { }");
         output.AppendLine("        public object Wrap(global::System.Type type, global::System.Runtime.InteropServices.SafeHandle borrowed) {");
         output.AppendLine("            using (var value = " + Runtime + "NativeObject.FromLease(borrowed)) {");
         foreach (var type in providers)
-            output.AppendLine("                if (type == typeof(global::" + type.FullName + ")) return global::" + type.FullName + ".FromNative(value);");
+            output.AppendLine("                if (type == typeof(global::" + type.FullName + ")) return " +
+                (type.IsInterface ? Projected(type) : "global::" + type.FullName) + ".FromNative(value);");
         output.AppendLine("                throw new global::System.NotSupportedException(\"Unsupported external wrapper: \" + type.FullName);");
         output.AppendLine("            }");
         output.AppendLine("        }");
+        if (contracts.Length != 0)
+        {
+            output.AppendLine("        public global::System.Runtime.InteropServices.SafeHandle AcquireArgument(global::System.Type type, object target, global::System.Guid iid) {");
+            foreach (var type in contracts)
+                output.AppendLine("            if (type == typeof(global::" + type.FullName + ") && iid == " + Guid(type) +
+                    ") return " + Runtime + "NativeObject.Implemented(target, iid, ComponentInterfaces.Of(target));");
+            output.AppendLine("            throw new global::System.NotSupportedException(\"Unsupported external argument: \" + type.FullName);");
+            output.AppendLine("        }");
+        }
         output.AppendLine("    }");
         output.AppendLine("}");
     }

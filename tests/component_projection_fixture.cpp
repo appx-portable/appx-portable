@@ -6,8 +6,11 @@
 #include <vector>
 using namespace Microsoft::WRL;
 using Microsoft::WRL::Wrappers::HString;
+struct Position {
+    float x, y;
+};
 MIDL_INTERFACE("723d9b38-bb73-463e-adc8-25b46f56121a") IChanged : IUnknown {
-    virtual HRESULT STDMETHODCALLTYPE Invoke(INT32, BYTE, HSTRING, HSTRING*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE Invoke(INT32, Position, BYTE, HSTRING, HSTRING*) = 0;
 };
 MIDL_INTERFACE("239635fc-88f0-4fd6-80b1-b21ac63c939a") INode : IInspectable {
     virtual HRESULT STDMETHODCALLTYPE Read(INT32*) = 0;
@@ -48,6 +51,7 @@ MIDL_INTERFACE("2fc62e47-e1ce-471d-9098-014b39ca938e") IEngine : IInspectable {
     virtual HRESULT STDMETHODCALLTYPE AddExternal(IExternalChanged*, INT64*) = 0;
     virtual HRESULT STDMETHODCALLTYPE RemoveExternal(INT64) = 0;
     virtual HRESULT STDMETHODCALLTYPE RaiseExternal() = 0;
+    virtual HRESULT STDMETHODCALLTYPE ReadExternalNode(INode*, INT32*) = 0;
 };
 class Engine final : public RuntimeClass<RuntimeClassFlags<WinRt>, IEngine> {
     InspectableClass(L"Example.Component.Engine", BaseTrust);
@@ -99,7 +103,7 @@ public:
         auto snapshot = handlers_;
         for (auto& handler : snapshot) {
             HString current;
-            auto hr = handler.second->Invoke(count, active, name, current.GetAddressOf());
+            auto hr = handler.second->Invoke(count, Position{1.5f, -3.25f}, active, name, current.GetAddressOf());
             if (FAILED(hr)) {
                 WindowsDeleteString(*result);
                 *result = nullptr;
@@ -160,6 +164,12 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE RaiseExternal() override { return external_ ? external_->Invoke(node_.Get()) : S_OK; }
+    HRESULT STDMETHODCALLTYPE ReadExternalNode(INode* node, INT32* result) override {
+        ComPtr<INode> checked;
+        if (!node) return E_INVALIDARG;
+        auto hr = node->QueryInterface(IID_PPV_ARGS(&checked));
+        return FAILED(hr) ? hr : checked->Read(result);
+    }
 };
 // Like a C++/CX engine creating a Platform::Exception in its constructor: the
 MIDL_INTERFACE("8c1f2a90-6d3e-4b57-9e21-3a4c5d6e7f80") IGauge : IInspectable {

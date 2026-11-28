@@ -182,4 +182,5 @@ namespace AppxPortable.WinRT.Xaml
         }
     }
     public sealed class SwapChainPanelPeer : NativeHostPeer { }
+    public sealed class SwapChainGridPeer : System.Windows.Controls.Grid { }
 }

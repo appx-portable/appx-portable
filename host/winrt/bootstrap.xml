@@ -202,6 +202,9 @@
   <Class Name="Windows.UI.Xaml.Controls.SwapChainBackgroundPanel" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.SwapChainPanelPeer">
     <Constructor />
   </Class>
+  <Class Name="Windows.UI.Xaml.Controls.SwapChainPanel" Adapter="Wpf" Peer="AppxPortable.WinRT.Xaml.SwapChainGridPeer" NativeService="true">
+    <Constructor />
+  </Class>
   <Class Name="Windows.UI.Xaml.Controls.TextBlock" Adapter="Wpf" Peer="System.Windows.Controls.TextBlock">
     <Constructor />
     <Property Name="Text" Wpf="System.Windows.Controls.TextBlock.TextProperty" />
