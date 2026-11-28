@@ -70,6 +70,10 @@
     <Event Name="Suspending" />
     <Overridable Name="OnActivated" />
     <Overridable Name="OnLaunched" />
+    <Overridable Name="OnWindowCreated" />
+  </Class>
+  <Class Name="Windows.UI.Xaml.WindowCreatedEventArgs">
+    <Property Name="Window" />
   </Class>
   <Class Name="Windows.UI.Xaml.ApplicationInitializationCallbackParams" />
   <Class Name="Windows.UI.Xaml.Window">

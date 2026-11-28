@@ -63,11 +63,15 @@ internal static partial class WinrtProjectionGenerator
         new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
     private static readonly System.Collections.Generic.List<Mono.Cecil.TypeDefinition> providers = new System.Collections.Generic.List<Mono.Cecil.TypeDefinition>();
 
-    private static bool Available(string name) { return selected.Contains(name) || external.ContainsKey(name); }
+    private static bool Available(string name) { return (selected.Contains(name) && !externalBaseStubs.Contains(name)) || external.ContainsKey(name); }
     private static void ValidateExternalIdentity(Mono.Cecil.TypeReference type)
     {
-        if (!external.ContainsKey(type.FullName)) return;
-        var actual = external[type.FullName].Module.Assembly.Name;
+        Mono.Cecil.TypeDefinition definition;
+        if (external.TryGetValue(type.FullName, out definition)) ValidateProjectionIdentity(type, definition);
+    }
+    private static void ValidateProjectionIdentity(Mono.Cecil.TypeReference type, Mono.Cecil.TypeDefinition definition)
+    {
+        var actual = definition.Module.Assembly.Name;
         var requested = type.Scope as Mono.Cecil.AssemblyNameReference;
         if (type is Mono.Cecil.TypeDefinition && ((Mono.Cecil.TypeDefinition)type).Module.Assembly.Name.FullName == actual.FullName) return;
         if (requested == null || !System.String.Equals(requested.Name, actual.Name, System.StringComparison.OrdinalIgnoreCase) ||
@@ -97,6 +101,7 @@ internal static partial class WinrtProjectionGenerator
         foreach (var type in module.Types.Where(t => t.IsPublic))
         {
             referenced.Add(type.FullName);
+            referencedTypes[type.FullName] = type;
             var descriptor = Attribute(type, TypeDescriptor);
             if (descriptor == null) continue;
             string iid = (string)descriptor.ConstructorArguments.Single().Value;
@@ -109,6 +114,42 @@ internal static partial class WinrtProjectionGenerator
     }
     // Public types of the referenced projections, by name, for stub signatures.
     private static readonly System.Collections.Generic.HashSet<string> referenced = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+    private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> referencedTypes =
+        new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
+    private static readonly System.Collections.Generic.HashSet<string> externalBaseStubs =
+        new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
+    // Keep the managed type shape of native classes whose base lives in a
+    // different projection. The native inheritance ABI is not implemented.
+    private static bool ExternalBaseStub(System.Text.StringBuilder output, Mono.Cecil.TypeDefinition type)
+    {
+        Mono.Cecil.TypeDefinition parent;
+        if (!externalBaseStubs.Contains(type.FullName)) return false;
+        parent = referencedTypes[type.BaseType.FullName];
+        ValidateProjectionIdentity(type.BaseType, parent);
+        if (!type.IsSealed || parent.IsSealed)
+            throw new System.NotSupportedException("Unsupported external base class shape: " + type.FullName);
+        var baseConstructor = parent.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic &&
+            (m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly) &&
+            m.Parameters.Count > 0 && m.Parameters.All(p => !p.ParameterType.IsByReference && !p.ParameterType.IsPointer));
+        if (baseConstructor == null)
+            throw new System.NotSupportedException("No usable constructor on external base: " + parent.FullName);
+        output.AppendLine("    public sealed class " + type.Name + " : global::" + parent.FullName);
+        output.AppendLine("    {");
+        output.AppendLine("        private static T UnsupportedConstructor<T>() { throw " + Runtime + "Errors.Unimplemented(\"" + type.FullName + "..ctor\"); }");
+        var defaultArguments = baseConstructor.Parameters.Select(p => "default(" + StubName(p.ParameterType) + ")").ToArray();
+        defaultArguments[0] = "UnsupportedConstructor<" + StubName(baseConstructor.Parameters[0].ParameterType) + ">()";
+        var constructors = type.Methods.Where(m => m.IsConstructor && !m.IsStatic && m.IsPublic).ToArray();
+        foreach (var ctor in constructors)
+            output.AppendLine("        public " + type.Name + "(" + DeclaredParameters(ctor) + ") : base(" + string.Join(", ", defaultArguments) + ") { }");
+        if (constructors.Length == 0)
+            output.AppendLine("        private " + type.Name + "() : base(" + string.Join(", ", defaultArguments) + ") { }");
+        foreach (var method in type.Methods.Where(m => m.IsPublic && !m.IsConstructor))
+            Stub(output, type, method);
+        output.AppendLine("    }");
+        System.Console.Error.WriteLine("Stubbed " + type.FullName + ": external native base " + parent.FullName);
+        return true;
+    }
     // WinRT types the CLR presents as .NET types, as consumers' signatures name them.
     private static readonly System.Collections.Generic.Dictionary<string, string> clrNames = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
     {
@@ -129,10 +170,13 @@ internal static partial class WinrtProjectionGenerator
     // A stub's signature type: the CLR projection's name where the generator has no wrapper.
     private static string StubName(Mono.Cecil.TypeReference type)
     {
+        var array = type as Mono.Cecil.ArrayType;
+        if (array != null && array.IsVector) return StubName(array.ElementType) + "[]";
         var generic = type as Mono.Cecil.GenericInstanceType;
         string element = (generic != null ? generic.ElementType : type).FullName;
         string mapped;
-        if (clrNames.TryGetValue(element, out mapped) || referenced.Contains(element) && (mapped = element.Split('`')[0]) != null)
+        if (clrNames.TryGetValue(element, out mapped) ||
+            (referenced.Contains(element) || externalBaseStubs.Contains(element)) && (mapped = element.Split('`')[0]) != null)
             return "global::" + mapped + (generic == null ? "" : "<" + string.Join(", ", generic.GenericArguments.Select(StubName)) + ">");
         if (generic == null && !type.IsArray && !type.IsByReference && !type.IsPointer && element.StartsWith("System.", System.StringComparison.Ordinal) && element.IndexOf('.', 7) < 0 &&
             element != "System.Object" && element != "System.String" && Scalar(type) == null && element != "System.Boolean") return "global::" + element;

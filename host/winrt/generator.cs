@@ -2303,9 +2303,14 @@ namespace AppxPortable.WinRT.Projected
                     (component || element.GetAttribute("Implementable") == "true")) implementable.Add(element.GetAttribute("Name"));
                 if (element.GetAttribute("Adapter") == "Wpf") wpfTypes.Add(element.GetAttribute("Name"));
                 else if (element.Name == "Class") {
-                    classes.Add(Find(element.GetAttribute("Name")));
                     classSurfaces.Add(element.GetAttribute("Name"), element);
                 }
+            }
+            foreach (var type in classSurfaces.Keys.Select(Find))
+            {
+                if (component && type.BaseType != null && !selected.Contains(type.BaseType.FullName) &&
+                    referencedTypes.ContainsKey(type.BaseType.FullName)) externalBaseStubs.Add(type.FullName);
+                else classes.Add(type);
             }
             var output = new StringBuilder();
             output.AppendLine(component ? "// Generated from package component metadata. Do not edit." : "// Generated from SDK metadata. Do not edit.");
@@ -2378,7 +2383,9 @@ namespace AppxPortable.WinRT.Projected
                 else if (element.Name == "Delegate" && IsDelegate(type)) Delegate(output, type);
                 else if (element.Name == "Interface" && type.IsInterface) Interface(output, type, element);
                 else if (element.Name == "Class" && !type.IsEnum && !IsDelegate(type) && !type.IsValueType && !type.IsInterface)
-                    Class(output, type, element);
+                {
+                    if (!ExternalBaseStub(output, type)) Class(output, type, element);
+                }
                 else throw new InvalidDataException("Surface kind does not match metadata: " + type.FullName);
                 output.AppendLine("}");
             }

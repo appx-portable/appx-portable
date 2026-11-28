@@ -809,6 +809,16 @@ def main():
             run("generate-external", [generator.name, "--component", windows(output / "Example.External.winmd"), windows(output / "External.generated.cs"), "--interop"])
             bridge = compile_file("interop/AppxPortable.WinRT.Interop.dll", [repo / "host/winrt/interop.cs"], ["/target:library"])
             interop_flags = ["/target:library", "/define:APPX_PORTABLE_INTEROP", "/r:" + windows(bridge)]
+            base_fixture = repo / "tests/winrt_projection/component_external_base.cs"
+            external_base = compile_file("Example.Base.dll", [base_fixture], interop_flags + ["/define:BASE_PROJECTION"])
+            derived_metadata = output / "Example.Derived.winmd"
+            derived_source = output / "Derived.generated.cs"
+            run("external-base-metadata", [metadata_builder.name, windows(derived_metadata), "external-base"])
+            run("generate-external-base", [generator.name, "--component", windows(derived_metadata), windows(derived_source),
+                "--reference", windows(external_base)], marker="Stubbed Example.Component.Derived: external native base")
+            derived = compile_file("Example.Derived.dll", runtime + [derived_source], interop_flags + ["/r:" + windows(external_base)])
+            derived_consumer = compile_file("external-base.exe", [base_fixture], ["/r:" + windows(derived), "/r:" + windows(external_base), "/r:" + windows(bridge)])
+            run("external-base", [derived_consumer.name], marker="PASS: external native base preserves managed inheritance")
             lifetime = compile_file("interop-lifetime.exe", [repo / "tests/winrt_projection/interop_lifetime.cs"], ["/r:" + windows(bridge)])
             copy_owned_file(bridge, output / bridge.name)
             run("interop-lease-lifetime", [lifetime.name], marker="PASS: interop lease ownership")
@@ -816,6 +826,12 @@ def main():
             run("generate-windows-interop", [generator.name, windows(metadata), windows(repo / "host/winrt/bootstrap.xml"), windows(windows_generated), "--interop"])
             windows_runtime = runtime + [repo / "host/winrt/storage_abi.cs", repo / "host/winrt/array_buffer.cs"]
             windows_interop = compile_file("windows-interop/Windows.dll", windows_runtime + [windows_generated], interop_flags)
+            created = compile_file("window-created.exe", [repo / "tests/winrt_projection/window_created.cs"],
+                                   ["/r:" + windows(windows_interop), "/r:" + windows(bridge)])
+            window_fixture = fixture("window-created", created.name, "WindowCreatedProjectionTest", "CN=projection")
+            for source in (host, created, windows_interop, bridge):
+                copy_owned_file(source, window_fixture / source.name)
+            run("window-created", [host.name, "--log"], cwd=window_fixture, marker="PASS: window created before launch")
 
             external_projection = compile_file("external-projection/Example.External.dll", runtime + [output / "External.generated.cs"], interop_flags)
             cross_metadata = output / "cross/Example.Component.winmd"

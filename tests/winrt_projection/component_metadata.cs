@@ -56,6 +56,21 @@ class ComponentMetadata
     }
     static int Main(string[] args)
     {
+        if (args.Length == 2 && args[1] == "external-base")
+        {
+            using (var assembly = AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("Example.Derived", new Version(1, 0)), "Example.Derived.winmd", ModuleKind.Dll))
+            {
+                module = assembly.MainModule;
+                var reference = new AssemblyNameReference("Example.Base", new Version(0, 0, 0, 0));
+                module.AssemblyReferences.Add(reference);
+                var parent = new TypeReference("Example.Component", "Base", module, reference);
+                var child = Type("Derived", TypeAttributes.Public | TypeAttributes.Sealed, parent);
+                var ctor = Method(child, ".ctor", module.TypeSystem.Void, module.TypeSystem.Int32);
+                ctor.Attributes = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
+                assembly.Write(args[0]);
+            }
+            return 0;
+        }
         if (args.Length > 1 && args[1] == "external") return External(args[0]);
         if (args[0] == "--bad-projection-iid")
         {

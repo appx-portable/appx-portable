@@ -284,6 +284,21 @@ public:
 class InitParams final : public RuntimeClass<RuntimeClassFlags<WinRt>, IApplicationInitializationCallbackParams> {
     InspectableClass(L"Windows.UI.Xaml.ApplicationInitializationCallbackParams", BaseTrust);
 };
+HRESULT MakeWindowFactory(IActivationFactory** value);
+class WindowCreatedArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, IWindowCreatedEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.WindowCreatedEventArgs", BaseTrust);
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Window(IWindow** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        ComPtr<IActivationFactory> activation;
+        auto hr = MakeWindowFactory(&activation);
+        ComPtr<DefaultIWindowStatics> factory;
+        if (SUCCEEDED(hr)) hr = activation.As(&factory);
+        return FAILED(hr) ? hr : factory->get_Current(value);
+    }
+};
 class Application;
 static Application* live = nullptr; // the game's Application, for Suspending
 class Application final
@@ -507,6 +522,13 @@ public:
                         ComPtr<IApplicationOverrides> overrides;
                         result = current.As(&overrides);
                         if (FAILED(result)) return result;
+                        if (ManagedXamlMode()) {
+                            auto windowArgs = Make<WindowCreatedArgs>();
+                            if (!windowArgs) return E_OUTOFMEMORY;
+                            result = overrides->OnWindowCreated(windowArgs.Get());
+                            Log("TRACE", "OnWindowCreated hr=%08lx", result);
+                            if (FAILED(result)) return result;
+                        }
                         auto args = Make<LaunchArgs>();
                         if (!args) return E_OUTOFMEMORY;
                         result = overrides->OnLaunched(args.Get());
