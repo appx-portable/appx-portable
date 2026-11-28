@@ -73,6 +73,32 @@ static int Buffers(ICryptographicBufferStatics* crypto) {
     if (FAILED(crypto->GenerateRandom(16, &buffer)) || Bytes(buffer.Get()).size() != 16 ||
         FAILED(crypto->GenerateRandomNumber(&random)))
         return 20;
+    // Hex is written lowercase and read in either case; Unity 4.6 encodes its
+    // hardware ID with it.
+    BYTE raw[] = {0x00, 0x7f, 0xab, 0xff};
+    if (FAILED(crypto->CreateFromByteArray(4, raw, &buffer)) ||
+        Bytes(buffer.Get()) != std::string("\0\x7f\xab\xff", 4) ||
+        FAILED(crypto->EncodeToHexString(buffer.Get(), encoded.GetAddressOf())) || Text(encoded.Get()) != L"007fabff")
+        return 21;
+    if (FAILED(crypto->EncodeToHexString(nullptr, encoded.GetAddressOf())) || encoded.Get() != nullptr) return 22;
+    ComPtr<IBuffer> decoded;
+    if (FAILED(crypto->DecodeFromHexString(HStringReference(L"007FabFF").Get(), &decoded))) return 23;
+    boolean equal = false;
+    if (FAILED(crypto->Compare(buffer.Get(), decoded.Get(), &equal)) || !equal) return 24;
+    if (crypto->DecodeFromHexString(HStringReference(L"abc").Get(), &decoded) != E_INVALIDARG ||
+        crypto->DecodeFromHexString(HStringReference(L"zz").Get(), &decoded) != E_INVALIDARG || decoded)
+        return 25;
+    ComPtr<IBuffer> other;
+    if (FAILED(crypto->CreateFromByteArray(3, raw, &other)) ||
+        FAILED(crypto->Compare(buffer.Get(), other.Get(), &equal)) || equal ||
+        FAILED(crypto->Compare(nullptr, nullptr, &equal)) || !equal)
+        return 26;
+    UINT32 length = 0;
+    BYTE* copied = nullptr;
+    if (FAILED(crypto->CopyToByteArray(buffer.Get(), &length, &copied)) || length != 4 || memcmp(copied, raw, 4))
+        return 27;
+    CoTaskMemFree(copied);
+    if (FAILED(crypto->CopyToByteArray(nullptr, &length, &copied)) || length || copied) return 28;
     return 0;
 }
 static int Hashes(IHashAlgorithmProviderStatics* providers, IHashAlgorithmNamesStatics* names,

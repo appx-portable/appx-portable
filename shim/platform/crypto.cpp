@@ -34,7 +34,17 @@ HRESULT Unimplemented(const char* member) {
 class BufferStatics final : public Factory<ICryptographicBufferStatics> {
 public:
     BufferStatics() : Factory(L"Windows.Security.Cryptography.CryptographicBuffer") {}
-    HRESULT STDMETHODCALLTYPE Compare(IBuffer*, IBuffer*, boolean*) override { return Unimplemented("Compare"); }
+    HRESULT STDMETHODCALLTYPE Compare(IBuffer* first, IBuffer* second, boolean* equal) override {
+        if (!equal) return E_POINTER;
+        *equal = false;
+        UINT32 firstLength = 0, secondLength = 0;
+        byte *firstBytes = nullptr, *secondBytes = nullptr;
+        auto hr = Data(first, &firstLength, &firstBytes);
+        if (SUCCEEDED(hr)) hr = Data(second, &secondLength, &secondBytes);
+        if (FAILED(hr)) return hr;
+        *equal = firstLength == secondLength && (!firstLength || !memcmp(firstBytes, secondBytes, firstLength));
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE GenerateRandom(UINT32 length, IBuffer** buffer) override {
         if (!buffer) return E_POINTER;
         *buffer = nullptr;
@@ -50,17 +60,61 @@ public:
                    ? S_OK
                    : E_FAIL;
     }
-    HRESULT STDMETHODCALLTYPE CreateFromByteArray(UINT32, BYTE*, IBuffer**) override {
-        return Unimplemented("CreateFromByteArray");
+    HRESULT STDMETHODCALLTYPE CreateFromByteArray(UINT32 length, BYTE* bytes, IBuffer** buffer) override {
+        if (!buffer) return E_POINTER;
+        *buffer = nullptr;
+        if (length && !bytes) return E_POINTER;
+        return CopyToBuffer(bytes, length, buffer);
     }
-    HRESULT STDMETHODCALLTYPE CopyToByteArray(IBuffer*, UINT32*, BYTE**) override {
-        return Unimplemented("CopyToByteArray");
+    HRESULT STDMETHODCALLTYPE CopyToByteArray(IBuffer* buffer, UINT32* length, BYTE** value) override {
+        if (!length || !value) return E_POINTER;
+        *length = 0;
+        *value = nullptr;
+        UINT32 size = 0;
+        byte* bytes = nullptr;
+        auto hr = Data(buffer, &size, &bytes);
+        if (FAILED(hr) || !size) return hr;
+        // A WinRT receive array: the caller frees it with CoTaskMemFree.
+        *value = static_cast<BYTE*>(CoTaskMemAlloc(size));
+        if (!*value) return E_OUTOFMEMORY;
+        memcpy(*value, bytes, size);
+        *length = size;
+        return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE DecodeFromHexString(HSTRING, IBuffer**) override {
-        return Unimplemented("DecodeFromHexString");
+    HRESULT STDMETHODCALLTYPE DecodeFromHexString(HSTRING value, IBuffer** buffer) override {
+        if (!buffer) return E_POINTER;
+        *buffer = nullptr;
+        UINT32 length = 0;
+        const wchar_t* text = WindowsGetStringRawBuffer(value, &length);
+        if (length % 2) return E_INVALIDARG;
+        auto digit = [](wchar_t c) {
+            if (c >= L'0' && c <= L'9') return c - L'0';
+            if (c >= L'a' && c <= L'f') return c - L'a' + 10;
+            if (c >= L'A' && c <= L'F') return c - L'A' + 10;
+            return -1;
+        };
+        std::vector<byte> bytes(length / 2);
+        for (UINT32 i = 0; i < length; i += 2) {
+            const int high = digit(text[i]), low = digit(text[i + 1]);
+            if (high < 0 || low < 0) return E_INVALIDARG;
+            bytes[i / 2] = static_cast<byte>(high << 4 | low);
+        }
+        return CopyToBuffer(bytes.data(), static_cast<UINT32>(bytes.size()), buffer);
     }
-    HRESULT STDMETHODCALLTYPE EncodeToHexString(IBuffer*, HSTRING*) override {
-        return Unimplemented("EncodeToHexString");
+    HRESULT STDMETHODCALLTYPE EncodeToHexString(IBuffer* buffer, HSTRING* value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        UINT32 length = 0;
+        byte* bytes = nullptr;
+        auto hr = Data(buffer, &length, &bytes);
+        if (FAILED(hr) || !length) return hr;
+        static const wchar_t digits[] = L"0123456789abcdef"; // Windows writes lowercase
+        std::wstring text(static_cast<size_t>(length) * 2, L'\0');
+        for (UINT32 i = 0; i < length; ++i) {
+            text[2 * i] = digits[bytes[i] >> 4];
+            text[2 * i + 1] = digits[bytes[i] & 15];
+        }
+        return WindowsCreateString(text.data(), static_cast<UINT32>(text.size()), value);
     }
     HRESULT STDMETHODCALLTYPE DecodeFromBase64String(HSTRING, IBuffer**) override {
         return Unimplemented("DecodeFromBase64String");
