@@ -14,6 +14,7 @@ on:
             - 'CMakeLists.txt'
             - 'CMakePresets.json'
             - '.github/workflows/release.yml'
+            - '.github/workflows/wine-clr.yml'
             - '.github/actions/**'
     workflow_dispatch:
 
@@ -130,6 +131,48 @@ jobs:
                   $assets += "$build/WebView2-LICENSE.txt"
                   Compress-Archive -LiteralPath $assets -DestinationPath "build/appx-portable-$env:RELEASE_TAG-$env:ARCHITECTURE.zip" -CompressionLevel Optimal -Force
 
+            - name: Build prebuilt WinRT assemblies
+              if: matrix.architecture == 'x86'
+              env:
+                  # SDK contract metadata is build input only; it never enters a release asset.
+                  CONTRACTS_VERSION: 10.0.28000.2957
+                  CONTRACTS_SHA512: ff32f4004a8c89747474fb3380e7f885ead3a525bd62844ddc1c77f70a5fe9ce3175d9d0ee0a211033a82ca5da3c18cb32ec3b3761286827daf243d2cfbf356e
+                  CECIL_VERSION: 0.11.6
+                  CECIL_SHA512: 1c5932246b23c9f317690a25ce3e1416d168d885871063d2f604cf997ed9e99d41bccdd0e22d4be6e4a5ea729d06bd92cc543686dbbd75ab0199db60e0912fb4
+              run: |
+                  $packages = @(
+                    @{ Id = 'microsoft.windows.sdk.contracts'; Version = $env:CONTRACTS_VERSION; Sha512 = $env:CONTRACTS_SHA512 }
+                    @{ Id = 'mono.cecil'; Version = $env:CECIL_VERSION; Sha512 = $env:CECIL_SHA512 }
+                  )
+                  New-Item -ItemType Directory -Force -Path build/nuget | Out-Null
+                  foreach ($package in $packages) {
+                    $name = "$($package.Id).$($package.Version)"
+                    $archive = "build/nuget/$name.nupkg"
+                    Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$($package.Version)/$name.nupkg" -OutFile $archive
+                    $digest = (Get-FileHash -Algorithm SHA512 -LiteralPath $archive).Hash.ToLowerInvariant()
+                    if ($digest -ne $package.Sha512) { throw "NuGet package digest mismatch: $name" }
+                    Expand-Archive -LiteralPath $archive -DestinationPath "build/nuget/$name" -Force
+                  }
+                  python scripts/build-winrt-release.py `
+                    --metadata "build/nuget/microsoft.windows.sdk.contracts.$env:CONTRACTS_VERSION/ref/netstandard2.0" `
+                    --cecil "build/nuget/mono.cecil.$env:CECIL_VERSION/lib/net40/Mono.Cecil.dll" `
+                    --output build/winrt-release
+                  if ($LASTEXITCODE -ne 0) { throw 'Prebuilt WinRT assembly build failed.' }
+
+            - name: Package install-time projection tools
+              if: matrix.architecture == 'x86'
+              run: |
+                  python scripts/package-winrt-tools.py --prebuilt build/winrt-release --output build/appx-portable-winrt-tools.zip
+                  if ($LASTEXITCODE -ne 0) { throw 'Projection tools packaging failed.' }
+
+            - name: Upload WinRT surface report
+              if: matrix.architecture == 'x86'
+              uses: actions/upload-artifact@v7
+              with:
+                  name: winrt-surface-report
+                  path: build/winrt-release/surface-report.txt
+                  if-no-files-found: error
+
             - name: Upload package
               uses: actions/upload-artifact@v7
               with:
@@ -142,8 +185,13 @@ jobs:
         if: needs.version.outputs.release == 'true'
         uses: ./.github/workflows/wine-graphics.yml
 
+    wine-clr:
+        needs: version
+        if: needs.version.outputs.release == 'true'
+        uses: ./.github/workflows/wine-clr.yml
+
     publish:
-        needs: [version, build, wine-graphics]
+        needs: [version, build, wine-graphics, wine-clr]
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -177,12 +225,18 @@ jobs:
               run: |
                   # pyappxportable unpacks these under Wine only; see scripts/build-wined3d.sh.
                   foreach ($architecture in @('x86', 'x64')) {
-                    $files = foreach ($name in @('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'wine-graphics.json')) { "build/wine/wine-$architecture/$name" }
+                    $files = foreach ($name in @('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'd2d1.dll', 'wine-graphics.json')) { "build/wine/wine-$architecture/$name" }
                     foreach ($file in $files) {
                       if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing Wine graphics file: $file" }
                     }
                     Compress-Archive -LiteralPath $files -DestinationPath "build/appx-portable-$env:RELEASE_TAG-wine-$architecture.zip" -CompressionLevel Optimal -Force
                   }
+
+            - name: Download tested Wine CLR runtime
+              uses: actions/download-artifact@v8
+              with:
+                  name: wine-clr
+                  path: build/wine-clr
 
             - name: Publish release
               env:
@@ -191,6 +245,22 @@ jobs:
                   $archives = foreach ($architecture in @('x86', 'x64')) {
                     "build/appx-portable-$env:RELEASE_TAG-$architecture.zip"
                     "build/appx-portable-$env:RELEASE_TAG-wine-$architecture.zip"
+                  }
+                  $archives += 'build/appx-portable-winrt-tools.zip'
+                  $archives += @(
+                    'build/wine-clr/appx-portable-wine-clr-macos.tar.xz'
+                    'build/wine-clr/appx-portable-wine-clr-sources.tar.xz'
+                  )
+                  # pyappxportable reads these checksums from the release's direct
+                  # download links, so it never needs the rate-limited GitHub API.
+                  foreach ($asset in @(
+                    'build/appx-portable-winrt-tools.zip'
+                    'build/wine-clr/appx-portable-wine-clr-macos.tar.xz'
+                  )) {
+                    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+                    $name = Split-Path -Leaf $asset
+                    Set-Content -LiteralPath "$asset.sha256" -Value "$hash  $name" -Encoding ascii
+                    $archives += "$asset.sha256"
                   }
                   gh release create $env:RELEASE_TAG @archives --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes --latest
                   if ($LASTEXITCODE -ne 0) { throw 'Failed to publish release.' }

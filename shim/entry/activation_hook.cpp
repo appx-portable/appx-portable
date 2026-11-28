@@ -1,8 +1,10 @@
 #include "registry.h"
+#include "entry/hotpatch.h"
 #include "entry/managed_components.h"
 #include "islands/islands.h"
 #include "log.h"
 #include "package/package.h"
+#include "platform/http_request.h"
 #include "platform/mf_stream.h"
 #include <roapi.h>
 #include <psapi.h>
@@ -158,34 +160,6 @@ static HRESULT WINAPI Activate(HSTRING name, IInspectable** out) noexcept {
     return hr;
 }
 
-// Preferred: hotpatch combase's exports, which catches every caller,
-// including in-package DLLs loaded later. x86 system DLLs start each export
-// with `mov edi, edi` after five padding bytes; jump from the padding and
-// call the original past the two-byte prologue.
-static void* Hotpatch(HMODULE module, const char* name, void* hook) noexcept {
-#ifdef _WIN64
-    // The x86 hotpatch layout and rel32 range do not apply to x64.
-    (void)module;
-    (void)name;
-    (void)hook;
-    return nullptr;
-#else
-    auto* entry = module ? reinterpret_cast<BYTE*>(GetProcAddress(module, name)) : nullptr;
-    if (!entry || entry[0] != 0x8B || entry[1] != 0xFF) return nullptr;
-    for (int i = 1; i <= 5; ++i)
-        if (entry[-i] != 0xCC && entry[-i] != 0x90) return nullptr;
-    DWORD old;
-    if (!VirtualProtect(entry - 5, 7, PAGE_EXECUTE_READWRITE, &old)) return nullptr;
-    entry[-5] = 0xE9; // jmp rel32 to the hook
-    *reinterpret_cast<INT32*>(entry - 4) = static_cast<INT32>(static_cast<BYTE*>(hook) - entry);
-    InterlockedExchange16(reinterpret_cast<SHORT*>(entry), static_cast<SHORT>(0xF9EB)); // jmp short -7
-    DWORD ignored;
-    VirtualProtect(entry - 5, 7, old, &ignored);
-    FlushInstructionCache(GetCurrentProcess(), entry - 5, 7);
-    return entry + 2;
-#endif
-}
-
 // Wine 11 exports these as stubs that abort the process when called.
 // RoRegisterForApartmentShutdown hands out a dummy cookie and never calls
 // back, so vccorlib's unregistration on every normal exit has nothing to undo.
@@ -239,6 +213,19 @@ static FARPROC WINAPI ProcAddress(HMODULE module, LPCSTR name) noexcept {
     return GetProcAddress(module, name);
 }
 
+// Wine's msxml lacks FreeThreadedXMLHTTP60, which games' native code creates for
+// HTTP; the shim's offline request answers it. Other classes reach combase.
+static HRESULT WINAPI CreateInstanceFromApp(REFCLSID clsid, IUnknown* outer, DWORD context, void* reserved, DWORD count,
+                                            MULTI_QI* results) {
+    if (IsEqualCLSID(clsid, appx::freeThreadedHttpClass)) {
+        if (reserved) return E_INVALIDARG;
+        if (!outer && (context & CLSCTX_INPROC_SERVER)) return appx::CreateOfflineHttpRequest(count, results);
+    }
+    using Create = HRESULT(WINAPI*)(REFCLSID, IUnknown*, DWORD, void*, DWORD, MULTI_QI*);
+    static auto original =
+        reinterpret_cast<Create>(GetProcAddress(GetModuleHandleW(L"combase.dll"), "CoCreateInstanceFromApp"));
+    return original ? original(clsid, outer, context, reserved, count, results) : REGDB_E_CLASSNOTREG;
+}
 // Redirect the imports of every module in the game folder, which covers the
 // game and its VC runtime: the activation calls as a fallback for Wine builds
 // without hotpatch prologues, and Wine's aborting stubs whenever on Wine.
@@ -268,6 +255,10 @@ static void PatchModule(HMODULE module, bool activation) noexcept {
             if (OnWine() && strcmp(name, "RoUnregisterForApartmentShutdown") == 0)
                 hook = reinterpret_cast<void*>(&UnregisterForApartmentShutdown);
             if (OnWine() && strcmp(name, "RoTransformError") == 0) hook = reinterpret_cast<void*>(&TransformError);
+            if (OnWine() && strcmp(name, "CoCreateInstanceFromApp") == 0)
+                hook = reinterpret_cast<void*>(&CreateInstanceFromApp);
+            if (OnWine() && strcmp(name, "CreateStreamOverRandomAccessStream") == 0)
+                hook = reinterpret_cast<void*>(&CreateStreamOverRandomAccessStream);
             if (OnWine() && strcmp(name, "RoCaptureErrorContext") == 0)
                 hook = reinterpret_cast<void*>(&CaptureErrorContext);
             if (OnWine() && _stricmp(reinterpret_cast<const char*>(base + imports->Name), "mfplat.dll") == 0 &&
@@ -309,10 +300,15 @@ static void PatchGameModules(bool activation) noexcept {
 // through their import tables.
 static bool importActivation = false;
 // Modules loaded from the game folder after the shim attached (in-package
-// classes, packaged libraries) need the same import hooks as the game.
-static void PatchLoadedModule(HMODULE module) noexcept { PatchModule(module, importActivation); }
+// classes, packaged libraries) need the same import hooks as the game, and so
+// do the game-folder DLLs they pulled in: a managed game first loads the VC
+// runtime (vccorlib110) as its C++/CX component's dependency. Patching is
+// idempotent, so rescan rather than walk the new module's imports.
+static void PatchLoadedModule(HMODULE) noexcept { PatchGameModules(importActivation); }
 void InstallActivationHook() noexcept {
     HMODULE combase = GetModuleHandleW(L"combase.dll");
+    // Preferred: hotpatch combase's exports, which catches every caller,
+    // including in-package DLLs loaded later.
     if (auto* original = Hotpatch(combase, "RoGetActivationFactory", reinterpret_cast<void*>(&GetFactory))) {
         originalFactory = reinterpret_cast<FactoryCall>(original);
         // RoActivateInstance may resolve through the exported factory call
@@ -426,4 +422,18 @@ extern "C" int __cdecl ShimRunNativeApplication() noexcept {
         return E_FAIL;
     }
 }
+}
+
+// Explicit managed ABI callers do not necessarily pass through Wine's export
+// hook. Share native package activation instead of duplicating manifest loading.
+extern "C" HRESULT WINAPI ShimGetPackageFactory(HSTRING name, IActivationFactory** factory) noexcept {
+    if (!factory) return E_POINTER;
+    *factory = nullptr;
+    try {
+        return appx::PackageFactory(name, factory);
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    } catch (...) {
+        return E_FAIL;
+    }
 }

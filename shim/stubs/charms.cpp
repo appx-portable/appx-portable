@@ -9,6 +9,8 @@
 #include "com/factory.h"
 #include "registry.h"
 #include "host/host.h"
+#include "islands/islands.h"
+#include "xml.h"
 #include <windows.ui.popups.h>
 #include <windows.ui.startscreen.h>
 #include <shobjidl.h>
@@ -19,6 +21,7 @@
 #include <winrt/Windows.UI.Popups.h>
 using namespace Microsoft::WRL;
 namespace appx {
+HRESULT MakeDesktopMessageDialog(HSTRING, HSTRING, ABI::Windows::UI::Popups::IMessageDialog**);
 namespace {
 namespace Share = ABI::Windows::ApplicationModel::DataTransfer;
 namespace Settings = ABI::Windows::UI::ApplicationSettings;
@@ -38,6 +41,8 @@ class MessageDialogFactory final : public Factory<ABI::Windows::UI::Popups::IMes
         ComPtr<IInitializeWithWindow> owner;
         if (SUCCEEDED(hr)) hr = dialog.As(&owner);
         if (SUCCEEDED(hr)) hr = owner->Initialize(HostWindow());
+        if (hr == REGDB_E_CLASSNOTREG || hr == RO_E_METADATA_NAME_NOT_FOUND || hr == E_NOTIMPL)
+            return MakeDesktopMessageDialog(content, title, value);
         return SUCCEEDED(hr) ? dialog.CopyTo(value) : hr;
     }
 
@@ -97,6 +102,44 @@ public:
 };
 
 namespace ProjectedSettings = winrt::Windows::UI::ApplicationSettings;
+class SettingsCommand final : public RuntimeClass<RuntimeClassFlags<WinRt>, ABI::Windows::UI::Popups::IUICommand> {
+    InspectableClass(L"Windows.UI.ApplicationSettings.SettingsCommand", BaseTrust);
+    ComPtr<IInspectable> id_;
+    Wrappers::HString label_;
+    ComPtr<ABI::Windows::UI::Popups::IUICommandInvokedHandler> invoked_;
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Id(IInspectable** value) override { return id_.CopyTo(value); }
+    HRESULT STDMETHODCALLTYPE put_Id(IInspectable* value) override {
+        id_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Label(HSTRING* value) override { return label_.CopyTo(value); }
+    HRESULT STDMETHODCALLTYPE put_Label(HSTRING value) override { return label_.Set(value); }
+    HRESULT STDMETHODCALLTYPE get_Invoked(ABI::Windows::UI::Popups::IUICommandInvokedHandler** value) override {
+        return invoked_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Invoked(ABI::Windows::UI::Popups::IUICommandInvokedHandler* value) override {
+        invoked_ = value;
+        return S_OK;
+    }
+};
+class SettingsCommandFactory final : public Factory<Settings::ISettingsCommandFactory> {
+public:
+    SettingsCommandFactory() : Factory(L"Windows.UI.ApplicationSettings.SettingsCommand") {}
+    HRESULT STDMETHODCALLTYPE CreateSettingsCommand(IInspectable* id, HSTRING label,
+                                                    ABI::Windows::UI::Popups::IUICommandInvokedHandler* invoked,
+                                                    ABI::Windows::UI::Popups::IUICommand** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        auto command = Make<SettingsCommand>();
+        if (!command) return E_OUTOFMEMORY;
+        auto hr = command->put_Label(label);
+        if (SUCCEEDED(hr)) hr = command->put_Id(id);
+        if (SUCCEEDED(hr)) hr = command->put_Invoked(invoked);
+        return FAILED(hr) ? hr : command.CopyTo(value);
+    }
+};
 struct SettingsRequest : winrt::implements<SettingsRequest, ProjectedSettings::ISettingsPaneCommandsRequest> {
     winrt::Windows::Foundation::Collections::IVector<ProjectedSettings::SettingsCommand> commands =
         winrt::single_threaded_vector<ProjectedSettings::SettingsCommand>();
@@ -191,6 +234,45 @@ public:
     }
 };
 
+// The content a game builds for its tile; the updater accepts it and shows nothing.
+class TileNotification final : public RuntimeClass<RuntimeClassFlags<WinRt>, Tiles::DefaultITileNotification, FtmBase> {
+    InspectableClass(L"Windows.UI.Notifications.TileNotification", BaseTrust);
+    ComPtr<ABI::Windows::Data::Xml::Dom::IXmlDocument> content_;
+    ComPtr<__FIReference_1_Windows__CFoundation__CDateTime> expiration_;
+    Wrappers::HString tag_;
+
+public:
+    explicit TileNotification(ABI::Windows::Data::Xml::Dom::IXmlDocument* content) : content_(content) {}
+    HRESULT STDMETHODCALLTYPE get_Content(ABI::Windows::Data::Xml::Dom::IXmlDocument** value) override {
+        if (!value) return E_POINTER;
+        return content_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_ExpirationTime(__FIReference_1_Windows__CFoundation__CDateTime* value) override {
+        expiration_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_ExpirationTime(__FIReference_1_Windows__CFoundation__CDateTime** value) override {
+        if (!value) return E_POINTER;
+        return expiration_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Tag(HSTRING value) override { return tag_.Set(value); }
+    HRESULT STDMETHODCALLTYPE get_Tag(HSTRING* value) override {
+        if (!value) return E_POINTER;
+        return tag_.CopyTo(value);
+    }
+};
+class TileNotificationFactory final : public Factory<Tiles::DefaultITileNotificationFactory> {
+public:
+    TileNotificationFactory() : Factory(L"Windows.UI.Notifications.TileNotification") {}
+    HRESULT STDMETHODCALLTYPE CreateTileNotification(ABI::Windows::Data::Xml::Dom::IXmlDocument* content,
+                                                     Tiles::ITileNotification** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        if (!content) return E_INVALIDARG;
+        auto tile = Make<TileNotification>(content);
+        return tile ? tile.CopyTo(value) : E_OUTOFMEMORY;
+    }
+};
 class TileUpdater final : public RuntimeClass<RuntimeClassFlags<WinRt>, Tiles::DefaultITileUpdater, FtmBase> {
     InspectableClass(L"Windows.UI.Notifications.TileUpdater", BaseTrust);
 
@@ -249,6 +331,8 @@ public:
                                                  ABI::Windows::Data::Xml::Dom::IXmlDocument** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
+        // As toasts: under Wine the OS has no tile manager, so the shim's DOM answers.
+        if (!IslandsMode()) return MakeTileTemplate(type, value);
         ComPtr<Tiles::ITileUpdateManagerStatics> real;
         HRESULT hr = OsGetActivationFactory(
             Wrappers::HStringReference(RuntimeClass_Windows_UI_Notifications_TileUpdateManager).Get(),
@@ -349,6 +433,7 @@ template <class T> HRESULT Shared(IActivationFactory** value) {
 }
 HRESULT MakeShareFactory(IActivationFactory** value) { return Shared<ShareFactory>(value); }
 HRESULT MakeSettingsPaneFactory(IActivationFactory** value) { return Shared<SettingsFactory>(value); }
+HRESULT MakeSettingsCommandFactory(IActivationFactory** value) { return Shared<SettingsCommandFactory>(value); }
 HRESULT ShowGameSettings() {
     return PostHostWork(0, [] {
         auto pane = CurrentSettingsPane();
@@ -358,13 +443,22 @@ HRESULT ShowGameSettings() {
 }
 HRESULT MakeTileFactory(IActivationFactory** value) { return Shared<TileFactory>(value); }
 HRESULT MakeBadgeFactory(IActivationFactory** value) { return Shared<BadgeFactory>(value); }
+HRESULT MakeTileNotificationFactory(IActivationFactory** value) {
+    auto factory = Make<TileNotificationFactory>();
+    return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
+}
 HRESULT MakeSecondaryTileFactory(IActivationFactory** value) { return Shared<SecondaryTileFactory>(value); }
 HRESULT MakeMessageDialogFactory(IActivationFactory** value) { return Shared<MessageDialogFactory>(value); }
 const ShimClass shareClass{L"Windows.ApplicationModel.DataTransfer.DataTransferManager", MakeShareFactory};
 const ShimClass settingsPaneClass{L"Windows.UI.ApplicationSettings.SettingsPane", MakeSettingsPaneFactory,
                                   ShimPolicy::Replace, InIslands};
+const ShimClass settingsCommandClass{L"Windows.UI.ApplicationSettings.SettingsCommand", MakeSettingsCommandFactory,
+                                     ShimPolicy::FillMissing};
 const ShimClass tilesClass{L"Windows.UI.Notifications.TileUpdateManager", MakeTileFactory, ShimPolicy::Replace,
                            InIslands};
+// Windows' own tile content where it exists (Islands); the shim's under Wine.
+const ShimClass tileNotificationClass{L"Windows.UI.Notifications.TileNotification", MakeTileNotificationFactory,
+                                      ShimPolicy::FillMissing};
 const ShimClass badgesClass{L"Windows.UI.Notifications.BadgeUpdateManager", MakeBadgeFactory, ShimPolicy::Replace,
                             InIslands};
 const ShimClass secondaryTileClass{L"Windows.UI.StartScreen.SecondaryTile", MakeSecondaryTileFactory,

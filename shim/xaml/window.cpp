@@ -8,6 +8,7 @@
 #include <wrl/event.h>
 #include "host/dispatcher.h"
 #include "xaml/key.h"
+#include "xaml/focus.h"
 #include <windows.ui.xaml.controls.h>
 #include <vector>
 using namespace Microsoft::WRL;
@@ -103,17 +104,20 @@ public:
     }
 };
 static ComPtr<Window> xamlWindow;
-void XamlInputMessage(UINT message, WPARAM wparam, LPARAM lparam) {
+static ComPtr<IInspectable> managedKeyTarget;
+void XamlKeyMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     const bool released = message == WM_KEYUP || message == WM_SYSKEYUP;
     if (!released && message != WM_KEYDOWN && message != WM_SYSKEYDOWN) return;
     if (!xamlWindow) return;
     ComPtr<IUIElement> content;
-    if (FAILED(xamlWindow->get_Content(&content)) || !content) return;
+    if (FAILED(xamlWindow->get_Content(&content))) return;
     // The shim's DirectX views use a content chain ending at a graphics panel.
     // Snapshot and retain the route before invoking handlers, which can replace it.
     std::vector<ComPtr<IInspectable>> route;
     ComPtr<IInspectable> current;
-    content.As(&current);
+    if (content) content.As(&current);
+    else current = managedKeyTarget;
+    if (!current) return;
     while (current && route.size() < 64) {
         ComPtr<IUnknown> identity;
         current.As(&identity);
@@ -161,6 +165,14 @@ HRESULT DeliverWindowLoaded() {
 }
 void XamlHostMessage(UINT message, WPARAM wparam, LPARAM lparam) {
     if (xamlWindow) xamlWindow->OnMessage(message, wparam, lparam);
+    if (message == WM_ACTIVATE) {
+        auto* target = CurrentPointerTarget();
+        ComPtr<IXamlFocusTarget> focus;
+        if (target && SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&focus)))) {
+            const auto hr = focus->RaiseFocus(LOWORD(wparam) != WA_INACTIVE);
+            if (FAILED(hr)) Log("FAIL", "XAML focus handler hr=%08lx", hr);
+        }
+    }
 }
 class WindowFactory final : public Factory<DefaultIWindowStatics> {
 
@@ -177,4 +189,7 @@ HRESULT MakeWindowFactory(IActivationFactory** value) {
     return factory ? factory.CopyTo(value) : E_OUTOFMEMORY;
 }
 const ShimClass windowClass{L"Windows.UI.Xaml.Window", MakeWindowFactory};
+}
+extern "C" void __cdecl ShimSetXamlKeyTarget(IInspectable* value) noexcept {
+    appx::managedKeyTarget = value;
 }

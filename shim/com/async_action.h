@@ -17,11 +17,13 @@ class AsyncAction final : public RuntimeClass<RuntimeClassFlags<WinRt>, IAsyncAc
     HRESULT error_ = S_OK;
     ComPtr<IAsyncActionCompletedHandler> completed_;
     bool assigned_ = false, closed_ = false;
+    // Where put_Completed was called: only a UI-thread handler is queued there (see OnHostThread).
+    bool registeredOnHost_ = false;
     const bool queued_;
-    void Invoke(ComPtr<IAsyncActionCompletedHandler> handler, AsyncStatus status) {
+    void Invoke(ComPtr<IAsyncActionCompletedHandler> handler, AsyncStatus status, bool onHost) {
         ComPtr<AsyncAction> self(this);
         auto invoke = [self, handler, status] { handler->Invoke(self.Get(), status); };
-        if (!queued_ || FAILED(PostHostWork(0, invoke))) invoke();
+        if (!queued_ || !onHost || FAILED(PostHostWork(0, invoke))) invoke();
     }
 
 public:
@@ -29,6 +31,7 @@ public:
     void Finish(HRESULT error) {
         ComPtr<IAsyncActionCompletedHandler> callback;
         AsyncStatus status;
+        bool onHost;
         {
             std::lock_guard<std::mutex> guard(mutex_);
             if (status_ != AsyncStatus::Started) return;
@@ -36,8 +39,9 @@ public:
             status_ = FAILED(error) ? AsyncStatus::Error : AsyncStatus::Completed;
             status = status_;
             callback = completed_;
+            onHost = registeredOnHost_;
         }
-        if (callback) Invoke(callback, status);
+        if (callback) Invoke(callback, status, onHost);
     }
     HRESULT STDMETHODCALLTYPE put_Completed(IAsyncActionCompletedHandler* handler) override {
         AsyncStatus status;
@@ -47,9 +51,10 @@ public:
             if (assigned_) return E_ILLEGAL_DELEGATE_ASSIGNMENT;
             assigned_ = true;
             completed_ = handler;
+            registeredOnHost_ = OnHostThread();
             status = status_;
         }
-        if (handler && status != AsyncStatus::Started) Invoke(ComPtr<IAsyncActionCompletedHandler>(handler), status);
+        if (handler && status != AsyncStatus::Started) Invoke(ComPtr<IAsyncActionCompletedHandler>(handler), status, OnHostThread());
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_Completed(IAsyncActionCompletedHandler** value) override {
@@ -86,14 +91,16 @@ public:
         Log("TRACE", "AsyncAction %u Cancel", id_);
         // Cancellation is cooperative. WorkItemHandler observes this status.
         ComPtr<IAsyncActionCompletedHandler> callback;
+        bool onHost;
         {
             std::lock_guard<std::mutex> guard(mutex_);
             if (closed_) return RO_E_CLOSED;
             if (status_ != AsyncStatus::Started) return S_OK;
             status_ = AsyncStatus::Canceled;
             callback = completed_;
+            onHost = registeredOnHost_;
         }
-        if (callback) Invoke(callback, AsyncStatus::Canceled);
+        if (callback) Invoke(callback, AsyncStatus::Canceled, onHost);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Close() override {

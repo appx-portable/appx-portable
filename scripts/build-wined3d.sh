@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Usage: build-wined3d.sh [x86|x64] [BUILD_DIRECTORY]
-# Builds a matched D3D11/DXGI/WineD3D stack with wine/wined3d.patch, by default
+# Builds a matched Direct2D/D3D11/DXGI/WineD3D stack with wine/wined3d.patch, by default
 # for both architectures into build/macos-x86 and build/macos-x64. The stack
 # exposes public Windows APIs to the installed Wine, rather than mixing its
 # private wined3d exports with another release's d3d11/dxgi. installappx.py
@@ -23,7 +23,7 @@ if [[ $# -ge 2 ]]; then
   output=$(cd "$2" && pwd)
 fi
 # Pin the source this patch is maintained against. Runtime Wine version is
-# deliberately irrelevant: all three consumers of the private ABI ship together.
+# deliberately irrelevant: the consumers of the private ABI ship together.
 version=11.18
 sha256=c6282f6d4daecf11f3ab9f9a2b6c598f67be7e28c363ba2cae8a3c44b611e7a4
 if [[ $(uname) == Darwin ]]; then
@@ -83,10 +83,10 @@ for architecture in "${architectures[@]}"; do
   build=${output:-"$root/build/macos-$architecture"}
   mkdir -p "$build"
   ${host[@]+"${host[@]}"} make -j"$(getconf _NPROCESSORS_ONLN)" "dlls/wined3d/$pe/wined3d.dll" \
-    "dlls/d3d11/$pe/d3d11.dll" "dlls/dxgi/$pe/dxgi.dll" > "make-$architecture.log" 2>&1 \
+    "dlls/d3d11/$pe/d3d11.dll" "dlls/dxgi/$pe/dxgi.dll" "dlls/d2d1/$pe/d2d1.dll" > "make-$architecture.log" 2>&1 \
     || { tail -20 "make-$architecture.log" >&2; exit 1; }
 
-  for dll in wined3d d3d11 dxgi; do
+  for dll in wined3d d3d11 dxgi d2d1; do
     llvm-strip -o "$build/$dll.dll.part" "dlls/$dll/$pe/$dll.dll"
     # Wine treats a DLL carrying its "Wine builtin DLL" marker as builtin and
     # won't load it as a native override from the game folder. Clearing the
@@ -107,10 +107,10 @@ import hashlib, json, pathlib, sys
 build = pathlib.Path(sys.argv[1])
 data = {'source_version': sys.argv[2], 'sha256': {
     name: hashlib.sha256((build / name).read_bytes()).hexdigest()
-    for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll')}}
+    for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll', 'd2d1.dll')}}
 temporary = build / 'wine-graphics.json.part'
 temporary.write_text(json.dumps(data, indent=2) + '\n')
 temporary.replace(build / 'wine-graphics.json')
 MANIFEST
-  echo "Built $architecture D3D11/DXGI/WineD3D stack in $build (source Wine $version)"
+  echo "Built $architecture Direct2D/D3D11/DXGI/WineD3D stack in $build (source Wine $version)"
 done

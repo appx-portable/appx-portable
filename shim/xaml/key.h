@@ -70,5 +70,5 @@ public:
         return source_.CopyTo(value);
     }
 };
-void XamlInputMessage(UINT message, WPARAM wparam, LPARAM lparam);
+void XamlKeyMessage(UINT message, WPARAM wparam, LPARAM lparam);
 }

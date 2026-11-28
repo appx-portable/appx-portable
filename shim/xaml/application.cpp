@@ -8,6 +8,8 @@
 #include "package/resources.h"
 #include "xbf.h"
 #include "element.h"
+#include "source.h"
+#include "resources.h"
 #include "compat/win10/xaml.h"
 #include <shlwapi.h>
 #include <xmllite.h>
@@ -282,13 +284,31 @@ public:
 class InitParams final : public RuntimeClass<RuntimeClassFlags<WinRt>, IApplicationInitializationCallbackParams> {
     InspectableClass(L"Windows.UI.Xaml.ApplicationInitializationCallbackParams", BaseTrust);
 };
+HRESULT MakeWindowFactory(IActivationFactory** value);
+class WindowCreatedArgs final : public RuntimeClass<RuntimeClassFlags<WinRt>, IWindowCreatedEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.WindowCreatedEventArgs", BaseTrust);
+
+public:
+    HRESULT STDMETHODCALLTYPE get_Window(IWindow** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        ComPtr<IActivationFactory> activation;
+        auto hr = MakeWindowFactory(&activation);
+        ComPtr<DefaultIWindowStatics> factory;
+        if (SUCCEEDED(hr)) hr = activation.As(&factory);
+        return FAILED(hr) ? hr : factory->get_Current(value);
+    }
+};
 class Application;
 static Application* live = nullptr; // the game's Application, for Suspending
-class Application final : public Composable<Application, DefaultIApplication, DefaultIApplicationOverrides> {
+class Application final
+    : public Composable<Application, DefaultIApplication, DefaultIApplicationOverrides, IApplicationSource> {
     EventSource<ISuspendingEventHandler> suspending_;
     EventSource<ABI::Windows::Foundation::IEventHandler<IInspectable*>> resuming_;
     EventSource<IUnhandledExceptionEventHandler> unhandled_;
     ComPtr<IResourceDictionary> resources_;
+    const DWORD sourceThread_ = GetCurrentThreadId();
+    bool sourceInitialized_ = false;
     ApplicationTheme theme_ = ApplicationTheme_Dark;
 
 public:
@@ -300,20 +320,46 @@ public:
     HRESULT RaiseSuspending(IInspectable* sender, ABI::Windows::ApplicationModel::ISuspendingEventArgs* args) {
         return suspending_.InvokeAll(sender, args);
     }
+    HRESULT STDMETHODCALLTYPE CheckSourceThread() override {
+        return GetCurrentThreadId() == sourceThread_ ? S_OK : RPC_E_WRONG_THREAD;
+    }
+    HRESULT STDMETHODCALLTYPE CompleteSourceInitialization() override {
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) sourceInitialized_ = true;
+        return hr;
+    }
     HRESULT STDMETHODCALLTYPE get_Resources(IResourceDictionary** value) override {
         if (!value) return E_POINTER;
-        return resources_.CopyTo(value);
+        *value = nullptr;
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (!sourceInitialized_ && ManagedXamlMode()) {
+            ComPtr<IInspectable> self;
+            hr = QueryInterface(IID_PPV_ARGS(&self));
+            if (SUCCEEDED(hr)) hr = LoadApplicationSourceXaml(self.Get(), L"App.xaml");
+            if (FAILED(hr)) return hr;
+        }
+        if (!resources_) hr = MakeResourceDictionary(&resources_);
+        if (SUCCEEDED(hr)) sourceInitialized_ = true;
+        return FAILED(hr) ? hr : resources_.CopyTo(value);
     }
     HRESULT STDMETHODCALLTYPE put_Resources(IResourceDictionary* value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
         resources_ = value;
+        sourceInitialized_ = true;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_RequestedTheme(ApplicationTheme* value) override {
         if (!value) return E_POINTER;
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
         *value = theme_;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE put_RequestedTheme(ApplicationTheme value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
         theme_ = value;
         return S_OK;
     }
@@ -358,6 +404,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE LoadComponent(IInspectable* component,
                                             ABI::Windows::Foundation::IUriRuntimeClass* uri) override {
+        if (ManagedXamlMode()) return LoadSourceXaml(component, uri);
         if (!uri) return E_INVALIDARG;
         HSTRING text{};
         uri->get_AbsoluteUri(&text);
@@ -443,7 +490,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE LoadComponentWithResourceLocation(
         IInspectable* component, ABI::Windows::Foundation::IUriRuntimeClass* uri,
-        ABI::Windows::UI::Xaml::Controls::Primitives::ComponentResourceLocation) override {
+        ABI::Windows::UI::Xaml::Controls::Primitives::ComponentResourceLocation location) override {
+        if (ManagedXamlMode() &&
+            location != ABI::Windows::UI::Xaml::Controls::Primitives::ComponentResourceLocation_Application) {
+            Log("FAIL", "source XAML ComponentResourceLocation %d hr=%08lx", location, E_NOTIMPL);
+            return E_NOTIMPL;
+        }
         return LoadComponent(component, uri);
     }
     HRESULT STDMETHODCALLTYPE Start(IApplicationInitializationCallback* callback) override {
@@ -470,6 +522,13 @@ public:
                         ComPtr<IApplicationOverrides> overrides;
                         result = current.As(&overrides);
                         if (FAILED(result)) return result;
+                        if (ManagedXamlMode()) {
+                            auto windowArgs = Make<WindowCreatedArgs>();
+                            if (!windowArgs) return E_OUTOFMEMORY;
+                            result = overrides->OnWindowCreated(windowArgs.Get());
+                            Log("TRACE", "OnWindowCreated hr=%08lx", result);
+                            if (FAILED(result)) return result;
+                        }
                         auto args = Make<LaunchArgs>();
                         if (!args) return E_OUTOFMEMORY;
                         result = overrides->OnLaunched(args.Get());

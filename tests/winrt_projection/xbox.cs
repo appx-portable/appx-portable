@@ -1,0 +1,50 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Runtime.Serialization;
+
+using Microsoft.Xbox;
+
+// A game-shaped reference: these field types must bind before its ctor can run.
+class XboxFields
+{
+    public User CurrentUser;
+    public UserProfile Profile;
+}
+class XboxProjectionTest
+{
+    [DllImport("combase.dll")] private static extern int RoInitialize(uint apartment);
+    static void Check(bool value, string name) { if (!value) throw new Exception(name); }
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void Run(string expectedVersion, bool generic)
+    {
+        var fields = new XboxFields { CurrentUser = new User(), Profile = null };
+        var identity = fields.CurrentUser.Identity;
+        Check(identity != null && fields.Profile == null, "native local user identity");
+        Check(ReferenceEquals(identity, XboxLIVEService.SignedInUserIdentity), "shared local identity");
+        var client = XboxLIVEService.ServiceClient;
+        Check(client != null && client.Token == "appxportable-offline" && ReferenceEquals(identity, client.SignedInUserIdentity), "offline native client");
+        Check(ReferenceEquals(client, XboxLIVEService.ServiceClient), "client wrapper identity");
+        // This is supported binding, with no fabricated profile behavior.
+        Check(typeof(UserProfile).Assembly.GetName().Name == "Microsoft.Xbox", "profile field binds to replacement assembly");
+        if (expectedVersion != null)
+        {
+            var version = FileVersionInfo.GetVersionInfo(typeof(User).Assembly.Location);
+            Check(version.FileMajorPart + "." + version.FileMinorPart + "." + version.FileBuildPart + "." + version.FilePrivatePart == expectedVersion,
+                "native version resource must preserve the qualified ABI layout");
+        }
+        // The install-time generic projection implements profiles; only the curated one stubs them.
+        if (generic) { Console.WriteLine("PASS: generic Xbox projection uses native local user and service client"); return; }
+        var unimplemented = (UserProfile)FormatterServices.GetUninitializedObject(typeof(UserProfile));
+        try { string unused = unimplemented.Gamertag; throw new Exception("fabricated profile behavior"); }
+        catch (NotImplementedException error) { Check(error.Message == "Microsoft.Xbox.UserProfile.get_Gamertag", "unimplemented profile member names itself"); }
+        Console.WriteLine("PASS: Xbox projection uses native local user and service client");
+    }
+    [STAThread]
+    static int Main(string[] args)
+    {
+        try { Marshal.ThrowExceptionForHR(RoInitialize(0)); Run(args.Length == 0 || args[0] == "generic" ? null : args[0], args.Length != 0 && args[0] == "generic"); return 0; }
+        catch (Exception error) { Console.Error.WriteLine(error); return 1; }
+    }
+}

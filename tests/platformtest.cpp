@@ -7,6 +7,7 @@
 #include <windows.globalization.h>
 #include <windows.media.devices.h>
 #include <windows.devices.enumeration.h>
+#include <windows.devices.enumeration.pnp.h>
 #include <mmdeviceapi.h>
 #include <windows.system.threading.core.h>
 #include <wrl.h>
@@ -99,6 +100,53 @@ static int CheckAudioDevices(HRESULT(WINAPI* get)(HSTRING, IActivationFactory**)
         return 48;
     }
     watcher->Stop();
+    return 0;
+}
+// Unity's Store players list PnP devices and watch them while starting their
+// main thread; a missing factory throws there and the game never draws. Wine
+// has no PnpObject class, so queries find nothing and watchers complete empty.
+static int CheckPnpObjects(HRESULT(WINAPI* get)(HSTRING, IActivationFactory**)) {
+    using namespace ABI::Windows::Devices::Enumeration;
+    using namespace ABI::Windows::Devices::Enumeration::Pnp;
+    using ABI::Windows::Foundation::ITypedEventHandler;
+    ComPtr<IActivationFactory> factory;
+    ComPtr<IPnpObjectStatics> statics;
+    ComPtr<__FIAsyncOperation_1_Windows__CDevices__CEnumeration__CPnp__CPnpObjectCollection> finding;
+    if (FAILED(get(HStringReference(L"Windows.Devices.Enumeration.Pnp.PnpObject").Get(), &factory)) ||
+        FAILED(factory.As(&statics)) || FAILED(statics->FindAllAsync(PnpObjectType_Device, nullptr, &finding)))
+        return 59;
+    ComPtr<ABI::Windows::Foundation::IAsyncInfo> info;
+    ABI::Windows::Foundation::AsyncStatus status{};
+    finding.As(&info);
+    for (int i = 0;
+         i < 500 && SUCCEEDED(info->get_Status(&status)) && status == ABI::Windows::Foundation::AsyncStatus::Started;
+         ++i)
+        Sleep(10);
+    ComPtr<__FIVectorView_1_Windows__CDevices__CEnumeration__CPnp__CPnpObject> found;
+    UINT32 listed = 0;
+    if (FAILED(finding->GetResults(&found)) || !found || FAILED(found->get_Size(&listed))) return 60;
+    ComPtr<IPnpObjectWatcher> watcher;
+    if (FAILED(statics->CreateWatcherAqsFilter(
+            PnpObjectType_DeviceInterface, nullptr,
+            HStringReference(L"System.Devices.InterfaceEnabled:=System.StructuredQueryType.Boolean#True").Get(),
+            &watcher)))
+        return 61;
+    Event enumerated(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    HANDLE done = enumerated.Get();
+    auto onEnumerated = Callback<
+        Implements<RuntimeClassFlags<ClassicCom>, ITypedEventHandler<PnpObjectWatcher*, IInspectable*>, FtmBase>>(
+        [done](IPnpObjectWatcher*, IInspectable*) {
+            SetEvent(done);
+            return S_OK;
+        });
+    EventRegistrationToken token{};
+    DeviceWatcherStatus state{};
+    if (FAILED(watcher->add_EnumerationCompleted(onEnumerated.Get(), &token)) || FAILED(watcher->Start()) ||
+        WaitForSingleObject(done, 5000) != WAIT_OBJECT_0 || FAILED(watcher->get_Status(&state)) ||
+        state != DeviceWatcherStatus_EnumerationCompleted)
+        return 62;
+    if (FAILED(watcher->Stop()) || FAILED(watcher->get_Status(&state)) || state != DeviceWatcherStatus_Stopped)
+        return 63;
     return 0;
 }
 // Where's My Mickey's FMOD wakes its mixer through a SignalNotifier on a named
@@ -339,6 +387,7 @@ int main() {
     }
     if (int failed = CheckAudioDevices(get, media.Get(), selector.Get())) return failed;
     if (int failed = CheckSignalNotifier(get)) return failed;
+    if (int failed = CheckPnpObjects(get)) return failed;
     puts("platformtest: 0 failure(s)");
     return 0;
 }

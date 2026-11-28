@@ -165,7 +165,8 @@ static HRESULT RunFrameworkView(IFrameworkViewSource* source) {
     DismissSplashScreen();
     hr = view->Run();
     Log("TRACE", "IFrameworkView.Run returned hr=%08lx", hr);
-    view->Uninitialize();
+    const HRESULT uninitialized = view->Uninitialize();
+    if (SUCCEEDED(hr)) hr = uninitialized;
     PostQuitMessage(0); // the view's loop is over; end the host's
     return hr;
 }

@@ -1,4 +1,4 @@
-Patch for Wine's wined3d.dll and d3d11.dll (Wine 11.18) so that Direct3D 11
+Patch for Wine's wined3d.dll, d3d11.dll and d2d1.dll (Wine 11.18) so that Direct3D 11
 at feature level 9_x runs SM4 shader code on macOS, on the Vulkan renderer
 over MoltenVK or the OpenGL one.
 
@@ -9,12 +9,20 @@ and whose constants the GL backend never receives from D3D11; games render
 black. The SM4 GLSL path also required EXT_shader_integer_mix (GL 4.5), used
 only by ftoi/ftou. d3d11 gives a context state the device's own level when
 none of the requested levels is available: d2d1 asks for 10_0 only, so
-Direct2D games never started.
+Direct2D games never started. The Direct2D factory also retries its WIC/bitmap
+device at 9_3 when 10_0 is unavailable, retaining the actual feature level.
 
 The launcher picks wined3d's Vulkan renderer on macOS, which MoltenVK runs
 on Metal. Metal has no geometry shaders, so that renderer stops at 9_3 too.
 On MoltenVK, wined3d leaves out the host-memory handle type Wine adds to
 every buffer and image of a 32-bit process, which MoltenVK rejects.
+D3D9 uses integer pixel centers; offset its Vulkan viewport by half a pixel
+to match that convention (including WPF layered-window rendering). MoltenVK
+also needs static primitive topology for correct triangle-fan draws; using a dynamic
+fan on a triangle-list pipeline loses triangles (for example, parts of WPF text).
+Partial clears use framebuffers sized to their attachments, not the dirty
+viewport. Offset clear rectangles then fit, and pixels outside the dirty area
+survive on tile-based renderers; WPF panes no longer leave strips behind.
 
 The SM4 and GLSL changes are taken from ctr2-uwp-shim. Built by
 scripts/build-wined3d.sh; see docs/building.md.
@@ -263,3 +271,154 @@ scripts/build-wined3d.sh; see docs/building.md.
      if (vr != VK_SUCCESS)
      {
          ERR("Failed to create image, vr %s.\n", wined3d_debug_vkresult(vr));
+
+--- a/dlls/wined3d/context_vk.c
++++ b/dlls/wined3d/context_vk.c
+@@ -4217,4 +4217,10 @@
+             viewport->x = src_viewport->x;
+             viewport->y = src_viewport->y;
++            /* D3D9 samples integer pixel centers; Vulkan samples half-integers. */
++            if (d3d_info->wined3d_creation_flags & WINED3D_PIXEL_CENTER_INTEGER)
++            {
++                viewport->x += 0.5f;
++                viewport->y += 0.5f;
++            }
+             viewport->width = src_viewport->width;
+             viewport->height = src_viewport->height;
+
+--- a/dlls/wined3d/adapter_vk.c
++++ b/dlls/wined3d/adapter_vk.c
+@@ -2373,1 +2373,4 @@
+-    vk_info->dynamic_state2 = device_info.dynamic_state2_features.extendedDynamicState2;
++    /* MoltenVK loses triangles when a fan is selected dynamically on a
++     * triangle-list pipeline. Use the actual topology in the pipeline key. */
++    vk_info->dynamic_state2 = device_info.dynamic_state2_features.extendedDynamicState2
++            && !adapter_vk->moltenvk;
+
+--- a/dlls/wined3d/texture_vk.c
++++ b/dlls/wined3d/texture_vk.c
+@@ -1178,6 +1178,7 @@
+     VkRenderPass vk_render_pass;
+     bool depth_stencil = false;
+     unsigned int layer_count;
++    unsigned int fb_width = UINT_MAX, fb_height = UINT_MAX;
+     VkClearColorValue *c;
+     VkResult vr;
+     RECT r;
+@@ -1231,6 +1232,8 @@
+         immediate_fb.render_targets[immediate_rt_count++] = view;
+         rtv_vk = wined3d_rendertarget_view_vk(view);
+         views[attachment_count] = wined3d_rendertarget_view_vk_get_image_view(rtv_vk, context_vk);
++        fb_width = min(fb_width, view->width);
++        fb_height = min(fb_height, view->height);
+         wined3d_rendertarget_view_vk_barrier(rtv_vk, context_vk, WINED3D_BIND_RENDER_TARGET);
+
+         c = &clear_values[attachment_count].color;
+@@ -1268,6 +1271,8 @@
+             immediate_fb.depth_stencil = view;
+             rtv_vk = wined3d_rendertarget_view_vk(view);
+             views[attachment_count] = wined3d_rendertarget_view_vk_get_image_view(rtv_vk, context_vk);
++            fb_width = min(fb_width, view->width);
++            fb_height = min(fb_height, view->height);
+             wined3d_rendertarget_view_vk_barrier(rtv_vk, context_vk, WINED3D_BIND_DEPTH_STENCIL);
+
+             clear_values[attachment_count].depthStencil.depth = depth;
+@@ -1320,8 +1325,11 @@
+     fb_desc.renderPass = vk_render_pass;
+     fb_desc.attachmentCount = attachment_count;
+     fb_desc.pAttachments = views;
+-    fb_desc.width = draw_rect->right - draw_rect->left;
+-    fb_desc.height = draw_rect->bottom - draw_rect->top;
++    /* Clear rectangles are in attachment coordinates, including viewport
++     * offsets. A framebuffer sized to the dirty viewport can exclude those
++     * rectangles, or discard pixels outside it on tile-based renderers. */
++    fb_desc.width = fb_width;
++    fb_desc.height = fb_height;
+     fb_desc.layers = layer_count;
+     if ((vr = VK_CALL(vkCreateFramebuffer(device_vk->vk_device, &fb_desc, NULL, &vk_framebuffer))) < 0)
+     {
+
+--- a/dlls/d2d1/factory.c
++++ b/dlls/d2d1/factory.c
+@@ -388,3 +388,12 @@
+-    if (!factory->device && FAILED(hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
+-            D3D10_FEATURE_LEVEL_10_0, D3D10_1_SDK_VERSION, &factory->device)))
+-        WARN("Failed to create device, hr %#lx.\n", hr);
++    if (!factory->device)
++    {
++        hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
++                D3D10_FEATURE_LEVEL_10_0, D3D10_1_SDK_VERSION, &factory->device);
++        /* appx-portable: WIC/bitmap text targets also work on the 9_3 device
++         * exposed by MoltenVK. Keep reporting that actual feature level. */
++        if (FAILED(hr))
++            hr = D3D10CreateDevice1(NULL, D3D10_DRIVER_TYPE_HARDWARE, NULL, D3D10_CREATE_DEVICE_BGRA_SUPPORT,
++                    D3D10_FEATURE_LEVEL_9_3, D3D10_1_SDK_VERSION, &factory->device);
++        if (FAILED(hr))
++            WARN("Failed to create device, hr %#lx.\n", hr);
++    }
+
+--- a/dlls/d2d1/d2d1_private.h
++++ b/dlls/d2d1/d2d1_private.h
+@@ -760,0 +761,2 @@
++    ID3D10Blob *shape_vs[D2D_SHAPE_TYPE_COUNT];
++    ID3D10Blob *shape_ps;
+
+--- a/dlls/d2d1/factory.c
++++ b/dlls/d2d1/factory.c
+@@ -154,0 +155,7 @@
++        for (unsigned int i = 0; i < D2D_SHAPE_TYPE_COUNT; ++i)
++        {
++            if (factory->shape_vs[i])
++                ID3D10Blob_Release(factory->shape_vs[i]);
++        }
++        if (factory->shape_ps)
++            ID3D10Blob_Release(factory->shape_ps);
+
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -4810,2 +4810,2 @@
+-    HRESULT hr;
+-    ID3D10Blob *compiled;
++    struct d2d_factory *factory_impl = unsafe_impl_from_ID2D1Factory((ID2D1Factory *)factory);
++    HRESULT hr = S_OK;
+@@ -4820,0 +4821,3 @@
++    /* WIC render targets construct a device for each bitmap. Reuse the
++     * immutable bytecode per factory, while keeping GPU objects per context. */
++    EnterCriticalSection(&factory_impl->cs);
+@@ -4824,3 +4827,4 @@
+-
+-        if (FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
+-                "main", "vs_4_0", 0, 0, &compiled, NULL)))
++        ID3D10Blob **shader = &factory_impl->shape_vs[i];
++
++        if (!*shader && FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
++                "main", "vs_4_0", 0, 0, shader, NULL)))
+@@ -4829 +4833 @@
+-            return hr;
++            goto done;
+@@ -4831,5 +4835,6 @@
+-        device->precompiled_shape_vs[i] = compiled;
+-    }
+-
+-    if (FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1, "ps", NULL, NULL,
+-            "main", "ps_4_0", 0, 0, &compiled, NULL)))
++        device->precompiled_shape_vs[i] = *shader;
++        ID3D10Blob_AddRef(*shader);
++    }
++
++    if (!factory_impl->shape_ps && FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1,
++            "ps", NULL, NULL, "main", "ps_4_0", 0, 0, &factory_impl->shape_ps, NULL)))
+@@ -4838,5 +4843,8 @@
+-        return hr;
+-    }
+-    device->precompiled_shape_ps = compiled;
+-
+-    return S_OK;
++        goto done;
++    }
++    device->precompiled_shape_ps = factory_impl->shape_ps;
++    ID3D10Blob_AddRef(device->precompiled_shape_ps);
++
++done:
++    LeaveCriticalSection(&factory_impl->cs);
++    return hr;

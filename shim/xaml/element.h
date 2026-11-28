@@ -1,11 +1,15 @@
 #pragma once
 #include "package/package.h"
+#include "properties.h"
+#include "resources.h"
+#include "style.h"
 #include "generated/xaml.h"
 #include "com/composable.h"
 #include "host/host.h"
 #include "host/pointer.h"
 #include "host/dispatcher.h"
 #include "xaml/key.h"
+#include "xaml/focus.h"
 #include "compat/win10/xaml.h"
 #include <wrl.h>
 #include <wrl/event.h>
@@ -15,12 +19,23 @@
 #include <functional>
 #include <limits>
 #include <cmath>
+#include <memory>
+#include <cmath>
 namespace appx {
-// Internal namescope bridge used by the XAML loaders: names, and the markup's
-// URI that FrameworkElement.BaseUri reports.
+// The component root owns its scope and named children; descendants borrow it.
+// Excluding the root from the retained map avoids a COM reference cycle.
+struct SourceNameScope {
+    Microsoft::WRL::WeakRef root;
+    std::wstring rootName;
+    std::map<std::wstring, Microsoft::WRL::ComPtr<IInspectable>> elements;
+};
+// Internal namescope bridge used by the XAML loaders: names, the source-XAML
+// scope, and the markup's URI that FrameworkElement.BaseUri reports.
 MIDL_INTERFACE("B9D4328C-BA3E-4F70-A0E9-E604BB4DB236") INamedElementRegistry : IUnknown {
     virtual HRESULT STDMETHODCALLTYPE RegisterName(HSTRING name, IInspectable * value) = 0;
     virtual HRESULT STDMETHODCALLTYPE SetBaseUri(HSTRING uri) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CheckSourceThread() = 0;
+    virtual void STDMETHODCALLTYPE SetSourceNameScope(const std::shared_ptr<SourceNameScope>& scope, bool root) = 0;
 };
 HRESULT MakePanel(IInspectable** value);
 HRESULT MakeBackgroundPanel(IInspectable** value);
@@ -28,7 +43,7 @@ HRESULT MakeGrid(IInspectable** value);
 // A named element of Windows 8 source XAML: the Win10 elements plus text
 // entry. S_FALSE with null for element types the shim does not stand in.
 HRESULT MakeSourceXamlElement(const wchar_t* tag, IInspectable** value);
-HRESULT MakeMediaElement(IInspectable** value);
+HRESULT MakeMediaElement(IInspectable** value, bool audioOnly = false);
 HRESULT MakeImage(IInspectable** value);
 HRESULT QueueElementLoaded(IInspectable* value);
 HRESULT DeliverElementLoaded(IInspectable* object);
@@ -88,18 +103,25 @@ class Element
     : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                         ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
                         IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement, IXamlKeyTarget,
+                        IXamlFocusTarget,
                         Interfaces...> {
     using Base = Composable<Derived, Primary, ABI::Windows::UI::Xaml::DefaultIFrameworkElement,
                             ABI::Windows::UI::Xaml::DefaultIUIElement, ABI::Windows::UI::Xaml::DefaultIDependencyObject,
                             IPointerTargetProvider, INamedElementRegistry, IGridPlacement, ICanvasPlacement,
-                            IXamlKeyTarget, Interfaces...>;
+                            IXamlKeyTarget, IXamlFocusTarget, Interfaces...>;
     XamlKeyEventSource keyDown_, keyUp_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_, unloaded_;
+    Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> gotFocus_, lostFocus_;
+    bool focused_ = false;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
     Microsoft::WRL::ComPtr<IInspectable> panel_, backgroundPanel_, grid_, media_;
     Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::Media::IRectangleGeometry> clip_;
     std::map<std::wstring, Microsoft::WRL::ComPtr<IInspectable>> namedElements_;
     Microsoft::WRL::Wrappers::HString name_, baseUri_;
+    std::shared_ptr<SourceNameScope> ownedScope_;
+    std::weak_ptr<SourceNameScope> sourceScope_;
+    bool sourceLoaded_ = false;
+    const DWORD thread_ = GetCurrentThreadId();
     ABI::Windows::UI::Xaml::Visibility visibility_ = ABI::Windows::UI::Xaml::Visibility_Visible;
     ABI::Windows::UI::Xaml::HorizontalAlignment horizontal_ = ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch;
     ABI::Windows::UI::Xaml::VerticalAlignment vertical_ = ABI::Windows::UI::Xaml::VerticalAlignment_Stretch;
@@ -117,6 +139,9 @@ class Element
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerCanceled_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerWheelChanged_;
     double width_ = 1024, height_ = 768;
+    PropertyValues properties_;
+    Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::IResourceDictionary> resources_;
+    Microsoft::WRL::ComPtr<ABI::Windows::UI::Xaml::IStyle> style_;
     bool loadedRaised_ = false;
     ABI::Windows::Foundation::Size laidOut_{0, 0};
     // XAML raises SizeChanged on first layout (from 0x0) and on every later
@@ -170,42 +195,6 @@ private:
     }
 
 public:
-    HRESULT STDMETHODCALLTYPE get_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment* value) override {
-        if (!value) return E_POINTER;
-        *value = horizontal_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment value) override {
-        if (value < ABI::Windows::UI::Xaml::HorizontalAlignment_Left ||
-            value > ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch)
-            return E_INVALIDARG;
-        horizontal_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment* value) override {
-        if (!value) return E_POINTER;
-        *value = vertical_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment value) override {
-        if (value < ABI::Windows::UI::Xaml::VerticalAlignment_Top ||
-            value > ABI::Windows::UI::Xaml::VerticalAlignment_Stretch)
-            return E_INVALIDARG;
-        vertical_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_Margin(ABI::Windows::UI::Xaml::Thickness* value) override {
-        if (!value) return E_POINTER;
-        *value = margin_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_Margin(ABI::Windows::UI::Xaml::Thickness value) override {
-        if (!std::isfinite(value.Left) || !std::isfinite(value.Top) || !std::isfinite(value.Right) ||
-            !std::isfinite(value.Bottom))
-            return E_INVALIDARG;
-        margin_ = value;
-        return S_OK;
-    }
     HRESULT STDMETHODCALLTYPE get_Opacity(DOUBLE* value) override {
         if (!value) return E_POINTER;
         *value = opacity_;
@@ -251,6 +240,79 @@ public:
         return keyUp_.Add(handler, token);
     }
     HRESULT STDMETHODCALLTYPE remove_KeyUp(EventRegistrationToken token) override { return keyUp_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE RaiseFocus(boolean focused) override {
+        if (focused_ == (focused != 0)) return S_OK;
+        auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+        auto args = Microsoft::WRL::Make<RoutedArgs>(source);
+        if (!args) return E_OUTOFMEMORY;
+        focused_ = focused != 0;
+        return (focused_ ? gotFocus_ : lostFocus_).InvokeAll(source, args.Get());
+    }
+    HRESULT STDMETHODCALLTYPE add_GotFocus(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler,
+                                            EventRegistrationToken* token) override {
+        return gotFocus_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_GotFocus(EventRegistrationToken token) override { return gotFocus_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE add_LostFocus(ABI::Windows::UI::Xaml::IRoutedEventHandler* handler,
+                                             EventRegistrationToken* token) override {
+        return lostFocus_.Add(handler, token);
+    }
+    HRESULT STDMETHODCALLTYPE remove_LostFocus(EventRegistrationToken token) override { return lostFocus_.Remove(token); }
+    HRESULT STDMETHODCALLTYPE get_Resources(ABI::Windows::UI::Xaml::IResourceDictionary** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr) && !resources_) hr = MakeResourceDictionary(&resources_);
+        return FAILED(hr) ? hr : resources_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Resources(ABI::Windows::UI::Xaml::IResourceDictionary* value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        resources_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Style(ABI::Windows::UI::Xaml::IStyle** value) override {
+        if (!value) return E_POINTER;
+        *value = nullptr;
+        auto hr = CheckSourceThread();
+        return FAILED(hr) ? hr : style_.CopyTo(value);
+    }
+    // Style values are applied as local values once; replacing or clearing an
+    // applied Style would need value precedence the shim does not model.
+    HRESULT STDMETHODCALLTYPE put_Style(ABI::Windows::UI::Xaml::IStyle* value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        Microsoft::WRL::ComPtr<IUnknown> current, next;
+        if (style_) style_.As(&current);
+        if (value) value->QueryInterface(IID_PPV_ARGS(&next));
+        if (current == next) return S_OK;
+        if (style_) {
+            Log("UNIMPL", "FrameworkElement.Style replacement hr=%08lx", E_NOTIMPL);
+            return E_NOTIMPL;
+        }
+        hr = ApplySourceStyle(value, static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this), Derived::Name);
+        if (SUCCEEDED(hr)) style_ = value;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE GetValue(ABI::Windows::UI::Xaml::IDependencyProperty* property,
+                                       IInspectable** value) override {
+        return properties_.Get(property, value);
+    }
+    HRESULT STDMETHODCALLTYPE SetValue(ABI::Windows::UI::Xaml::IDependencyProperty* property,
+                                       IInspectable* value) override {
+        return properties_.Set(this, property, value);
+    }
+    HRESULT STDMETHODCALLTYPE ClearValue(ABI::Windows::UI::Xaml::IDependencyProperty* property) override {
+        return properties_.Set(this, property, nullptr, true);
+    }
+    HRESULT STDMETHODCALLTYPE ReadLocalValue(ABI::Windows::UI::Xaml::IDependencyProperty* property,
+                                             IInspectable** value) override {
+        return properties_.Get(property, value, true);
+    }
+    HRESULT STDMETHODCALLTYPE GetAnimationBaseValue(ABI::Windows::UI::Xaml::IDependencyProperty* property,
+                                                    IInspectable** value) override {
+        return properties_.Get(property, value);
+    }
     HRESULT STDMETHODCALLTYPE GetPlacement(UINT index, INT32* value) override {
         if (!value) return E_POINTER;
         if (index >= 4) return E_INVALIDARG;
@@ -409,6 +471,54 @@ public:
         height_ = value;
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE get_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = horizontal_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_HorizontalAlignment(ABI::Windows::UI::Xaml::HorizontalAlignment value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (value < ABI::Windows::UI::Xaml::HorizontalAlignment_Left ||
+            value > ABI::Windows::UI::Xaml::HorizontalAlignment_Stretch)
+            return E_INVALIDARG;
+        horizontal_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = vertical_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_VerticalAlignment(ABI::Windows::UI::Xaml::VerticalAlignment value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (value < ABI::Windows::UI::Xaml::VerticalAlignment_Top ||
+            value > ABI::Windows::UI::Xaml::VerticalAlignment_Stretch)
+            return E_INVALIDARG;
+        vertical_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Margin(ABI::Windows::UI::Xaml::Thickness* value) override {
+        if (!value) return E_POINTER;
+        *value = {};
+        auto hr = CheckSourceThread();
+        if (SUCCEEDED(hr)) *value = margin_;
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE put_Margin(ABI::Windows::UI::Xaml::Thickness value) override {
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
+        if (!std::isfinite(value.Left) || !std::isfinite(value.Top) || !std::isfinite(value.Right) ||
+            !std::isfinite(value.Bottom))
+            return E_INVALIDARG;
+        margin_ = value;
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE get_Name(HSTRING* value) override {
         if (!value) return E_POINTER;
         return name_.CopyTo(value);
@@ -462,11 +572,33 @@ public:
         namedElements_[WindowsGetStringRawBuffer(name, nullptr)] = value;
         return S_OK;
     }
+    HRESULT STDMETHODCALLTYPE CheckSourceThread() override {
+        return GetCurrentThreadId() == thread_ ? S_OK : RPC_E_WRONG_THREAD;
+    }
+    void STDMETHODCALLTYPE SetSourceNameScope(const std::shared_ptr<SourceNameScope>& scope, bool root) override {
+        sourceLoaded_ = true;
+        namedElements_.clear();
+        ownedScope_ = root ? scope : nullptr;
+        sourceScope_ = scope;
+    }
     HRESULT STDMETHODCALLTYPE FindName(HSTRING name, IInspectable** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
+        auto hr = CheckSourceThread();
+        if (FAILED(hr)) return hr;
         const wchar_t* text = WindowsGetStringRawBuffer(name, nullptr);
         Log("TRACE", "FindName(%ls)", text);
+        if (sourceLoaded_) {
+            auto scope = sourceScope_.lock();
+            if (!scope) return S_OK;
+            if (!scope->rootName.empty() && scope->rootName == text) {
+                Microsoft::WRL::ComPtr<IInspectable> root;
+                auto hr = scope->root.As(&root);
+                return FAILED(hr) ? hr : root.CopyTo(value);
+            }
+            const auto named = scope->elements.find(text);
+            return named == scope->elements.end() ? S_OK : named->second.CopyTo(value);
+        }
         const auto named = namedElements_.find(text);
         if (named != namedElements_.end()) return named->second.CopyTo(value);
         // Windows 8 DirectX pages use a SwapChainBackgroundPanel under this name.

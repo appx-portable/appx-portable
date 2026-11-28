@@ -1,0 +1,260 @@
+// Automatic package-component surface selection. No per-application member lists.
+using System.Linq;
+
+internal static partial class WinrtProjectionGenerator
+{
+    private static string Scalar(Mono.Cecil.TypeReference type)
+    {
+        switch (type.FullName)
+        {
+            case "System.Boolean": return "byte"; // WinRT boolean is one byte.
+            case "System.Byte": return "byte";
+            case "System.SByte": return "sbyte";
+            case "System.Int16": return "short";
+            case "System.UInt16": return "ushort";
+            case "System.Int32": return "int";
+            case "System.UInt32": return "uint";
+            case "System.Int64": return "long";
+            case "System.UInt64": return "ulong";
+            case "System.Single": return "float";
+            case "System.Double": return "double";
+            case "System.Char": return "ushort";
+            default: return null;
+        }
+    }
+
+    private static System.Xml.XmlDocument ComponentSurface(Mono.Cecil.ModuleDefinition module)
+    {
+        var document = new System.Xml.XmlDocument { XmlResolver = null };
+        var root = document.CreateElement("Projection"); document.AppendChild(root);
+        foreach (var type in module.Types.Where(t => t.IsPublic).OrderBy(t => t.FullName, System.StringComparer.Ordinal))
+        {
+            if (!type.IsWindowsRuntime || type.HasGenericParameters || type.HasNestedTypes)
+                throw new System.NotSupportedException("Unsupported component type: " + type.FullName);
+            string kind = type.IsEnum ? "Enum" : type.IsValueType ? "Struct" : IsDelegate(type) ? "Delegate" : type.IsInterface ? "Interface" : "Class";
+            var element = document.CreateElement(kind); element.SetAttribute("Name", type.FullName); root.AppendChild(element);
+            if (kind != "Class" && kind != "Interface") continue;
+            System.Action<string, string> add = (member, name) =>
+            {
+                var item = document.CreateElement(member);
+                if (name != null) item.SetAttribute("Name", name);
+                element.AppendChild(item);
+            };
+            // One Constructor element projects every public constructor, factory ones included.
+            if (type.Methods.Any(m => m.IsConstructor && m.IsPublic && !m.IsStatic)) add("Constructor", null);
+            foreach (var property in type.Properties) add("Property", property.Name);
+            foreach (var handler in type.Events) add("Event", handler.Name);
+            foreach (string name in type.Methods.Where(m => m.IsPublic && !m.IsConstructor && !m.IsGetter && !m.IsSetter && !m.IsAddOn && !m.IsRemoveOn)
+                .Select(m => m.Name).Distinct()) add("Method", name);
+        }
+        if (!root.HasChildNodes) throw new System.IO.InvalidDataException("No public WinRT component types: " + module.Name);
+        return document;
+    }
+
+    private const string Interop = "global::AppxPortable.WinRT.Interop.";
+    private const string TypeDescriptor = "AppxPortable.WinRT.Interop.ProjectionTypeAttribute";
+    private static bool interop;
+    private static readonly System.Collections.Generic.Dictionary<string, string> contractIids = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal);
+    private static readonly string[] sharedContracts = {
+        "Windows.Foundation.IAsyncOperation`1", "Windows.Foundation.AsyncOperationCompletedHandler`1", "Windows.Foundation.Collections.IVectorView`1",
+        "Windows.Foundation.IAsyncAction", EventHandlerName
+    };
+    private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> external =
+        new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
+    private static readonly System.Collections.Generic.List<Mono.Cecil.TypeDefinition> providers = new System.Collections.Generic.List<Mono.Cecil.TypeDefinition>();
+
+    private static bool Available(string name) { return (selected.Contains(name) && !externalBaseStubs.Contains(name)) || external.ContainsKey(name); }
+    private static void ValidateExternalIdentity(Mono.Cecil.TypeReference type)
+    {
+        Mono.Cecil.TypeDefinition definition;
+        if (external.TryGetValue(type.FullName, out definition)) ValidateProjectionIdentity(type, definition);
+    }
+    private static void ValidateProjectionIdentity(Mono.Cecil.TypeReference type, Mono.Cecil.TypeDefinition definition)
+    {
+        var actual = definition.Module.Assembly.Name;
+        var requested = type.Scope as Mono.Cecil.AssemblyNameReference;
+        if (type is Mono.Cecil.TypeDefinition && ((Mono.Cecil.TypeDefinition)type).Module.Assembly.Name.FullName == actual.FullName) return;
+        if (requested == null || !System.String.Equals(requested.Name, actual.Name, System.StringComparison.OrdinalIgnoreCase) ||
+            requested.Version != actual.Version ||
+            !System.String.Equals(requested.Culture ?? "", actual.Culture ?? "", System.StringComparison.OrdinalIgnoreCase) ||
+            !requested.PublicKeyToken.SequenceEqual(actual.PublicKeyToken))
+            throw new System.NotSupportedException("External projection identity mismatch for " + type.FullName + ": " + type.Scope + " versus " + actual.FullName);
+    }
+    private static void ReferenceProjection(string path)
+    {
+        var module = Mono.Cecil.ModuleDefinition.ReadModule(path, new Mono.Cecil.ReaderParameters { ApplyWindowsRuntimeProjections = false, InMemory = true });
+        modules.Add(module);
+        if (!System.String.Equals(System.IO.Path.GetFileNameWithoutExtension(path), module.Assembly.Name.Name, System.StringComparison.OrdinalIgnoreCase))
+            throw new System.IO.InvalidDataException("Projection reference filename does not match assembly identity: " + module.Assembly.Name.Name);
+        var bridge = module.AssemblyReferences.SingleOrDefault(a => a.Name == "AppxPortable.WinRT.Interop");
+        if (bridge == null || bridge.Version != new System.Version(1, 0, 0, 0) || bridge.PublicKeyToken.Length != 0 || !System.String.IsNullOrEmpty(bridge.Culture) ||
+            Attribute(module.Assembly, "AppxPortable.WinRT.Interop.ProjectionProviderAttribute") == null)
+            throw new System.NotSupportedException("Reference is not an interop projection: " + path);
+        foreach (var contract in module.Assembly.CustomAttributes.Where(a => a.AttributeType.FullName == "AppxPortable.WinRT.Interop.ProjectionContractAttribute"))
+        {
+            string name = (string)contract.ConstructorArguments[0].Value;
+            System.Guid iid;
+            if (!sharedContracts.Contains(name) || !System.Guid.TryParse((string)contract.ConstructorArguments[1].Value, out iid) || contractIids.ContainsKey(name))
+                throw new System.NotSupportedException("Invalid shared projection contract: " + name);
+            contractIids.Add(name, iid.ToString("D"));
+        }
+        foreach (var type in module.Types.Where(t => t.IsPublic))
+        {
+            referenced.Add(type.FullName);
+            referencedTypes[type.FullName] = type;
+            var descriptor = Attribute(type, TypeDescriptor);
+            if (descriptor == null) continue;
+            string iid = (string)descriptor.ConstructorArguments.Single().Value;
+            System.Guid parsed;
+            if (type.HasGenericParameters || (type.IsEnum ? iid != "" : type.IsValueType || !System.Guid.TryParse(iid, out parsed)))
+                throw new System.NotSupportedException("Invalid external projection type: " + type.FullName);
+            if (types.ContainsKey(type.FullName)) throw new System.IO.InvalidDataException("Conflicting external projection type: " + type.FullName);
+            external.Add(type.FullName, type); types.Add(type.FullName, type);
+        }
+    }
+    // Public types of the referenced projections, by name, for stub signatures.
+    private static readonly System.Collections.Generic.HashSet<string> referenced = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+    private static readonly System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition> referencedTypes =
+        new System.Collections.Generic.Dictionary<string, Mono.Cecil.TypeDefinition>(System.StringComparer.Ordinal);
+    private static readonly System.Collections.Generic.HashSet<string> externalBaseStubs =
+        new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
+    // Keep the managed type shape of native classes whose base lives in a
+    // different projection. The native inheritance ABI is not implemented.
+    private static bool ExternalBaseStub(System.Text.StringBuilder output, Mono.Cecil.TypeDefinition type)
+    {
+        Mono.Cecil.TypeDefinition parent;
+        if (!externalBaseStubs.Contains(type.FullName)) return false;
+        parent = referencedTypes[type.BaseType.FullName];
+        ValidateProjectionIdentity(type.BaseType, parent);
+        if (!type.IsSealed || parent.IsSealed)
+            throw new System.NotSupportedException("Unsupported external base class shape: " + type.FullName);
+        var baseConstructor = parent.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic &&
+            (m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly) &&
+            m.Parameters.Count > 0 && m.Parameters.All(p => !p.ParameterType.IsByReference && !p.ParameterType.IsPointer));
+        if (baseConstructor == null)
+            throw new System.NotSupportedException("No usable constructor on external base: " + parent.FullName);
+        output.AppendLine("    public sealed class " + type.Name + " : global::" + parent.FullName);
+        output.AppendLine("    {");
+        output.AppendLine("        private static T UnsupportedConstructor<T>() { throw " + Runtime + "Errors.Unimplemented(\"" + type.FullName + "..ctor\"); }");
+        var defaultArguments = baseConstructor.Parameters.Select(p => "default(" + StubName(p.ParameterType) + ")").ToArray();
+        defaultArguments[0] = "UnsupportedConstructor<" + StubName(baseConstructor.Parameters[0].ParameterType) + ">()";
+        var constructors = type.Methods.Where(m => m.IsConstructor && !m.IsStatic && m.IsPublic).ToArray();
+        foreach (var ctor in constructors)
+            output.AppendLine("        public " + type.Name + "(" + DeclaredParameters(ctor) + ") : base(" + string.Join(", ", defaultArguments) + ") { }");
+        if (constructors.Length == 0)
+            output.AppendLine("        private " + type.Name + "() : base(" + string.Join(", ", defaultArguments) + ") { }");
+        foreach (var method in type.Methods.Where(m => m.IsPublic && !m.IsConstructor))
+            Stub(output, type, method);
+        output.AppendLine("    }");
+        System.Console.Error.WriteLine("Stubbed " + type.FullName + ": external native base " + parent.FullName);
+        return true;
+    }
+    // WinRT types the CLR presents as .NET types, as consumers' signatures name them.
+    private static readonly System.Collections.Generic.Dictionary<string, string> clrNames = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
+    {
+        { "Windows.Foundation.Collections.IVectorView`1", "System.Collections.Generic.IReadOnlyList" },
+        { "Windows.Foundation.Collections.IVector`1", "System.Collections.Generic.IList" },
+        { "Windows.Foundation.Collections.IIterable`1", "System.Collections.Generic.IEnumerable" },
+        { "Windows.Foundation.Collections.IMapView`2", "System.Collections.Generic.IReadOnlyDictionary" },
+        { "Windows.Foundation.Collections.IMap`2", "System.Collections.Generic.IDictionary" },
+        { "Windows.Foundation.Collections.IKeyValuePair`2", "System.Collections.Generic.KeyValuePair" },
+        { "Windows.Foundation.EventHandler`1", "System.EventHandler" },
+        { "Windows.Foundation.IReference`1", "System.Nullable" },
+        { "Windows.Foundation.DateTime", "System.DateTimeOffset" },
+        { "Windows.Foundation.TimeSpan", "System.TimeSpan" },
+        { "Windows.Foundation.Uri", "System.Uri" },
+        { "Windows.Foundation.HResult", "System.Exception" },
+        { "Windows.Foundation.EventRegistrationToken", "System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken" },
+    };
+    // A stub's signature type: the CLR projection's name where the generator has no wrapper.
+    private static string StubName(Mono.Cecil.TypeReference type)
+    {
+        var array = type as Mono.Cecil.ArrayType;
+        if (array != null && array.IsVector) return StubName(array.ElementType) + "[]";
+        var generic = type as Mono.Cecil.GenericInstanceType;
+        string element = (generic != null ? generic.ElementType : type).FullName;
+        string mapped;
+        if (clrNames.TryGetValue(element, out mapped) ||
+            (referenced.Contains(element) || externalBaseStubs.Contains(element)) && (mapped = element.Split('`')[0]) != null)
+            return "global::" + mapped + (generic == null ? "" : "<" + string.Join(", ", generic.GenericArguments.Select(StubName)) + ">");
+        if (generic == null && !type.IsArray && !type.IsByReference && !type.IsPointer && element.StartsWith("System.", System.StringComparison.Ordinal) && element.IndexOf('.', 7) < 0 &&
+            element != "System.Object" && element != "System.String" && Scalar(type) == null && element != "System.Boolean") return "global::" + element;
+        return Name(type);
+    }
+    private static string Wrapped(Mono.Cecil.TypeReference type, string owned)
+    {
+        Mono.Cecil.TypeDefinition definition;
+        if (types.TryGetValue(type.FullName, out definition) && IsDelegate(definition))
+            throw new System.NotSupportedException("Unsupported native delegate result: " + type.FullName);
+        if (ComponentAction(type)) return Runtime + "NativeComponentProjection.Action(" + owned + ")";
+        var sdkFuture = SdkFuture(type);
+        if (sdkFuture != null)
+        {
+            var item = sdkFuture.GenericArguments[0];
+            string signature = EventSignature(item);
+            var contract = Find(sdkFuture.ElementType.FullName);
+            string abi = "new " + Runtime + "FutureAbi(new global::System.Guid(\"" + ParameterizedIid(Iid(contract), signature) +
+                "\"), new global::System.Guid(\"" + ParameterizedIid(Iid(Find("Windows.Foundation.AsyncOperationCompletedHandler`1")), signature) +
+                "\"), global::System.Guid.Empty, " + NamedSlot(contract, "put_Completed") + ", " + NamedSlot(contract, "get_Completed") + ", " + NamedSlot(contract, "GetResults") + ")";
+            return Runtime + "NativeFuture<" + Name(item) + ">.FromNative(" + owned + ", " + abi + ", value => " + Wrapped(item, "value") + ")";
+        }
+        var future = ComponentFuture(type);
+        var view = ComponentView(type);
+        var generic = future ?? view;
+        if (generic != null)
+        {
+            var item = generic.GenericArguments[0];
+            string signature = EventSignature(item);
+            string iid = ParameterizedIid(contractIids[generic.ElementType.FullName], signature);
+            string completed = future == null ? "" : ", new global::System.Guid(\"" + ParameterizedIid(contractIids[sharedContracts[1]], signature) + "\")";
+            return Runtime + "NativeComponentProjection." + (future == null ? "View" : "Operation") + "<" + Name(item) + ">(" + owned +
+                ", new global::System.Guid(\"" + iid + "\")" + completed + ", lease => " + Wrapped(item, Runtime + "NativeObject.FromLease(lease)") + ")";
+        }
+        return external.ContainsKey(type.FullName) ? Interop + "ProjectionInterop.Wrap<" + Name(type) + ">(" + owned + ")"
+            : Wrapper(type) + ".FromNative(" + owned + ")";
+    }
+    private static bool ComponentAction(Mono.Cecil.TypeReference type)
+    {
+        return type.FullName == "Windows.Foundation.IAsyncAction" && referenced.Contains(type.FullName) && contractIids.ContainsKey(type.FullName);
+    }
+    private static Mono.Cecil.GenericInstanceType ComponentContract(Mono.Cecil.TypeReference type, string contract)
+    {
+        var generic = type as Mono.Cecil.GenericInstanceType;
+        if (generic == null || generic.ElementType.FullName != contract || generic.GenericArguments.Count != 1 || !contractIids.ContainsKey(contract)) return null;
+        var item = generic.GenericArguments[0];
+        return Available(item.FullName) && !Find(item.FullName).IsValueType && !IsDelegate(Find(item.FullName)) ? generic : null;
+    }
+    private static Mono.Cecil.GenericInstanceType ComponentFuture(Mono.Cecil.TypeReference type)
+    {
+        return contractIids.ContainsKey(sharedContracts[1]) ? ComponentContract(type, sharedContracts[0]) : null;
+    }
+    private static Mono.Cecil.GenericInstanceType ComponentView(Mono.Cecil.TypeReference type) { return ComponentContract(type, sharedContracts[2]); }
+    private static void Provider(System.Text.StringBuilder output)
+    {
+        var contracts = providers.Where(type => type.IsInterface).ToArray();
+        output.AppendLine("namespace AppxPortable.WinRT.Projected {");
+        output.AppendLine("    internal sealed class CrossAssemblyProvider : " + Interop + "IProjectionProvider" +
+            (contracts.Length == 0 ? "" : ", " + Interop + "IProjectionArgumentProvider") + " {");
+        output.AppendLine("        public CrossAssemblyProvider() { }");
+        output.AppendLine("        public object Wrap(global::System.Type type, global::System.Runtime.InteropServices.SafeHandle borrowed) {");
+        output.AppendLine("            using (var value = " + Runtime + "NativeObject.FromLease(borrowed)) {");
+        foreach (var type in providers)
+            output.AppendLine("                if (type == typeof(global::" + type.FullName + ")) return " +
+                (type.IsInterface ? Projected(type) : "global::" + type.FullName) + ".FromNative(value);");
+        output.AppendLine("                throw new global::System.NotSupportedException(\"Unsupported external wrapper: \" + type.FullName);");
+        output.AppendLine("            }");
+        output.AppendLine("        }");
+        if (contracts.Length != 0)
+        {
+            output.AppendLine("        public global::System.Runtime.InteropServices.SafeHandle AcquireArgument(global::System.Type type, object target, global::System.Guid iid) {");
+            foreach (var type in contracts)
+                output.AppendLine("            if (type == typeof(global::" + type.FullName + ") && iid == " + Guid(type) +
+                    ") return " + Runtime + "NativeObject.Implemented(target, iid, ComponentInterfaces.Of(target));");
+            output.AppendLine("            throw new global::System.NotSupportedException(\"Unsupported external argument: \" + type.FullName);");
+            output.AppendLine("        }");
+        }
+        output.AppendLine("    }");
+        output.AppendLine("}");
+    }
+}

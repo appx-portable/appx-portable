@@ -3,7 +3,10 @@
 #include "assets.h"
 #include "pointer.h"
 #include "placement.h"
+#include "mac_menu.h"
+#include "settings_menu.h"
 #include "gpu/dxgi_redirect.h"
+#include "gpu/xaml_layer.h"
 #include "package/package.h"
 #include "log.h"
 #include <atomic>
@@ -24,6 +27,8 @@ void CoreInputMessage(UINT message, WPARAM wparam, LPARAM lparam);
 bool ExitLikeStoreApp();
 static HWND window;
 static DWORD thread;
+using XamlMessageLoop = HRESULT(__cdecl*)();
+static XamlMessageLoop xamlMessageLoop;
 static std::mutex queueMutex;
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<int, std::deque<std::function<void()>>, std::greater<int>> queue;
@@ -31,7 +36,6 @@ static constexpr UINT WorkMessage = WM_APP + 1;
 static constexpr UINT CreateSurfaceMessage = WM_APP + 2;
 static constexpr UINT FullscreenMessage = WM_APP + 3;
 static constexpr UINT ActivateMessage = WM_APP + 4;
-static constexpr UINT SettingsMenuId = 0x1F00;
 static WindowPlacement placement;
 static std::atomic<float> minimumWidth{0}, minimumHeight{0};
 void SetHostMinimumSize(float width, float height) noexcept {
@@ -51,7 +55,71 @@ static void ApplyHostCursor() {
     ScreenToClient(window, &point);
     if ((under == window || IsChild(window, under)) && PtInRect(&client, point)) SetCursor(HostCursor());
 }
+static HWND xamlFallback;
+static std::atomic<bool> xamlFallbackShown{false};
 static constexpr wchar_t SurfaceClass[] = L"AppxPortableSurface";
+// Wine's Mac driver keeps drawing a hidden child's Vulkan (Metal) view over its
+// siblings, so a hidden surface also leaves the client area. Shown again, it
+// covers the client area.
+static constexpr int HiddenSurfaceX = 16000;
+static void ShowGameSurfaces(bool visible) {
+    RECT client{};
+    GetClientRect(window, &client);
+    for (HWND child = GetWindow(window, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        wchar_t name[64]{};
+        if (!GetClassNameW(child, name, ARRAYSIZE(name)) || wcscmp(name, SurfaceClass) != 0) continue;
+        if (visible)
+            SetWindowPos(child, nullptr, 0, 0, client.right, client.bottom,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        else
+            SetWindowPos(child, nullptr, HiddenSurfaceX, 0, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+    }
+}
+static constexpr wchar_t XamlFallbackClass[] = L"AppxPortableXamlFrame";
+static LRESULT CALLBACK XamlFallbackProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_NCHITTEST) return HTTRANSPARENT;
+    if (message == WM_ERASEBKGND) return 1;
+    const auto result = DefWindowProcW(hwnd, message, wparam, lparam);
+    if (message == WM_PAINT) PresentIdleXamlFrame(true);
+    return result;
+}
+HWND ShowXamlFallbackWindow() {
+    if (!window || GetCurrentThreadId() != thread) return nullptr;
+    if (!xamlFallback) {
+        WNDCLASSW type{};
+        type.lpfnWndProc = XamlFallbackProc;
+        type.hInstance = GetModuleHandleW(nullptr);
+        type.lpszClassName = XamlFallbackClass;
+        if (!RegisterClassW(&type) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return nullptr;
+        xamlFallback = CreateWindowExW(0, XamlFallbackClass, nullptr, WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED, 0, 0, 1,
+                                       1, window, nullptr, type.hInstance, nullptr);
+        if (!xamlFallback) return nullptr;
+    }
+    RECT client{};
+    GetClientRect(window, &client);
+    xamlFallbackShown = true;
+    // Wine's native GPU view can remain above a GDI sibling despite HWND_TOP.
+    // Retained swap chains must not cover the XAML-only view after rendering stops.
+    ShowGameSurfaces(false);
+    // Native service children (such as WebView) must remain above the painted layer.
+    SetWindowPos(xamlFallback, HWND_BOTTOM, 0, 0, client.right, client.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    return xamlFallback;
+}
+void HideXamlFallbackWindow() {
+    if (!xamlFallbackShown.exchange(false)) return;
+    auto hide = [] {
+        // A newer idle frame may have been shown while this hide was queued.
+        if (xamlFallback && !xamlFallbackShown.load()) {
+            ShowGameSurfaces(true);
+            ShowWindow(xamlFallback, SW_HIDE);
+        }
+    };
+    if (GetCurrentThreadId() == thread)
+        hide();
+    else
+        PostHostWork(0, hide);
+}
 // Composition swap chains are independent layers, and the game creates its
 // next one (on resize) before releasing the old. A window holds one flip-model
 // swap chain at a time, so each redirected swap chain gets its own child
@@ -101,8 +169,12 @@ static void AcceptCallsFromOtherApartments() {
 static HWND CreateSurfaceOnHostThread() {
     RECT client{};
     GetClientRect(window, &client);
-    HWND surface = CreateWindowExW(0, SurfaceClass, nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0,
-                                   client.right, client.bottom, window, nullptr, GetModuleHandleW(nullptr), nullptr);
+    // Presentation children must also be skipped by native WindowFromPoint;
+    // HTTRANSPARENT alone does not remove them from that hit test.
+    const bool hidden = xamlFallbackShown.load();
+    const DWORD style = WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED | (hidden ? 0 : WS_VISIBLE);
+    HWND surface = CreateWindowExW(0, SurfaceClass, nullptr, style, hidden ? HiddenSurfaceX : 0, 0, client.right,
+                                   client.bottom, window, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (surface) SetWindowPos(surface, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     return surface;
 }
@@ -166,6 +238,7 @@ void SetHostTitle(const std::wstring& title) {
     }
 }
 DWORD HostThread() noexcept { return thread; }
+bool OnHostThread() noexcept { return thread && GetCurrentThreadId() == thread; }
 void ActivateHostWindow() {
     if (window) SendMessageW(window, ActivateMessage, 0, 0);
 }
@@ -262,6 +335,11 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
         if (!(lparam & (1L << 30))) placement.SetFullscreen(!placement.IsFullscreen());
         return 0;
     }
+    if (message == WM_PAINT) {
+        const auto result = DefWindowProcW(hwnd, message, wparam, lparam);
+        PresentIdleXamlFrame(true);
+        return result;
+    }
     if (message == CreateSurfaceMessage) return reinterpret_cast<LRESULT>(CreateSurfaceOnHostThread());
     if ((message == WM_WINDOWPOSCHANGED && (reinterpret_cast<WINDOWPOS*>(lparam)->flags & SWP_SHOWWINDOW)) ||
         (message == WM_SIZE && wparam != SIZE_MINIMIZED))
@@ -278,9 +356,15 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
             ResizeIslandView(LOWORD(lparam), HIWORD(lparam));
         } else {
             // Surfaces fill the client area; DXGI stretches each buffer to its window.
-            for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
+            // Other children, such as managed HTML views, have their own layout.
+            for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+                wchar_t name[64]{};
+                if (child != xamlFallback &&
+                    (!GetClassNameW(child, name, ARRAYSIZE(name)) || wcscmp(name, SurfaceClass) != 0))
+                    continue;
                 SetWindowPos(child, nullptr, 0, 0, LOWORD(lparam), HIWORD(lparam),
                              SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
         }
     }
     if (message == WM_ACTIVATE) {
@@ -373,11 +457,7 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
                              CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, nullptr,
                              nullptr, cls.hInstance, nullptr);
     if (!window) return HRESULT_FROM_WIN32(GetLastError());
-    if (IslandsMode()) {
-        auto menu = GetSystemMenu(window, FALSE);
-        InsertMenuW(menu, SC_CLOSE, MF_BYCOMMAND | MF_STRING, SettingsMenuId, L"Game settings\tCtrl+,");
-        InsertMenuW(menu, SC_CLOSE, MF_BYCOMMAND | MF_SEPARATOR, 0, nullptr);
-    }
+    InitializeSettingsMenu(window);
     // The window icon is the manifest's small logo, at the file resources.pri
     // picks for this display.
     const auto& package = CurrentPackage();
@@ -393,24 +473,31 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     placement.Initialize(window);
     HRESULT hr = IslandsMode() ? S_OK : InitializeGraphicsRedirect();
     if (FAILED(hr)) Log("FAIL", "DXGI redirect initialization hr=%08lx", hr);
-    if (SUCCEEDED(hr)) hr = initialize();
     if (SUCCEEDED(hr)) {
+        InitializeMacGameMenu(window);
+        hr = initialize();
+    }
+    if (SUCCEEDED(hr) && xamlMessageLoop) {
+        // Managed WPF owns its dispatcher loop, including its message filters
+        // and rendering lifecycle. Native host messages still reach our HWND.
+        hr = xamlMessageLoop();
+    } else if (SUCCEEDED(hr)) {
         MSG msg{};
         BOOL result;
         while ((result = GetMessageW(&msg, nullptr, 0, 0)) > 0) {
-            if (IslandsMode() &&
-                (msg.hwnd == window || IsChild(window, msg.hwnd) || GetAncestor(msg.hwnd, GA_ROOTOWNER) == window) &&
-                msg.message == WM_KEYDOWN && msg.wParam == VK_OEM_COMMA && (GetKeyState(VK_CONTROL) & 0x8000)) {
-                if (!(msg.lParam & (1L << 30))) ShowGameSettings();
-                continue;
-            }
             if (IslandsMode() && IslandPreTranslate(&msg)) continue;
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
         if (result == -1) hr = HRESULT_FROM_WIN32(GetLastError());
     }
+    ShutdownMacGameMenu(window);
+    xamlMessageLoop = nullptr;
+    ShutdownSettingsMenu();
+    ShutdownXamlLayer();
     if (IsWindow(window)) DestroyWindow(window);
+    xamlFallback = nullptr;
+    xamlFallbackShown = false;
     if (smallIcon) DestroyIcon(smallIcon);
     if (largeIcon) DestroyIcon(largeIcon);
     {
@@ -424,4 +511,10 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
     return hr;
 }
+}
+
+extern "C" HRESULT __cdecl ShimSetXamlMessageLoop(appx::XamlMessageLoop loop) noexcept {
+    if (!appx::OnHostThread()) return RPC_E_WRONG_THREAD;
+    appx::xamlMessageLoop = loop;
+    return S_OK;
 }

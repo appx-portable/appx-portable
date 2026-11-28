@@ -3,6 +3,7 @@
 #include "generated/storage.h"
 #include "storage.h"
 #include "file_stream.h"
+#include "com/async_action.h"
 #include "com/completed_operation.h"
 #include "com/failed_operation.h"
 #include "log.h"
@@ -76,7 +77,6 @@ public:
         *value = (type & StorageItemTypes_File) != 0;
         return S_OK;
     }
-    // Reading only: the stream refuses writes, so ReadWrite fails here instead.
     HRESULT STDMETHODCALLTYPE OpenReadAsync(IAsyncOperation<IRandomAccessStreamWithContentType*>** operation) override {
         return Open<IRandomAccessStreamWithContentType*, IRandomAccessStreamWithContentType>(operation);
     }
@@ -85,23 +85,38 @@ public:
     }
     HRESULT STDMETHODCALLTYPE OpenAsync(FileAccessMode mode,
                                         IAsyncOperation<IRandomAccessStream*>** operation) override {
-        if (mode != FileAccessMode_Read) {
-            if (operation) *operation = nullptr;
-            Log("UNIMPL", "StorageFile %ls OpenAsync for writing", path_.c_str());
-            return E_NOTIMPL;
-        }
-        return Open<IRandomAccessStream*, IRandomAccessStream>(operation);
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        if (mode != FileAccessMode_Read && mode != FileAccessMode_ReadWrite) return E_INVALIDARG;
+        return Open<IRandomAccessStream*, IRandomAccessStream>(operation, mode == FileAccessMode_ReadWrite);
+    }
+    // Package data never reaches a recycle bin, so both options delete the file.
+    // A failure completes the action with its error, as on Windows.
+    HRESULT STDMETHODCALLTYPE
+    DeleteAsyncOverloadDefaultOptions(ABI::Windows::Foundation::IAsyncAction** operation) override {
+        return DeleteAsync(StorageDeleteOption_Default, operation);
+    }
+    HRESULT STDMETHODCALLTYPE DeleteAsync(StorageDeleteOption,
+                                          ABI::Windows::Foundation::IAsyncAction** operation) override {
+        if (!operation) return E_POINTER;
+        *operation = nullptr;
+        auto action = Make<AsyncAction>(true);
+        if (!action) return E_OUTOFMEMORY;
+        const HRESULT error = DeleteFileW(path_.c_str()) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+        Log("TRACE", "StorageFile %ls DeleteAsync hr=%08lx", path_.c_str(), error);
+        action->Finish(error);
+        return action.CopyTo(operation);
     }
 
 private:
-    template <class T, class Stream> HRESULT Open(IAsyncOperation<T>** operation) {
+    template <class T, class Stream> HRESULT Open(IAsyncOperation<T>** operation, bool writable = false) {
         if (!operation) return E_POINTER;
         *operation = nullptr;
         Wrappers::HString type;
         auto hr = get_ContentType(type.GetAddressOf());
         if (FAILED(hr)) return hr;
         ComPtr<IRandomAccessStreamWithContentType> opened;
-        hr = OpenFileStream(path_, type.GetRawBuffer(nullptr), &opened);
+        hr = OpenFileStream(path_, type.GetRawBuffer(nullptr), &opened, writable);
         ComPtr<Stream> stream;
         if (SUCCEEDED(hr)) hr = opened.As(&stream);
         if (FAILED(hr)) {

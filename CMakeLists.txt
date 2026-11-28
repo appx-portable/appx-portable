@@ -39,9 +39,15 @@ add_custom_target(appxportable_version
   BYPRODUCTS "${APPX_GENERATED}/version.h"
   VERBATIM)
 add_executable(shimtest tests/shimtest.cpp)
+add_executable(macmenutest tests/macmenutest.cpp shim/host/mac_menu.cpp)
+target_include_directories(macmenutest PRIVATE shim)
+add_executable(settingsmenutest tests/settingsmenutest.cpp shim/host/settings_menu.cpp)
+target_include_directories(settingsmenutest PRIVATE shim)
+add_test(NAME settings_menu_shortcut COMMAND settingsmenutest)
+add_test(NAME mac_menu_optional_bridge COMMAND macmenutest)
 target_link_libraries(shimtest PRIVATE runtimeobject ole32)
 if(EXISTS "${CMAKE_SOURCE_DIR}/shim/registry.cpp")
-  add_library(appxportable SHARED shim/registry.cpp shim/compat/win10/titlebar.cpp shim/compat/win10/input.cpp shim/compat/win10/xaml.cpp shim/compat/win10/memory.cpp shim/compat/win10/api_information.cpp shim/islands/islands.cpp shim/islands/panel.cpp shim/islands/scroll.cpp shim/islands/appearance.cpp shim/islands/mode.cpp shim/islands/webview.cpp shim/islands/webview_markup.cpp shim/islands/xbf_loader.cpp shim/xaml/xbf_webview.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/entry/activation_hook.cpp shim/entry/managed_components.cpp shim/package/package.cpp shim/package/resources.cpp shim/xaml/xbf.cpp shim/platform/package_identity.cpp shim/xbox/xbox.cpp shim/xbox/marketplace.cpp shim/com/failed_operation.cpp shim/com/pinterface.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/input_capabilities.cpp shim/platform/sensors.cpp shim/platform/media_device.cpp shim/platform/device_information.cpp shim/platform/signal_notifier.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/application_view.cpp shim/platform/input_pane.cpp shim/platform/text_input.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/storage_file.cpp shim/platform/file_stream.cpp shim/platform/mf_stream.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/charms.cpp shim/stubs/search.cpp shim/stubs/http_client_csharp.cpp shim/stubs/notifications_extensions.cpp shim/stubs/google_analytics.cpp shim/stubs/background_tasks.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/assets.cpp shim/host/placement.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/xaml/data.cpp ${APPX_EXPORTS} shim/version.rc)
+  add_library(appxportable SHARED shim/registry.cpp shim/compat/win10/titlebar.cpp shim/compat/win10/input.cpp shim/compat/win10/xaml.cpp shim/compat/win10/memory.cpp shim/compat/win10/api_information.cpp shim/islands/islands.cpp shim/islands/panel.cpp shim/islands/scroll.cpp shim/islands/appearance.cpp shim/islands/mode.cpp shim/islands/webview.cpp shim/islands/webview_markup.cpp shim/islands/xbf_loader.cpp shim/xaml/xbf_webview.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/gpu/xaml_layer.cpp shim/entry/activation_hook.cpp shim/entry/managed_components.cpp shim/package/package.cpp shim/package/resources.cpp shim/xaml/xbf.cpp shim/platform/package_identity.cpp shim/xbox/xbox.cpp shim/xbox/marketplace.cpp shim/com/failed_operation.cpp shim/com/pinterface.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/input_capabilities.cpp shim/platform/sensors.cpp shim/platform/design_mode.cpp shim/platform/media_device.cpp shim/platform/device_information.cpp shim/platform/pnp_object.cpp shim/platform/signal_notifier.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/data_writer.cpp shim/platform/application_view.cpp shim/platform/input_pane.cpp shim/platform/text_input.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/storage_file.cpp shim/platform/file_io.cpp shim/platform/file_stream.cpp shim/platform/buffer.cpp shim/platform/crypto.cpp shim/platform/http_request.cpp shim/platform/mf_stream.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/charms.cpp shim/stubs/message_dialog.cpp shim/message_dialog.rc shim/stubs/search.cpp shim/stubs/http_client_csharp.cpp shim/stubs/notifications_extensions.cpp shim/stubs/google_analytics.cpp shim/stubs/background_tasks.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/mac_menu.cpp shim/host/settings_menu.cpp shim/host/assets.cpp shim/host/placement.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/xaml/data.cpp shim/xaml/properties.cpp shim/xaml/source.cpp shim/xaml/grid.cpp shim/xaml/brush.cpp shim/xaml/image.cpp shim/xaml/text.cpp shim/xaml/viewbox.cpp shim/xaml/animation.cpp shim/xaml/resources.cpp shim/xaml/style.cpp ${APPX_EXPORTS} shim/version.rc)
   target_include_directories(appxportable PRIVATE shim "${APPX_GENERATED}")
   target_sources(appxportable PRIVATE shim/stubs/facebook.cpp)
   target_sources(appxportable PRIVATE shim/xaml/image.cpp)
@@ -81,6 +87,9 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/shim/registry.cpp")
 endif()
 add_executable(xamltest tests/xamltest.cpp)
 target_link_libraries(xamltest PRIVATE runtimeobject ole32)
+add_executable(dependencytest tests/dependencytest.cpp)
+target_link_libraries(dependencytest PRIVATE runtimeobject ole32)
+add_test(NAME dependencytest COMMAND dependencytest)
 add_executable(controltest tests/controltest.cpp)
 target_link_libraries(controltest PRIVATE runtimeobject ole32)
 add_executable(platformtest tests/platformtest.cpp)
@@ -145,11 +154,34 @@ add_test(NAME proxytest COMMAND proxytest)
 add_executable(gputest tests/gputest.cpp)
 target_link_libraries(gputest PRIVATE runtimeobject ole32 d3d11 dxgi)
 add_test(NAME gputest COMMAND gputest)
+add_executable(wictexttest tests/wictexttest.cpp)
+target_link_libraries(wictexttest PRIVATE d2d1 windowscodecs ole32)
+add_test(NAME wic_text_bitmap COMMAND wictexttest)
+set_tests_properties(wic_text_bitmap PROPERTIES TIMEOUT 60 LABELS gpu)
+add_executable(rendertest tests/rendertest.cpp)
+target_link_libraries(rendertest PRIVATE runtimeobject ole32 d3d11 dxgi d2d1 windowscodecs)
+add_test(NAME rendertest COMMAND rendertest)
+add_executable(d3d9pixeltest tests/d3d9pixeltest.cpp)
+target_link_libraries(d3d9pixeltest PRIVATE d3d9 user32)
+add_test(NAME d3d9pixeltest COMMAND d3d9pixeltest)
+add_executable(d3d9topologytest tests/d3d9topologytest.cpp)
+target_link_libraries(d3d9topologytest PRIVATE d3d9 user32)
+add_test(NAME d3d9topologytest COMMAND d3d9topologytest)
+add_executable(d3d9cleartest tests/d3d9cleartest.cpp)
+target_link_libraries(d3d9cleartest PRIVATE d3d9 user32)
+add_test(NAME d3d9cleartest COMMAND d3d9cleartest)
+add_executable(xamllayertest tests/xamllayertest.cpp)
+target_link_libraries(xamllayertest PRIVATE runtimeobject ole32 d3d11 dxgi)
+add_test(NAME xamllayertest COMMAND xamllayertest)
+set_tests_properties(rendertest PROPERTIES TIMEOUT 60)
 add_executable(capture tests/capture.cpp)
 target_link_libraries(capture PRIVATE gdi32 user32)
 add_executable(storagetest tests/storagetest.cpp)
 target_link_libraries(storagetest PRIVATE runtimeobject ole32)
 add_test(NAME storagetest COMMAND storagetest)
+add_executable(filestreamtest tests/filestreamtest.cpp)
+target_link_libraries(filestreamtest PRIVATE runtimeobject ole32)
+add_test(NAME filestreamtest COMMAND filestreamtest)
 add_test(NAME settings_write COMMAND storagetest write)
 set_tests_properties(settings_write PROPERTIES FIXTURES_SETUP settings_roundtrip)
 add_test(NAME settings_read COMMAND storagetest read)
@@ -178,6 +210,18 @@ add_test(NAME contexttest COMMAND contexttest)
 add_executable(win10test tests/win10test.cpp)
 target_link_libraries(win10test PRIVATE runtimeobject ole32 user32)
 add_test(NAME win10test COMMAND win10test)
+add_executable(writertest tests/writertest.cpp)
+target_link_libraries(writertest PRIVATE runtimeobject ole32)
+add_test(NAME writertest COMMAND writertest)
+
+add_executable(httptest tests/httptest.cpp)
+target_link_libraries(httptest PRIVATE runtimeobject ole32)
+add_test(NAME httptest COMMAND httptest)
+set_tests_properties(httptest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+
+add_executable(cryptotest tests/cryptotest.cpp)
+target_link_libraries(cryptotest PRIVATE runtimeobject ole32)
+add_test(NAME cryptotest COMMAND cryptotest)
 add_executable(readertest tests/readertest.cpp)
 target_link_libraries(readertest PRIVATE runtimeobject ole32)
 add_test(NAME readertest COMMAND readertest)
@@ -230,6 +274,19 @@ if(WIN32)
     "-DFIXTURE=${CMAKE_CURRENT_BINARY_DIR}/islands-toast-fixture"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/islands_runtime.cmake")
 endif()
+add_library(component_dependency_fixture SHARED tests/component_dependency_fixture.cpp)
+target_link_libraries(component_dependency_fixture PRIVATE runtimeobject)
+add_library(component_projection_fixture SHARED tests/component_projection_fixture.cpp tests/component_projection_fixture.def)
+target_link_libraries(component_projection_fixture PRIVATE runtimeobject ole32 component_dependency_fixture)
+add_library(page_projection_fixture SHARED tests/page_projection_fixture.cpp tests/page_projection_fixture.def)
+target_link_libraries(page_projection_fixture PRIVATE runtimeobject ole32)
+add_library(network_projection_fixture SHARED tests/network_projection_fixture.cpp tests/network_projection_fixture.def)
+target_link_libraries(network_projection_fixture PRIVATE runtimeobject ole32)
+add_executable(completiontest tests/completiontest.cpp)
+target_link_libraries(completiontest PRIVATE runtimeobject ole32)
+add_test(NAME completiontest COMMAND completiontest)
+set_tests_properties(completiontest PROPERTIES TIMEOUT 60
+    ENVIRONMENT "APPX_PORTABLE_DATA=${CMAKE_CURRENT_BINARY_DIR}/completion-save")
 add_executable(storetest tests/storetest.cpp)
 target_link_libraries(storetest PRIVATE runtimeobject ole32)
 add_test(NAME storetest COMMAND storetest)
@@ -293,6 +350,140 @@ set_tests_properties(store_stub_iap_disabled PROPERTIES ENVIRONMENT_MODIFICATION
 add_executable(devicetest tests/devicetest.cpp)
 target_link_libraries(devicetest PRIVATE runtimeobject ole32)
 add_test(NAME devicetest COMMAND devicetest)
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+  add_executable(wine_wow64_transition tests/wine_wow64_transition.cpp)
+  target_compile_options(wine_wow64_transition PRIVATE /Oy-)
+  add_test(NAME wine_wow64_transition COMMAND wine_wow64_transition)
+  set_tests_properties(wine_wow64_transition PROPERTIES TIMEOUT 20 LABELS managed-clr)
+  # Generated Windows projection under an explicit Wine engine, prefix, SDK
+  # contract metadata directory and Mono.Cecil; none of these ship with games.
+  set(APPX_WINE "" CACHE FILEPATH "Wine executable for the WinRT projection probe")
+  set(APPX_WINE_PREFIX "" CACHE PATH "Isolated WINEPREFIX for the WinRT projection probe")
+  if(APPX_WINE AND APPX_WINE_PREFIX)
+    set_property(TARGET dependencytest PROPERTY CROSSCOMPILING_EMULATOR "${APPX_WINE}")
+    set_tests_properties(dependencytest PROPERTIES TIMEOUT 45
+      ENVIRONMENT "WINEPREFIX=${APPX_WINE_PREFIX};WINEDEBUG=-all;MVK_CONFIG_LOG_LEVEL=0")
+  endif()
+  set(APPX_WINRT_METADATA "" CACHE PATH "Directory of SDK contract .winmd files")
+  set(APPX_WINRT_CECIL "" CACHE FILEPATH "Mono.Cecil.dll used only at build time")
+  set(APPX_XBOX_METADATA "" CACHE FILEPATH "Package Microsoft.Xbox.winmd used only at build time")
+  set(APPX_SHARPDX "" CACHE FILEPATH "Package SharpDX.dll for Mono generic-copy verification")
+  if(APPX_WINE AND APPX_WINE_PREFIX AND APPX_WINRT_METADATA AND APPX_WINRT_CECIL)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME winrt_coreapplication_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-coreapplication-projection")
+    set_tests_properties(winrt_coreapplication_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
+    add_test(NAME winrt_storage_buffer_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-storage-buffer-projection" --fixture storage-buffer)
+    set_tests_properties(winrt_storage_buffer_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;storage")
+    add_test(NAME winrt_task_bridge_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-task-bridge-projection" --fixture task-bridge)
+    set_tests_properties(winrt_task_bridge_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;async")
+    add_test(NAME winrt_message_dialog_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-coreapplication.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-message-dialog-projection" --fixture message-dialog)
+    set_tests_properties(winrt_message_dialog_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;dialog")
+    if(APPX_SHARPDX)
+      add_test(NAME winrt_sharpdx_mono COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/probe-sharpdx.py"
+        --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}" --cecil "${APPX_WINRT_CECIL}"
+        --source "${APPX_SHARPDX}" --output "${CMAKE_BINARY_DIR}/winrt-sharpdx-mono")
+      set_tests_properties(winrt_sharpdx_mono PROPERTIES TIMEOUT 300 LABELS "managed-clr;mono")
+    endif()
+    if(APPX_XBOX_METADATA)
+      add_test(NAME winrt_xbox_marketplace_projection COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/probe-xbox-marketplace.py"
+        --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+        --sdk-metadata "${APPX_WINRT_METADATA}"
+        --metadata "${APPX_XBOX_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+        --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-xbox-marketplace-projection")
+      set_tests_properties(winrt_xbox_marketplace_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;xbox")
+    endif()
+    add_test(NAME winrt_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --network-fixture "$<TARGET_FILE:network_projection_fixture>" --page-fixture "$<TARGET_FILE:page_projection_fixture>" --output "${CMAKE_BINARY_DIR}/winrt-projection")
+    set_tests_properties(winrt_projection PROPERTIES TIMEOUT 600 LABELS managed-clr)
+    add_test(NAME winrt_component_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-component-projection" --component-only)
+    set_tests_properties(winrt_component_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
+    add_test(NAME winrt_page_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --page-fixture "$<TARGET_FILE:page_projection_fixture>"
+      --output "${CMAKE_BINARY_DIR}/winrt-page-projection" --page-only)
+    set_tests_properties(winrt_page_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
+    add_test(NAME winrt_splash_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-splash-projection" --splash-only)
+    set_tests_properties(winrt_splash_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;activation")
+    add_test(NAME winrt_network_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --network-fixture "$<TARGET_FILE:network_projection_fixture>"
+      --output "${CMAKE_BINARY_DIR}/winrt-network-projection" --network-only)
+    set_tests_properties(winrt_network_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;network")
+    add_test(NAME winrt_storage_io_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-storage-io-projection" --io-only)
+    set_tests_properties(winrt_storage_io_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;storage")
+    add_test(NAME winrt_async_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-async-projection" --async-only)
+    set_tests_properties(winrt_async_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;async")
+    add_test(NAME winrt_storage_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-storage-projection" --storage-only)
+    set_tests_properties(winrt_storage_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;storage")
+    set(APPX_SURFACE_CONSUMERS "")
+    foreach(consumer Bejeweled3.exe DT.GoogleAnalytics.Metro.dll)
+      if(EXISTS "${CMAKE_SOURCE_DIR}/local/bejeweled-wine/${consumer}")
+        list(APPEND APPX_SURFACE_CONSUMERS --consumer "${CMAKE_SOURCE_DIR}/local/bejeweled-wine/${consumer}")
+      endif()
+    endforeach()
+    add_test(NAME winrt_surface_projection COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+      --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+      --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+      --shim "$<TARGET_FILE:appxportable>" --page-fixture "$<TARGET_FILE:page_projection_fixture>"
+      --output "${CMAKE_BINARY_DIR}/winrt-surface-projection" --surface-only ${APPX_SURFACE_CONSUMERS})
+    set_tests_properties(winrt_surface_projection PROPERTIES TIMEOUT 900 LABELS managed-clr)
+    if(APPX_XBOX_METADATA)
+      add_test(NAME winrt_xbox_projection COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/probe-winrt-projection.py"
+        --wine "${APPX_WINE}" --prefix "${APPX_WINE_PREFIX}"
+        --metadata "${APPX_WINRT_METADATA}" --cecil "${APPX_WINRT_CECIL}"
+        --shim "$<TARGET_FILE:appxportable>" --output "${CMAKE_BINARY_DIR}/winrt-xbox-projection"
+        --xbox-metadata "${APPX_XBOX_METADATA}" --xbox-only)
+      set_tests_properties(winrt_xbox_projection PROPERTIES TIMEOUT 600 LABELS "managed-clr;xbox")
+    endif()
+  endif()
+endif()
 add_executable(navtest tests/navtest.cpp)
 target_link_libraries(navtest PRIVATE runtimeobject ole32)
 add_test(NAME navtest COMMAND navtest)
@@ -301,7 +492,7 @@ target_link_libraries(mediatest PRIVATE runtimeobject ole32 shlwapi)
 add_test(NAME mediatest COMMAND mediatest)
 set_tests_properties(mediatest PROPERTIES TIMEOUT 60)
 add_executable(mfstreamtest tests/mfstreamtest.cpp)
-target_link_libraries(mfstreamtest PRIVATE runtimeobject ole32 mfplat mfuuid shlwapi)
+target_link_libraries(mfstreamtest PRIVATE runtimeobject ole32 mfplat mfuuid shlwapi shcore)
 add_test(NAME mfstreamtest COMMAND mfstreamtest)
 set_tests_properties(mfstreamtest PROPERTIES TIMEOUT 30)
 add_executable(cursortest tests/cursortest.cpp tests/cursortest.rc)
@@ -360,8 +551,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     COMMAND "${APPX_CSC}" /nologo /platform:${APPX_HOST_ARCH} /target:winexe
       /win32manifest:${CMAKE_SOURCE_DIR}/host/managed.manifest
       /r:System.Windows.Forms.dll /out:${CMAKE_BINARY_DIR}/appx-host.exe
-      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}"
-    DEPENDS host/managed.cs host/components.cs host/managed.manifest VERBATIM)
+      "${APPX_HOST_SOURCE}" "${APPX_COMPONENTS_SOURCE}" "${CMAKE_SOURCE_DIR}/host/projections.cs"
+    DEPENDS host/managed.cs host/components.cs host/projections.cs host/managed.manifest VERBATIM)
   # A native game's C# components: the shim loads this bridge into the desktop
   # CLR it starts in the game, so there is nothing for players to start.
   add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/appx-components.dll"
@@ -370,6 +561,25 @@ if(NOT CMAKE_CROSSCOMPILING)
     DEPENDS host/components.cs VERBATIM)
   add_custom_target(appx_managed_host ALL
     DEPENDS "${CMAKE_BINARY_DIR}/appx-host.exe" "${CMAKE_BINARY_DIR}/appx-components.dll")
+  # Experimental explicit WinRT ABI bridge; not yet installed into games.
+  set(APPX_WINRT_SOURCES host/winrt/abi.cs host/winrt/ccw.cs host/winrt/dispatcher.cs host/winrt/property_abi.cs host/winrt/collections.cs host/winrt/package.cs host/winrt/assembly.cs)
+  set(APPX_WINRT_NATIVE_SOURCES)
+  foreach(source IN LISTS APPX_WINRT_SOURCES)
+    file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/${source}" native_source)
+    list(APPEND APPX_WINRT_NATIVE_SOURCES "${native_source}")
+  endforeach()
+  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/AppxPortable.WinRT.dll"
+    COMMAND "${APPX_CSC}" /nologo /codepage:65001 /warnaserror+ /platform:anycpu /target:library
+      /out:${CMAKE_BINARY_DIR}/AppxPortable.WinRT.dll ${APPX_WINRT_NATIVE_SOURCES}
+    DEPENDS ${APPX_WINRT_SOURCES} VERBATIM)
+  add_custom_target(appx_managed_winrt ALL DEPENDS "${CMAKE_BINARY_DIR}/AppxPortable.WinRT.dll")
+  add_test(NAME managed_winrt_bridge COMMAND "${CMAKE_COMMAND}"
+    "-DCSC=${APPX_CSC}" "-DARCH=${APPX_HOST_ARCH}"
+    "-DSOURCE=${CMAKE_SOURCE_DIR}/tests/managed_winrt_bridge.cs"
+    "-DBRIDGE=${CMAKE_BINARY_DIR}/AppxPortable.WinRT.dll" "-DSHIM=$<TARGET_FILE:appxportable>"
+    "-DFIXTURE=${CMAKE_BINARY_DIR}/managed-winrt-bridge-fixture"
+    -P "${CMAKE_SOURCE_DIR}/tests/managed_winrt_bridge.cmake")
+  set_tests_properties(managed_winrt_bridge PROPERTIES TIMEOUT 45 LABELS managed-clr)
   add_test(NAME xbox11_standins COMMAND "${CMAKE_COMMAND}"
     "-DCSC=${APPX_CSC}" "-DTEST_EXE=$<TARGET_FILE:standintest>"
     "-DSHIM=$<TARGET_FILE:appxportable>" "-DFIXTURE=${CMAKE_BINARY_DIR}/xbox11-fixture"

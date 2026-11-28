@@ -1,0 +1,667 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+namespace AppxPortable.WinRT
+{
+    // Snapshot an object-list argument as its metadata-derived IVectorView<T>.
+    // Delegates remain outside generic types for Wine Mono's unmanaged marshaler.
+    internal sealed class ObjectViewArgument
+    {
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int GetAtCall(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int SizeCall(IntPtr self, out uint count);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int IndexOfCall(IntPtr self, IntPtr value, out uint index, out byte found);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int GetManyCall(IntPtr self, uint start, uint capacity, IntPtr values, out uint count);
+        private static readonly Dictionary<Guid, NativeInterface> contracts = new Dictionary<Guid, NativeInterface>();
+        private readonly object[] items;
+        private readonly Guid itemIid;
+        private ObjectViewArgument(object[] items, Guid itemIid) { this.items = items; this.itemIid = itemIid; }
+        internal static ManagedObject.Held Hold<T>(IReadOnlyList<T> values, Guid iid, Guid itemIid) where T : class
+        {
+            if (values == null) return ManagedObject.Hold(null);
+            var items = new object[values.Count];
+            for (int i = 0; i < items.Length; ++i) items[i] = values[i];
+            NativeInterface contract;
+            lock (contracts)
+            {
+                if (!contracts.TryGetValue(iid, out contract))
+                {
+                    contract = new NativeInterface(iid, true, new GetAtCall(GetAt), new SizeCall(Size), new IndexOfCall(IndexOf), new GetManyCall(GetMany));
+                    contracts.Add(iid, contract);
+                }
+            }
+            return ManagedObject.Hold(new ObjectViewArgument(items, itemIid), contract);
+        }
+        private IntPtr Item(uint index)
+        {
+            if (index >= items.Length) throw new COMException("Vector index out of bounds", unchecked((int)0x8000000b));
+            using (var value = NativeObject.Argument(items[index], itemIid))
+            {
+                if (value == null) return IntPtr.Zero;
+                IntPtr result = value.DangerousGetHandle();
+                Marshal.AddRef(result);
+                return result;
+            }
+        }
+        private static int GetAt(IntPtr self, uint index, out IntPtr value)
+        {
+            IntPtr result = IntPtr.Zero;
+            int hr = ManagedObject.Call(self, target => result = ((ObjectViewArgument)target).Item(index));
+            value = result; return hr;
+        }
+        private static int Size(IntPtr self, out uint count)
+        {
+            uint result = 0;
+            int hr = ManagedObject.Call(self, target => result = checked((uint)((ObjectViewArgument)target).items.Length));
+            count = result; return hr;
+        }
+        private static int IndexOf(IntPtr self, IntPtr value, out uint index, out byte found)
+        {
+            uint result = 0; byte matched = 0;
+            int hr = ManagedObject.Call(self, target =>
+            {
+                var view = (ObjectViewArgument)target;
+                using (var candidate = NativeObject.Borrow(value))
+                {
+                    for (uint i = 0; i < view.items.Length; ++i)
+                    using (var item = NativeObject.Argument(view.items[i], view.itemIid))
+                        if (item == null ? candidate == null : candidate != null && item.Identity() == candidate.Identity())
+                        { result = i; matched = 1; break; }
+                }
+            });
+            index = result; found = matched; return hr;
+        }
+        private static int GetMany(IntPtr self, uint start, uint capacity, IntPtr values, out uint count)
+        {
+            uint copied = 0;
+            int hr = ManagedObject.Call(self, target =>
+            {
+                var view = (ObjectViewArgument)target;
+                if (start > view.items.Length) throw new COMException("Vector index out of bounds", unchecked((int)0x8000000b));
+                uint length = Math.Min(capacity, checked((uint)view.items.Length) - start);
+                if (length != 0 && values == IntPtr.Zero) throw new COMException("Null vector buffer", unchecked((int)0x80004003));
+                try
+                {
+                    for (; copied < length; ++copied)
+                        Marshal.WriteIntPtr(values, checked((int)copied * IntPtr.Size), view.Item(start + copied));
+                }
+                catch
+                {
+                    for (uint i = 0; i < copied; ++i)
+                    {
+                        int offset = checked((int)i * IntPtr.Size);
+                        IntPtr item = Marshal.ReadIntPtr(values, offset);
+                        if (item != IntPtr.Zero) Marshal.Release(item);
+                        Marshal.WriteIntPtr(values, offset, IntPtr.Zero);
+                    }
+                    copied = 0; throw;
+                }
+            });
+            count = copied; return hr;
+        }
+    }
+
+    // A native IVector<String> or IVectorView<String> argument to a managed callee,
+    // copied when the call arrives: later changes on either side are not shared.
+    internal static class NativeStrings
+    {
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int GetAtCall(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int SizeCall(IntPtr self, out uint value);
+
+        // GetAt is slot 6 and get_Size slot 7 in both interfaces.
+        internal static IList<string> Copy(IntPtr vector)
+        {
+            if (vector == IntPtr.Zero) return null;
+            using (NativeObject value = NativeObject.Borrow(vector))
+            using (var access = new NativeObject.Access(value))
+            {
+                uint count;
+                Errors.Check(access.Method<SizeCall>(7)(access.Self, out count));
+                var items = new List<string>(checked((int)count));
+                var getAt = access.Method<GetAtCall>(6);
+                for (uint index = 0; index < count; ++index)
+                {
+                    IntPtr text;
+                    items.Add(NativeString.TakeResult(getAt(access.Self, index, out text), text));
+                }
+                return items;
+            }
+        }
+    }
+
+    // Closed native object-vector IIDs and SDK slots are emitted from WinMD.
+    internal sealed class ObjectVectorAbi
+    {
+        internal Guid Vector { get; set; }
+        internal Guid Iterable { get; set; }
+        internal Guid Item { get; set; }
+        internal int GetAt { get; set; }
+        internal int Size { get; set; }
+        internal int IndexOf { get; set; }
+        internal int SetAt { get; set; }
+        internal int InsertAt { get; set; }
+        internal int RemoveAt { get; set; }
+        internal int Append { get; set; }
+        internal int Clear { get; set; }
+        internal int First { get; set; }
+        internal int Current { get; set; }
+        internal int HasCurrent { get; set; }
+        internal int MoveNext { get; set; }
+    }
+
+    // Delegates must be outside the generic adapter: Mono cannot marshal a
+    // delegate nested in a generic type through GetDelegateForFunctionPointer.
+    internal static class ObjectVectorCalls
+    {
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetAtCall(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int GetCall(IntPtr self, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int SetAtCall(IntPtr self, uint index, IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int IndexOfCall(IntPtr self, IntPtr value, out uint index, out byte found);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] internal delegate int IndexCall(IntPtr self, uint index);
+    }
+
+    internal sealed class NativeObjectVector<T> : IList<T>, INativeWrapper where T : class
+    {
+        private readonly NativeObject native;
+        private readonly ObjectVectorAbi abi;
+        private readonly Func<NativeObject, T> convert;
+        private NativeObjectVector(NativeObject value, ObjectVectorAbi abi, Func<NativeObject, T> convert)
+        { native = value; this.abi = abi; this.convert = convert; }
+        internal static IList<T> Wrap(NativeObject value, ObjectVectorAbi abi, Func<NativeObject, T> convert)
+        { return NativeObject.Wrap<IList<T>>(value, abi.Vector, v => new NativeObjectVector<T>(v, abi, convert)); }
+        NativeObject INativeWrapper.Native { get { return native; } }
+        public int Count { get { return checked((int)native.UInt32(abi.Size)); } }
+        public bool IsReadOnly { get { return false; } }
+        private uint Index(int index, bool insert)
+        {
+            int count = Count;
+            if (index < 0 || index > count || !insert && index == count) throw new ArgumentOutOfRangeException("index");
+            return checked((uint)index);
+        }
+        private T Read(NativeObject receiver, int slot, uint? index)
+        {
+            using (var call = new NativeObject.Access(receiver))
+            {
+                IntPtr value;
+                int hr = index.HasValue ? call.Method<ObjectVectorCalls.GetAtCall>(slot)(call.Self, index.Value, out value)
+                    : call.Method<ObjectVectorCalls.GetCall>(slot)(call.Self, out value);
+                if (hr < 0 && value != IntPtr.Zero) Marshal.Release(value);
+                StringMapCalls.Check(hr);
+                return convert(NativeObject.ObjectResult(hr, value));
+            }
+        }
+        public T this[int index]
+        {
+            get { return Read(native, abi.GetAt, Index(index, false)); }
+            set { Write(index, value, abi.SetAt, false); }
+        }
+        private void Write(int index, T value, int slot, bool insert)
+        {
+            uint position = Index(index, insert);
+            using (var argument = NativeObject.Argument(value, abi.Item))
+            using (var call = new NativeObject.Access(native))
+                StringMapCalls.Check(call.Method<ObjectVectorCalls.SetAtCall>(slot)(call.Self, position, argument == null ? IntPtr.Zero : argument.DangerousGetHandle()));
+        }
+        public void Add(T value)
+        {
+            using (var argument = NativeObject.Argument(value, abi.Item)) native.Call(abi.Append, argument);
+        }
+        public void Insert(int index, T value) { Write(index, value, abi.InsertAt, true); }
+        public void RemoveAt(int index)
+        {
+            uint position = Index(index, false);
+            using (var call = new NativeObject.Access(native))
+                StringMapCalls.Check(call.Method<ObjectVectorCalls.IndexCall>(abi.RemoveAt)(call.Self, position));
+        }
+        public void Clear() { native.Call(abi.Clear); }
+        public int IndexOf(T value)
+        {
+            using (var argument = NativeObject.Argument(value, abi.Item))
+            using (var call = new NativeObject.Access(native))
+            {
+                uint index; byte found;
+                StringMapCalls.Check(call.Method<ObjectVectorCalls.IndexOfCall>(abi.IndexOf)(call.Self, argument == null ? IntPtr.Zero : argument.DangerousGetHandle(), out index, out found));
+                return found != 0 ? checked((int)index) : -1;
+            }
+        }
+        public bool Contains(T value) { return IndexOf(value) >= 0; }
+        public bool Remove(T value) { int index = IndexOf(value); if (index < 0) return false; RemoveAt(index); return true; }
+        public void CopyTo(T[] array, int index)
+        {
+            StringMapCalls.ArraySpace(array, index, Count);
+            foreach (var item in this) array[index++] = item;
+        }
+        public IEnumerator<T> GetEnumerator()
+        {
+            using (var iterable = native.QueryInterface(abi.Iterable))
+            using (var iterator = iterable.Object(abi.First))
+            {
+                while (StringMapCalls.Boolean(iterator, abi.HasCurrent))
+                {
+                    yield return Read(iterator, abi.Current, null);
+                    StringMapCalls.Boolean(iterator, abi.MoveNext);
+                }
+            }
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
+    // The generator supplies closed interface IIDs and method slots from WinMD.
+    internal sealed class MapAbi
+    {
+        internal Guid Map { get; set; }
+        internal Guid Iterable { get; set; }
+        internal int Lookup { get; set; }
+        internal int Size { get; set; }
+        internal int HasKey { get; set; }
+        internal int Insert { get; set; }
+        internal int Remove { get; set; }
+        internal int Clear { get; set; }
+        internal int First { get; set; }
+        internal int Current { get; set; }
+        internal int HasCurrent { get; set; }
+        internal int MoveNext { get; set; }
+        internal int Key { get; set; }
+        internal int Value { get; set; }
+
+    }
+
+    internal sealed class StringMapViewAbi
+    {
+        internal Guid View { get; set; }
+        internal Guid Iterable { get; set; }
+        internal int Lookup { get; set; }
+        internal int Size { get; set; }
+        internal int HasKey { get; set; }
+        internal int First { get; set; }
+        internal int Current { get; set; }
+        internal int HasCurrent { get; set; }
+        internal int MoveNext { get; set; }
+        internal int Key { get; set; }
+        internal int Value { get; set; }
+    }
+
+    // ABI calls shared by native string-keyed maps and map views.
+    internal static class StringMapCalls
+    {
+        internal const int Bounds = unchecked((int)0x8000000b);
+        private const int Changed = unchecked((int)0x8000000c);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        internal delegate int LookupCall(IntPtr self, IntPtr key, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int HasKeyCall(IntPtr self, IntPtr key, out byte value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int BooleanCall(IntPtr self, out byte value);
+        internal static void KeyNotNull(string key) { if (key == null) throw new ArgumentNullException("key"); }
+        internal static void Check(int hr)
+        {
+            if (hr == Changed) throw new InvalidOperationException("The native collection changed during enumeration");
+            Errors.Check(hr);
+        }
+        internal static bool HasKey(NativeObject.Access access, int slot, NativeString key)
+        {
+            return HasKey(access, slot, key.Value);
+        }
+        internal static bool HasKey(NativeObject.Access access, int slot, IntPtr key)
+        {
+            byte found;
+            Check(access.Method<HasKeyCall>(slot)(access.Self, key, out found));
+            return found != 0;
+        }
+        internal static bool Boolean(NativeObject value, int slot)
+        {
+            using (var access = new NativeObject.Access(value))
+            {
+                byte result;
+                Check(access.Method<BooleanCall>(slot)(access.Self, out result));
+                return result != 0;
+            }
+        }
+        internal static void ArraySpace<T>(T[] array, int index, int count)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            if (index < 0 || index > array.Length) throw new ArgumentOutOfRangeException("index");
+            if (array.Length - index < count) throw new ArgumentException("Array is too small", "array");
+        }
+    }
+
+    // CLR read-only dictionary semantics over a native IMapView<String, V>,
+    // whose values are selected classes or interfaces.
+    internal sealed class NativeStringMapView<T> : IReadOnlyDictionary<string, T>, INativeWrapper where T : class
+    {
+        private readonly NativeObject native;
+        private readonly StringMapViewAbi abi;
+        private readonly Func<NativeObject, T> convert;
+        private NativeStringMapView(NativeObject value, StringMapViewAbi abi, Func<NativeObject, T> convert)
+        {
+            native = value; this.abi = abi; this.convert = convert;
+        }
+        internal static IReadOnlyDictionary<string, T> Wrap(NativeObject value, StringMapViewAbi abi, Func<NativeObject, T> convert)
+        {
+            return NativeObject.Wrap<IReadOnlyDictionary<string, T>>(value, abi.View, v => new NativeStringMapView<T>(v, abi, convert));
+        }
+        NativeObject INativeWrapper.Native { get { return native; } }
+        public int Count { get { return checked((int)native.UInt32(abi.Size)); } }
+        public bool ContainsKey(string key)
+        {
+            StringMapCalls.KeyNotNull(key);
+            using (var access = new NativeObject.Access(native))
+            using (var text = new NativeString(key))
+                return StringMapCalls.HasKey(access, abi.HasKey, text);
+        }
+        public bool TryGetValue(string key, out T value)
+        {
+            StringMapCalls.KeyNotNull(key);
+            value = null;
+            using (var access = new NativeObject.Access(native))
+            using (var text = new NativeString(key))
+            {
+                IntPtr result;
+                int hr = access.Method<StringMapCalls.LookupCall>(abi.Lookup)(access.Self, text.Value, out result);
+                if (hr == StringMapCalls.Bounds) { if (result != IntPtr.Zero) Marshal.Release(result); return false; }
+                value = convert(NativeObject.ObjectResult(hr, result));
+                return true;
+            }
+        }
+        public T this[string key]
+        {
+            get { T value; if (TryGetValue(key, out value)) return value; throw new KeyNotFoundException("Key not found: " + key); }
+        }
+        public IEnumerable<string> Keys { get { foreach (var pair in this) yield return pair.Key; } }
+        public IEnumerable<T> Values { get { foreach (var pair in this) yield return pair.Value; } }
+        public IEnumerator<KeyValuePair<string, T>> GetEnumerator()
+        {
+            using (NativeObject iterable = native.QueryInterface(abi.Iterable))
+            using (NativeObject iterator = iterable.Object(abi.First))
+            {
+                bool current = StringMapCalls.Boolean(iterator, abi.HasCurrent);
+                while (current)
+                {
+                    KeyValuePair<string, T> result;
+                    using (NativeObject pair = iterator.Object(abi.Current))
+                        result = new KeyValuePair<string, T>(pair.String(abi.Key), convert(pair.Object(abi.Value)));
+                    yield return result;
+                    current = StringMapCalls.Boolean(iterator, abi.MoveNext);
+                }
+            }
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
+    // CLR collection semantics over a native IMap<String,IInspectable>. No
+    // managed shadow copy: mutations go through the native map/persistence layer.
+    internal abstract class NativeStringObjectMap : IDictionary<string, object>, INativeWrapper
+    {
+        private const int Bounds = StringMapCalls.Bounds;
+        private readonly NativeObject native;
+        private readonly MapAbi abi;
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int InsertCall(IntPtr self, IntPtr key, IntPtr value, out byte replaced);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int RemoveCall(IntPtr self, IntPtr key);
+        protected NativeStringObjectMap(NativeObject value, MapAbi abi) { native = value; this.abi = abi; }
+        NativeObject INativeWrapper.Native { get { return native; } }
+        private static void KeyNotNull(string key) { StringMapCalls.KeyNotNull(key); }
+        private static void Check(int hr) { StringMapCalls.Check(hr); }
+        public bool TryGetValue(string key, out object value)
+        {
+            KeyNotNull(key);
+            value = null;
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var text = new NativeString(key))
+            {
+                // Settings maps return success/null for an absent key. Test
+                // membership separately to preserve IDictionary semantics.
+                if (!StringMapCalls.HasKey(access, abi.HasKey, text)) return false;
+                IntPtr result;
+                int hr = access.Method<StringMapCalls.LookupCall>(abi.Lookup)(access.Self, text.Value, out result);
+                if (hr == Bounds) { if (result != IntPtr.Zero) Marshal.Release(result); return false; }
+                value = NativeObject.Inspectable(NativeObject.ObjectResult(hr, result));
+                return true;
+            }
+        }
+        public object this[string key]
+        {
+            get { object value; if (TryGetValue(key, out value)) return value; throw new KeyNotFoundException("Key not found: " + key); }
+            set
+            {
+                KeyNotNull(key);
+                using (NativeObject map = native.QueryInterface(abi.Map))
+                using (var access = new NativeObject.Access(map))
+                using (var text = new NativeString(key))
+                using (NativeObject boxed = NativeObject.Box(value))
+                {
+                    byte replaced;
+                    Check(access.Method<InsertCall>(abi.Insert)(access.Self, text.Value,
+                        boxed == null ? IntPtr.Zero : boxed.DangerousGetHandle(), out replaced));
+                }
+            }
+        }
+        public int Count { get { using (NativeObject map = native.QueryInterface(abi.Map)) return checked((int)map.UInt32(abi.Size)); } }
+        public bool IsReadOnly { get { return false; } }
+        public bool ContainsKey(string key)
+        {
+            KeyNotNull(key);
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var text = new NativeString(key))
+                return StringMapCalls.HasKey(access, abi.HasKey, text);
+        }
+        // As with IDictionary generally, a compound Add or pair removal needs
+        // caller synchronization if other actors mutate this native map.
+        public void Add(string key, object value)
+        {
+            if (ContainsKey(key)) throw new ArgumentException("Key already exists", "key");
+            this[key] = value;
+        }
+        public bool Remove(string key)
+        {
+            KeyNotNull(key);
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var text = new NativeString(key))
+            {
+                int hr = access.Method<RemoveCall>(abi.Remove)(access.Self, text.Value);
+                if (hr == Bounds) return false;
+                Check(hr);
+                return true;
+            }
+        }
+        public void Clear() { using (NativeObject map = native.QueryInterface(abi.Map)) map.Call(abi.Clear); }
+        public void Add(KeyValuePair<string, object> item) { Add(item.Key, item.Value); }
+        public bool Contains(KeyValuePair<string, object> item)
+        {
+            object value;
+            return TryGetValue(item.Key, out value) && EqualityComparer<object>.Default.Equals(value, item.Value);
+        }
+        public bool Remove(KeyValuePair<string, object> item) { return Contains(item) && Remove(item.Key); }
+        private static void ArraySpace<T>(T[] array, int index, int count) { StringMapCalls.ArraySpace(array, index, count); }
+        public void CopyTo(KeyValuePair<string, object>[] array, int index)
+        {
+            ArraySpace(array, index, Count);
+            foreach (var pair in this) array[index++] = pair;
+        }
+        public IEnumerator<KeyValuePair<string, object>> GetEnumerator()
+        {
+            using (NativeObject iterable = native.QueryInterface(abi.Iterable))
+            using (NativeObject iterator = iterable.Object(abi.First))
+            {
+                bool current = StringMapCalls.Boolean(iterator, abi.HasCurrent);
+                while (current)
+                {
+                    KeyValuePair<string, object> result;
+                    using (NativeObject pair = iterator.Object(abi.Current))
+                        result = new KeyValuePair<string, object>(pair.String(abi.Key), NativeObject.Inspectable(pair.Object(abi.Value)));
+                    yield return result;
+                    current = StringMapCalls.Boolean(iterator, abi.MoveNext);
+                }
+            }
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        public ICollection<string> Keys { get { return new View<string>(this, true); } }
+        public ICollection<object> Values { get { return new View<object>(this, false); } }
+        private sealed class View<T> : ICollection<T>
+        {
+            private readonly NativeStringObjectMap owner;
+            private readonly bool keys;
+            internal View(NativeStringObjectMap owner, bool keys) { this.owner = owner; this.keys = keys; }
+            public int Count { get { return owner.Count; } }
+            public bool IsReadOnly { get { return true; } }
+            public void Add(T item) { throw new NotSupportedException("Read-only dictionary view"); }
+            public bool Remove(T item) { throw new NotSupportedException("Read-only dictionary view"); }
+            public void Clear() { throw new NotSupportedException("Read-only dictionary view"); }
+            public bool Contains(T item)
+            {
+                foreach (T value in this) if (EqualityComparer<T>.Default.Equals(value, item)) return true;
+                return false;
+            }
+            public void CopyTo(T[] array, int index) { ArraySpace(array, index, Count); foreach (T value in this) array[index++] = value; }
+            public IEnumerator<T> GetEnumerator()
+            {
+                foreach (var pair in owner) yield return (T)(keys ? (object)pair.Key : pair.Value);
+            }
+            IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+    }
+
+    // CLR object-keyed dictionary semantics over IMap<IInspectable,IInspectable>.
+    internal sealed class NativeObjectMap : IDictionary<object, object>, INativeWrapper
+    {
+        private const int Bounds = StringMapCalls.Bounds;
+        private readonly NativeObject native;
+        private readonly MapAbi abi;
+        // Consumes each owned native result, including on conversion failure.
+        private readonly Func<NativeObject, object> convert;
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int InsertCall(IntPtr self, IntPtr key, IntPtr value, out byte replaced);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int RemoveCall(IntPtr self, IntPtr key);
+        internal NativeObjectMap(NativeObject value, MapAbi abi, Func<NativeObject, object> convert)
+        { native = value; this.abi = abi; this.convert = convert; }
+        NativeObject INativeWrapper.Native { get { return native; } }
+        private static void KeyNotNull(object key) { if (key == null) throw new ArgumentNullException("key"); }
+        private static void Check(int hr) { StringMapCalls.Check(hr); }
+        public bool TryGetValue(object key, out object value)
+        {
+            KeyNotNull(key);
+            value = null;
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var boxedKey = NativeObject.Box(key))
+            {
+                if (!StringMapCalls.HasKey(access, abi.HasKey, boxedKey.DangerousGetHandle())) return false;
+                IntPtr result;
+                int hr = access.Method<StringMapCalls.LookupCall>(abi.Lookup)(access.Self, boxedKey.DangerousGetHandle(), out result);
+                if (hr == Bounds) { if (result != IntPtr.Zero) Marshal.Release(result); return false; }
+                value = convert(NativeObject.ObjectResult(hr, result));
+                return true;
+            }
+        }
+        public object this[object key]
+        {
+            get { object value; if (TryGetValue(key, out value)) return value; throw new KeyNotFoundException("Key not found: " + key); }
+            set
+            {
+                KeyNotNull(key);
+                using (NativeObject map = native.QueryInterface(abi.Map))
+                using (var access = new NativeObject.Access(map))
+                using (var boxedKey = NativeObject.Box(key))
+                using (NativeObject boxed = NativeObject.Box(value))
+                {
+                    byte replaced;
+                    Check(access.Method<InsertCall>(abi.Insert)(access.Self, boxedKey.DangerousGetHandle(),
+                        boxed == null ? IntPtr.Zero : boxed.DangerousGetHandle(), out replaced));
+                }
+            }
+        }
+        public int Count { get { using (NativeObject map = native.QueryInterface(abi.Map)) return checked((int)map.UInt32(abi.Size)); } }
+        public bool IsReadOnly { get { return false; } }
+        public bool ContainsKey(object key)
+        {
+            KeyNotNull(key);
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var boxedKey = NativeObject.Box(key))
+                return StringMapCalls.HasKey(access, abi.HasKey, boxedKey.DangerousGetHandle());
+        }
+        // As with IDictionary generally, a compound Add or pair removal needs
+        // caller synchronization if other actors mutate this native map.
+        public void Add(object key, object value)
+        {
+            if (ContainsKey(key)) throw new ArgumentException("Key already exists", "key");
+            this[key] = value;
+        }
+        public bool Remove(object key)
+        {
+            KeyNotNull(key);
+            using (NativeObject map = native.QueryInterface(abi.Map))
+            using (var access = new NativeObject.Access(map))
+            using (var boxedKey = NativeObject.Box(key))
+            {
+                int hr = access.Method<RemoveCall>(abi.Remove)(access.Self, boxedKey.DangerousGetHandle());
+                if (hr == Bounds) return false;
+                Check(hr);
+                return true;
+            }
+        }
+        public void Clear() { using (NativeObject map = native.QueryInterface(abi.Map)) map.Call(abi.Clear); }
+        public void Add(KeyValuePair<object, object> item) { Add(item.Key, item.Value); }
+        public bool Contains(KeyValuePair<object, object> item)
+        {
+            object value;
+            return TryGetValue(item.Key, out value) && EqualityComparer<object>.Default.Equals(value, item.Value);
+        }
+        public bool Remove(KeyValuePair<object, object> item) { return Contains(item) && Remove(item.Key); }
+        private static void ArraySpace<T>(T[] array, int index, int count) { StringMapCalls.ArraySpace(array, index, count); }
+        public void CopyTo(KeyValuePair<object, object>[] array, int index)
+        {
+            ArraySpace(array, index, Count);
+            foreach (var pair in this) array[index++] = pair;
+        }
+        public IEnumerator<KeyValuePair<object, object>> GetEnumerator()
+        {
+            using (NativeObject iterable = native.QueryInterface(abi.Iterable))
+            using (NativeObject iterator = iterable.Object(abi.First))
+            {
+                bool current = StringMapCalls.Boolean(iterator, abi.HasCurrent);
+                while (current)
+                {
+                    KeyValuePair<object, object> result;
+                    using (NativeObject pair = iterator.Object(abi.Current))
+                        result = new KeyValuePair<object, object>(convert(pair.Object(abi.Key)), convert(pair.Object(abi.Value)));
+                    yield return result;
+                    current = StringMapCalls.Boolean(iterator, abi.MoveNext);
+                }
+            }
+        }
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        public ICollection<object> Keys { get { return new View<object>(this, true); } }
+        public ICollection<object> Values { get { return new View<object>(this, false); } }
+        private sealed class View<T> : ICollection<T>
+        {
+            private readonly NativeObjectMap owner;
+            private readonly bool keys;
+            internal View(NativeObjectMap owner, bool keys) { this.owner = owner; this.keys = keys; }
+            public int Count { get { return owner.Count; } }
+            public bool IsReadOnly { get { return true; } }
+            public void Add(T item) { throw new NotSupportedException("Read-only dictionary view"); }
+            public bool Remove(T item) { throw new NotSupportedException("Read-only dictionary view"); }
+            public void Clear() { throw new NotSupportedException("Read-only dictionary view"); }
+            public bool Contains(T item)
+            {
+                foreach (T value in this) if (EqualityComparer<T>.Default.Equals(value, item)) return true;
+                return false;
+            }
+            public void CopyTo(T[] array, int index) { ArraySpace(array, index, Count); foreach (T value in this) array[index++] = value; }
+            public IEnumerator<T> GetEnumerator()
+            {
+                foreach (var pair in owner) yield return (T)(keys ? (object)pair.Key : pair.Value);
+            }
+            IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+    }
+}

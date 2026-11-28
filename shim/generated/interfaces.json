@@ -11,13 +11,15 @@
       "ABI::Windows::UI::Xaml::Controls::IUserControlFactory",
       "ABI::Windows::UI::Xaml::Controls::IContentControl",
       "ABI::Windows::UI::Xaml::Controls::IControl",
+      "ABI::Windows::UI::Xaml::Controls::IControlOverrides",
       "ABI::Windows::UI::Xaml::Controls::ISwapChainPanel",
       "ABI::Windows::UI::Xaml::Controls::IGrid",
       "ABI::Windows::UI::Xaml::Controls::IPanel",
       "ABI::Windows::UI::Xaml::Controls::IMediaElement",
       "ABI::Windows::UI::Xaml::Controls::IMediaElement2",
       "ABI::Windows::UI::Xaml::Controls::ITextBox",
-      "ABI::Windows::UI::Xaml::Controls::IPasswordBox"
+      "ABI::Windows::UI::Xaml::Controls::IPasswordBox",
+      "ABI::Windows::UI::Xaml::Controls::IContentPresenter"
     ]
   },
   "win10_controls.h": {
@@ -138,7 +140,9 @@
       "ABI::Windows::UI::Notifications::IToastNotifier",
       "ABI::Windows::UI::Notifications::IToastNotificationManagerStatics",
       "ABI::Windows::UI::Notifications::IScheduledToastNotification",
-      "ABI::Windows::UI::Notifications::IScheduledToastNotificationFactory"
+      "ABI::Windows::UI::Notifications::IScheduledToastNotificationFactory",
+      "ABI::Windows::UI::Notifications::IToastNotification",
+      "ABI::Windows::UI::Notifications::IToastNotificationFactory"
     ]
   },
   "package.h": {
@@ -200,14 +204,17 @@
   "streams.h": {
     "header": "windows.storage.streams.h",
     "interfaces": [
-      "ABI::Windows::Storage::Streams::IDataReader"
+      "ABI::Windows::Storage::Streams::IDataReader",
+      "ABI::Windows::Storage::Streams::IDataWriter"
     ]
   },
   "tiles.h": {
     "header": "windows.ui.notifications.h",
     "interfaces": [
       "ABI::Windows::UI::Notifications::ITileUpdater",
-      "ABI::Windows::UI::Notifications::ITileUpdateManagerStatics"
+      "ABI::Windows::UI::Notifications::ITileUpdateManagerStatics",
+      "ABI::Windows::UI::Notifications::ITileNotification",
+      "ABI::Windows::UI::Notifications::ITileNotificationFactory"
     ]
   },
   "uicore.h": {
@@ -253,7 +260,9 @@
       "ABI::Windows::Data::Xml::Dom::IXmlElement",
       "ABI::Windows::Data::Xml::Dom::IXmlText",
       "ABI::Windows::Data::Xml::Dom::IXmlCharacterData",
-      "ABI::Windows::Data::Xml::Dom::IXmlNodeList"
+      "ABI::Windows::Data::Xml::Dom::IXmlNodeList",
+      "ABI::Windows::Data::Xml::Dom::IXmlAttribute",
+      "ABI::Windows::Data::Xml::Dom::IXmlNamedNodeMap"
     ]
   },
   "device_enumeration.h": {
@@ -263,5 +272,28 @@
       "ABI::Windows::Devices::Enumeration::IDeviceInformation",
       "ABI::Windows::Devices::Enumeration::IDeviceWatcher"
     ]
+  },
+  "device_enumeration_pnp.h": {
+    "header": "windows.devices.enumeration.pnp.h",
+    "interfaces": [
+      "ABI::Windows::Devices::Enumeration::Pnp::IPnpObjectStatics",
+      "ABI::Windows::Devices::Enumeration::Pnp::IPnpObjectWatcher"
+    ]
+  },
+  "text.h": {
+    "header": "windows.ui.xaml.controls.h",
+    "interfaces": [
+      "ABI::Windows::UI::Xaml::Controls::ITextBlock"
+    ]
+  },
+  "xaml_media.h": {
+    "header": "windows.ui.xaml.media.h",
+    "interfaces": [
+      "ABI::Windows::UI::Xaml::Media::IVisualTreeHelperStatics"
+    ]
+  },
+  "pathio.h": {
+    "header": "windows.storage.h",
+    "interfaces": ["ABI::Windows::Storage::IPathIOStatics"]
   }
 }

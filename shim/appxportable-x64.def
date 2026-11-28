@@ -3,6 +3,17 @@ EXPORTS
   ShimGetFactory
   DllGetActivationFactory PRIVATE
   DllCanUnloadNow PRIVATE
+  ShimGetPackageFactory
   ShimBootstrap
   ShimSetManagedCoreWindowMode
   ShimRunNativeApplication
+  ShimReportUnimplemented
+  ShimReportException
+  ShimCreateXamlService
+  ShimSetXamlKeyTarget
+  ShimSubmitXamlFrame
+  ShimSetXamlInputHandler
+  ShimCaptureXamlWindow
+  ShimXamlFrameCount
+  ShimGetHostWindow
+  ShimSetXamlMessageLoop

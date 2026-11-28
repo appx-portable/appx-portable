@@ -1,0 +1,22 @@
+Wine 11.18: do not wrap a fitted line solely because of trailing spaces.
+
+--- a/dlls/dwrite/layout.c
++++ b/dlls/dwrite/layout.c
+@@ -2522,0 +2523,17 @@
++                /* Match the measured line width: terminal spaces do not
++                 * require an extra line in word-wrapped text. */
++                if (wrap_mode != DWRITE_WORD_WRAPPING_CHARACTER && end_cluster > start_cluster
++                        && layout->clustermetrics[end_cluster].isWhitespace)
++                {
++                    UINT32 tail = end_cluster + 1;
++                    while (tail < layout->cluster_count && layout->clustermetrics[tail].isWhitespace
++                            && !layout->clustermetrics[tail].isNewline)
++                        ++tail;
++                    if (tail == layout->cluster_count || layout->clustermetrics[tail].isNewline)
++                    {
++                        end_cluster = tail;
++                        width = max_width;
++                        break;
++                    }
++                }
++

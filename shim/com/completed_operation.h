@@ -47,8 +47,9 @@ public:
             };
             // Games may create their purchase progress overlay after registering
             // completion. Deliver on a later dispatcher turn so it can be dismissed.
+            // A handler registered off the UI thread runs here (see OnHostThread);
             // ABI-only callers without a host still receive immediate completion.
-            if (immediate_ || FAILED(PostHostWork(0, invoke))) invoke();
+            if (immediate_ || !OnHostThread() || FAILED(PostHostWork(0, invoke))) invoke();
         }
         return S_OK;
     }
